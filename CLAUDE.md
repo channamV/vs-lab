@@ -28,6 +28,15 @@ github.com/stanleyhuangyc/Freematics.
 - `/hub/api/*` is unauthenticated (devices can't log in); everything else is behind `src/proxy.ts`
   **and** a session check in `src/lib/data.ts`. Keep both.
 
+## Public pages and access rules
+
+- Unauthenticated: `/hub/api/*` (devices), `/login`, and `/checkin/<machine>` (operator QR check-in,
+  `src/app/checkin/`). The check-in page reads only through `src/lib/checkin-page.ts` (machine name +
+  current operator); its actions accept just a machine ID, PIN and checklist answers.
+- Every admin server action must call `requireAdmin()` (`src/lib/admin.ts`) itself. Server actions
+  can be posted to any route, including the public ones, so the proxy alone doesn't protect them.
+- Admin pages live in `src/app/(admin)/` (with the nav bar); check-in pages have their own layout.
+
 ## Commands (run from `platform/`)
 
 ```
@@ -57,6 +66,10 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   using an API you're unsure of. `middleware` is now `proxy`. Request-time data must sit under
   `<Suspense>`; data functions call `connection()` (via `requireSession`).
 - All DB reads for pages go through `src/lib/data.ts`. Device writes go through `src/lib/telemetry/ingest.ts`.
+- Operators, approvals, check-in/out, PIN rate limit: `src/lib/operators.ts` (takes the db, tested).
+  The pre-start checklist questions: `src/lib/checklist.ts`.
+- Forms using `useActionState`: React clears fields after every submit, so on an error return the
+  submitted values and re-key the form (see `CheckinForms.tsx`, `OperatorForms.tsx`).
 - Engine on/off detection and engine-hours maths live in `src/lib/telemetry/engine.ts` (pure functions, tested).
   Ingest keeps `engine_sessions` up to date: at most one open session per device.
 - Schema changes: edit `schema.ts`, run `db:generate`, commit the generated SQL. Never edit applied migrations.

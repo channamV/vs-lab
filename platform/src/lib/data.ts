@@ -1,9 +1,19 @@
 import "server-only";
-import { and, desc, eq, gte, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, or } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { getDb } from "@/lib/db";
-import { deviceEvents, devices, engineSessions, telemetry, type Device } from "@/lib/db/schema";
+import {
+  checkins,
+  deviceEvents,
+  devices,
+  engineSessions,
+  machineOperators,
+  operators,
+  telemetry,
+  type Device,
+} from "@/lib/db/schema";
+import { CHECKIN_RULES } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 
@@ -124,5 +134,74 @@ export async function getRecentEvents(id: string, limit = 20) {
     .from(deviceEvents)
     .where(eq(deviceEvents.deviceId, id))
     .orderBy(desc(deviceEvents.at))
+    .limit(limit);
+}
+
+// ---------- Operators and check-ins ----------
+
+export async function listOperators() {
+  await requireSession();
+  const db = getDb();
+  const [ops, assignments] = await Promise.all([
+    db.select().from(operators).orderBy(desc(operators.active), asc(operators.name)),
+    db
+      .select({ operatorId: machineOperators.operatorId, deviceId: devices.id, name: devices.name })
+      .from(machineOperators)
+      .innerJoin(devices, eq(devices.id, machineOperators.deviceId)),
+  ]);
+  const machinesFor = Map.groupBy(assignments, (a) => a.operatorId);
+  return ops.map((op) => ({ ...op, machines: machinesFor.get(op.id) ?? [] }));
+}
+
+export async function getOperator(id: number) {
+  await requireSession();
+  const [op] = await getDb().select().from(operators).where(eq(operators.id, id));
+  return op ?? null;
+}
+
+/** IDs of the operators allowed on a machine (empty = any active operator). */
+export async function allowedOperatorIds(deviceId: string) {
+  await requireSession();
+  const rows = await getDb()
+    .select({ id: machineOperators.operatorId })
+    .from(machineOperators)
+    .where(eq(machineOperators.deviceId, deviceId));
+  return rows.map((r) => r.id);
+}
+
+const checkinWithOperator = {
+  id: checkins.id,
+  deviceId: checkins.deviceId,
+  operatorId: checkins.operatorId,
+  operatorName: operators.name,
+  startedAt: checkins.startedAt,
+  endedAt: checkins.endedAt,
+  endReason: checkins.endReason,
+  authorized: checkins.authorized,
+  checklistOk: checkins.checklistOk,
+  answers: checkins.answers,
+  notes: checkins.notes,
+};
+
+/** The operator currently checked in on each machine, keyed by device ID. */
+export async function currentCheckins() {
+  await requireSession();
+  const since = new Date(Date.now() - CHECKIN_RULES.maxHours * 3_600_000);
+  const rows = await getDb()
+    .select(checkinWithOperator)
+    .from(checkins)
+    .innerJoin(operators, eq(operators.id, checkins.operatorId))
+    .where(and(isNull(checkins.endedAt), gte(checkins.startedAt, since)));
+  return new Map(rows.map((r) => [r.deviceId, r]));
+}
+
+export async function recentCheckins(deviceId: string, limit = 10) {
+  await requireSession();
+  return getDb()
+    .select(checkinWithOperator)
+    .from(checkins)
+    .innerJoin(operators, eq(operators.id, checkins.operatorId))
+    .where(eq(checkins.deviceId, deviceId))
+    .orderBy(desc(checkins.startedAt))
     .limit(limit);
 }

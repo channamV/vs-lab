@@ -6,6 +6,8 @@ operator monitoring and (later) access control.
 **Status:** Tier 1 (GPS & Telematics) is working end to end. A Freematics ONE+ running stock firmware,
 or the built-in simulator, reports position, battery, signal and motion data to the platform.
 The platform works out when each engine is running and counts engine hours per day.
+Tier 2 (Safety & Access Monitoring) has started: operators check in by scanning a QR sticker on the
+machine, entering a PIN and completing the pre-start checklist.
 
 | Folder | Contents |
 |---|---|
@@ -19,6 +21,7 @@ The platform works out when each engine is running and counts engine hours per d
 2. [Freematics device setup](docs/freematics-setup.md) — configure, flash and connect the ONE+ Model H
 3. [Deploying to the internet](docs/deploy.md) — Vercel + Neon, about 20 minutes
 4. [Product tiers](docs/product-tiers.md) — what we're building and in what order
+5. [Operators and QR check-in](docs/operator-checkin.md) — set up operators, approvals and QR stickers
 
 ## Quick start
 

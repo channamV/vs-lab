@@ -7,13 +7,17 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { EngineBadge } from "@/components/EngineBadge";
 import { EngineHoursChart } from "@/components/EngineHoursChart";
 import {
+  allowedOperatorIds,
   connectionStatus,
+  currentCheckins,
   engineHoursByDay,
   engineStatus,
   getDevice,
   getRecentEvents,
   getRecentTelemetry,
   getTrack,
+  listOperators,
+  recentCheckins,
   recentEngineSessions,
   requestTime,
 } from "@/lib/data";
@@ -21,7 +25,7 @@ import { appTimeZone, effectiveEnd } from "@/lib/telemetry/engine";
 import { tierEnum } from "@/lib/db/schema";
 import { PID_NAMES } from "@/lib/freematics/protocol";
 import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
-import { updateDevice } from "./actions";
+import { endCheckinAction, setAllowedOperators, updateDevice } from "./actions";
 
 export default function DevicePage({ params }: PageProps<"/devices/[id]">) {
   return (
@@ -41,13 +45,17 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
   const device = await getDevice(id);
   if (!device) notFound();
 
-  const [track, [latest], events, now, hours, sessions] = await Promise.all([
+  const [track, [latest], events, now, hours, sessions, current, history, operators, allowed] = await Promise.all([
     getTrack(id),
     getRecentTelemetry(id, 1),
     getRecentEvents(id),
     requestTime(),
     engineHoursByDay(id, 7),
     recentEngineSessions(id, 8),
+    currentCheckins().then((m) => m.get(id) ?? null),
+    recentCheckins(id, 10),
+    listOperators(),
+    allowedOperatorIds(id),
   ]);
   const tz = appTimeZone();
   const engine = engineStatus(device, now);
@@ -62,7 +70,7 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
         <span className="font-mono text-sm text-slate-500">{device.id}</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-7">
         <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
           <div className="text-xs uppercase text-slate-500">Engine</div>
           <div className="mt-1.5">
@@ -71,6 +79,11 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
           {device.engineChangedAt && engine !== "unknown" && (
             <div className="mt-1 text-xs text-slate-500">since {clockTime(device.engineChangedAt, tz, now)}</div>
           )}
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+          <div className="text-xs uppercase text-slate-500">Operator</div>
+          <div className="mt-1 font-semibold">{current ? current.operatorName : <span className="text-slate-500">None</span>}</div>
+          {current && <div className="text-xs text-slate-500">since {clockTime(current.startedAt, tz, now)}</div>}
         </div>
         <Stat label="Hours today" value={formatHours(hours.at(-1)?.hours ?? 0)} />
         <Stat label="Last report" value={timeAgo(device.lastSeenAt, now)} />
@@ -139,6 +152,116 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
           <p className="text-xs text-slate-500">
             Detected from {sessions[0].source === "rpm" ? "engine RPM" : sessions[0].source === "vibration" ? "vibration" : "alternator voltage"}.
           </p>
+          )}
+        </section>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-semibold">Operator check-ins</h2>
+            <Link href={`/devices/${encodeURIComponent(device.id)}/qr`} className="text-sm text-sky-700 hover:underline dark:text-sky-400">
+              Print QR sticker
+            </Link>
+          </div>
+          {current ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
+              <span>
+                <span className="font-medium">{current.operatorName}</span> checked in since {clockTime(current.startedAt, tz, now)}
+                <CheckinFlags checkin={current} />
+              </span>
+              <form action={endCheckinAction}>
+                <input type="hidden" name="checkinId" value={current.id} />
+                <button className="text-sm text-sky-700 hover:underline dark:text-sky-400">End check-in</button>
+              </form>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">Nobody is checked in.</p>
+          )}
+          {history.length > 0 && (
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="py-1">Checked in</th>
+                  <th className="py-1">Operator</th>
+                  <th className="py-1">Until</th>
+                  <th className="py-1">Checklist</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {history.map((c) => {
+                  const failed = c.answers.filter((a) => !a.ok);
+                  return (
+                    <tr key={c.id} className="align-top">
+                      <td className="py-1.5">{clockTime(c.startedAt, tz, now)}</td>
+                      <td className="py-1.5">
+                        {c.operatorName}
+                        {!c.authorized && <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">(not approved)</span>}
+                      </td>
+                      <td className="py-1.5">
+                        {c.endedAt ? (
+                          <>
+                            {clockTime(c.endedAt, tz, now)} <span className="text-xs text-slate-500">{c.endReason}</span>
+                          </>
+                        ) : c.id === current?.id ? (
+                          <span className="text-emerald-700 dark:text-emerald-400">Now</span>
+                        ) : (
+                          <span className="text-slate-500">No check-out</span>
+                        )}
+                      </td>
+                      <td className="py-1.5">
+                        {failed.length === 0 && !c.notes ? (
+                          <span className="text-emerald-700 dark:text-emerald-400">All OK</span>
+                        ) : (
+                          <details>
+                            <summary className={`cursor-pointer ${failed.length ? "text-amber-700 dark:text-amber-400" : ""}`}>
+                              {failed.length ? `${failed.length} not OK` : "All OK, with notes"}
+                            </summary>
+                            <ul className="mt-1 list-disc pl-4 text-xs">
+                              {failed.map((a) => (
+                                <li key={a.id}>{a.question}</li>
+                              ))}
+                            </ul>
+                            {c.notes && <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">“{c.notes}”</p>}
+                          </details>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </section>
+
+        <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold">Approved operators</h2>
+          {operators.filter((o) => o.active || allowed.includes(o.id)).length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No operators yet.{" "}
+              <Link href="/operators" className="text-sky-700 hover:underline dark:text-sky-400">
+                Add operators
+              </Link>
+            </p>
+          ) : (
+            <form key={allowed.join(",")} action={setAllowedOperators} className="space-y-2">
+              <input type="hidden" name="id" value={device.id} />
+              {operators
+                .filter((o) => o.active || allowed.includes(o.id))
+                .map((o) => (
+                  <label key={o.id} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" name="operator" value={o.id} defaultChecked={allowed.includes(o.id)} />
+                    {o.name}
+                    {!o.active && <span className="text-xs text-slate-500">(inactive)</span>}
+                  </label>
+                ))}
+              <p className="text-xs text-slate-500">
+                {allowed.length === 0
+                  ? "None ticked: any active operator may check in."
+                  : "Others can still check in, but are flagged as not approved."}
+              </p>
+              <button className="rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800">Save</button>
+            </form>
           )}
         </section>
       </div>
@@ -212,6 +335,23 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
           </ul>
         )}
       </section>
+    </>
+  );
+}
+
+function CheckinFlags({ checkin }: { checkin: { authorized: boolean; checklistOk: boolean } }) {
+  return (
+    <>
+      {!checkin.authorized && (
+        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+          not approved
+        </span>
+      )}
+      {!checkin.checklistOk && (
+        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+          checklist issues
+        </span>
+      )}
     </>
   );
 }

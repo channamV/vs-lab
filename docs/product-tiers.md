@@ -8,7 +8,7 @@ Mirrors the Veristart offering (one platform, three levels, chosen per machine).
 | Promise | See where equipment is and how it's used | Know who is operating; alert on unauthorized use | Physically enforce the rules |
 | Hardware | Device on diagnostic port | Same device, plus operator ID (beacon / phone) | Plus starter-control relay |
 | Stops a start? | No | No: detects, alerts, buzzes | Yes |
-| Lab status | **Working** (position, engine on/off, engine hours, battery, signal) | Next | Deferred |
+| Lab status | **Working** (position, engine on/off, engine hours, battery, signal) | **In progress** (operators, QR check-in, pre-start checklist working) | Deferred |
 
 ## Tier 1 — GPS & Telematics (built)
 
@@ -35,7 +35,7 @@ Engine hours per day are counted in local time (`APP_TIMEZONE`, default Toronto)
 checked against our equipment yet. A battery charger or a weak alternator can fool voltage
 detection. Spot-check against hour meters during the first device trials.
 
-## Tier 2 — Safety & Access Monitoring (next)
+## Tier 2 — Safety & Access Monitoring (in progress)
 
 The "alarm system" model: the machine always starts, and the platform watches.
 
@@ -63,7 +63,7 @@ not iOS, so it isn't the primary method.
 ### Build order
 
 1. ~~Run-state detection + engine hours (platform only)~~ ✅ done
-2. Operators, machine assignments, QR check-in page, pre-start checklist (platform only)
+2. ~~Operators, machine assignments, QR check-in page, pre-start checklist (platform only)~~ ✅ done, see [operator-checkin.md](operator-checkin.md)
 3. Arm/disarm + unauthorized-use rules + email alerts (platform only)
 4. **First firmware work:** command channel from the server to the device (the server's reply to each
    report can carry a command), used for the buzzer

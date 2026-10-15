@@ -4,7 +4,7 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { FleetMap, type MapMarker } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EngineBadge } from "@/components/EngineBadge";
-import { connectionStatus, engineHoursToday, engineStatus, listDevices, requestTime } from "@/lib/data";
+import { connectionStatus, currentCheckins, engineHoursToday, engineStatus, listDevices, requestTime } from "@/lib/data";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
 
@@ -23,7 +23,12 @@ export default function FleetPage() {
 }
 
 async function FleetOverview() {
-  const [devices, now, hoursToday] = await Promise.all([listDevices(), requestTime(), engineHoursToday()]);
+  const [devices, now, hoursToday, checkedIn] = await Promise.all([
+    listDevices(),
+    requestTime(),
+    engineHoursToday(),
+    currentCheckins(),
+  ]);
   const tz = appTimeZone();
 
   if (devices.length === 0) {
@@ -61,6 +66,7 @@ async function FleetOverview() {
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Engine</th>
               <th className="px-4 py-2 text-right">Hours today</th>
+              <th className="px-4 py-2">Operator</th>
               <th className="px-4 py-2">Level</th>
               <th className="px-4 py-2">Last report</th>
               <th className="px-4 py-2 text-right">Speed</th>
@@ -87,6 +93,9 @@ async function FleetOverview() {
                   )}
                 </td>
                 <td className="px-4 py-2 text-right">{hoursToday.has(d.id) ? formatHours(hoursToday.get(d.id)!) : "—"}</td>
+                <td className="px-4 py-2">
+                  <OperatorCell checkin={checkedIn.get(d.id)} />
+                </td>
                 <td className="px-4 py-2">{TIER_LABELS[d.tier]}</td>
                 <td className="px-4 py-2">{timeAgo(d.lastSeenAt, now)}</td>
                 <td className="px-4 py-2 text-right">{fmt(d.lastSpeedKph, 0, " km/h")}</td>
@@ -97,6 +106,17 @@ async function FleetOverview() {
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+function OperatorCell({ checkin }: { checkin?: { operatorName: string; authorized: boolean; checklistOk: boolean } }) {
+  if (!checkin) return <span className="text-slate-500">—</span>;
+  const flags = [!checkin.authorized && "not approved", !checkin.checklistOk && "checklist issues"].filter(Boolean);
+  return (
+    <>
+      {checkin.operatorName}
+      {flags.length > 0 && <div className="text-xs text-amber-700 dark:text-amber-400">{flags.join(", ")}</div>}
     </>
   );
 }
