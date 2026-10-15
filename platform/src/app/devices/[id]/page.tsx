@@ -1,0 +1,157 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { Suspense } from "react";
+import { AutoRefresh } from "@/components/AutoRefresh";
+import { FleetMap } from "@/components/FleetMap";
+import { StatusBadge } from "@/components/StatusBadge";
+import { connectionStatus, getDevice, getRecentEvents, getRecentTelemetry, getTrack, requestTime } from "@/lib/data";
+import { tierEnum } from "@/lib/db/schema";
+import { PID_NAMES } from "@/lib/freematics/protocol";
+import { fmt, TIER_LABELS, timeAgo } from "@/lib/format";
+import { updateDevice } from "./actions";
+
+export default function DevicePage({ params }: PageProps<"/devices/[id]">) {
+  return (
+    <div className="space-y-6">
+      <Link href="/" className="text-sm text-sky-700 hover:underline dark:text-sky-400">
+        ← Fleet
+      </Link>
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading machine…</p>}>
+        <DeviceDetail params={params} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["params"] }) {
+  const id = decodeURIComponent((await params).id);
+  const device = await getDevice(id);
+  if (!device) notFound();
+
+  const [track, [latest], events, now] = await Promise.all([
+    getTrack(id),
+    getRecentTelemetry(id, 1),
+    getRecentEvents(id),
+    requestTime(),
+  ]);
+  const status = connectionStatus(device, now);
+
+  return (
+    <>
+      <AutoRefresh />
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-semibold">{device.name ?? "Unnamed machine"}</h1>
+        <StatusBadge status={status} />
+        <span className="font-mono text-sm text-slate-500">{device.id}</span>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Last report" value={timeAgo(device.lastSeenAt, now)} />
+        <Stat label="Last GPS fix" value={timeAgo(device.lastFixAt, now)} />
+        <Stat label="Battery" value={fmt(device.lastBatteryV, 1, " V")} />
+        <Stat label="Signal" value={device.lastRssi === null ? "—" : `${device.lastRssi} dBm`} />
+      </div>
+
+      {device.lastLat !== null && device.lastLng !== null ? (
+        <section className="space-y-2">
+          <h2 className="font-semibold">Last 24 hours</h2>
+          <FleetMap
+            markers={[{ id: device.id, label: device.name ?? device.id, lat: device.lastLat, lng: device.lastLng, status }]}
+            track={track}
+          />
+        </section>
+      ) : (
+        <p className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-500 dark:border-slate-700">
+          No GPS position yet. A new device can take a few minutes to get its first fix — it needs a clear view of the sky.
+        </p>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold">Settings</h2>
+          {/* key: re-create the form after a save so it shows the saved values */}
+          <form key={`${device.name}|${device.tier}`} action={updateDevice} className="space-y-3">
+            <input type="hidden" name="id" value={device.id} />
+            <label className="block text-sm">
+              <span className="text-slate-600 dark:text-slate-400">Machine name</span>
+              <input
+                name="name"
+                defaultValue={device.name ?? ""}
+                placeholder="e.g. CAT 320 Excavator #14"
+                className="mt-1 w-full rounded border border-slate-300 bg-transparent px-2 py-1.5 dark:border-slate-700"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600 dark:text-slate-400">Service level</span>
+              <select
+                name="tier"
+                defaultValue={device.tier}
+                className="mt-1 w-full rounded border border-slate-300 bg-transparent px-2 py-1.5 dark:border-slate-700"
+              >
+                {tierEnum.enumValues.map((t) => (
+                  <option key={t} value={t} disabled={t === "control"}>
+                    {TIER_LABELS[t]}
+                    {t === "control" ? " (future)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800">Save</button>
+          </form>
+          {device.vin && <p className="text-sm text-slate-500">VIN: {device.vin}</p>}
+        </section>
+
+        <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold">Latest data</h2>
+          {latest ? (
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              {sortFields(latest.fields).map(([key, value]) => (
+                <div key={key} className="contents">
+                  <dt className="text-slate-500">{key}</dt>
+                  <dd className="font-mono">{Array.isArray(value) ? value.join(", ") : value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="text-sm text-slate-500">No data yet.</p>
+          )}
+        </section>
+      </div>
+
+      <section className="space-y-2">
+        <h2 className="font-semibold">Connection events</h2>
+        {events.length === 0 ? (
+          <p className="text-sm text-slate-500">None yet.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white text-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+            {events.map((e) => (
+              <li key={e.id} className="flex gap-4 px-4 py-2">
+                <span className="w-28 text-slate-500">{timeAgo(e.at, now)}</span>
+                <span className="font-medium">{e.type}</span>
+                {e.rssi !== null && <span className="text-slate-500">{e.rssi} dBm</span>}
+                {e.detail && <span className="text-slate-500">{e.detail}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+      <div className="text-xs uppercase text-slate-500">{label}</div>
+      <div className="mt-1 text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
+
+const FIELD_ORDER = Object.values(PID_NAMES);
+
+/** Show fields in protocol order (position first, then sensors, then OBD); unknown fields last. */
+function sortFields(fields: Record<string, number | number[]>) {
+  const rank = (k: string) => (FIELD_ORDER.includes(k) ? FIELD_ORDER.indexOf(k) : FIELD_ORDER.length);
+  return Object.entries(fields).sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b));
+}

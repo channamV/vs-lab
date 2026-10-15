@@ -1,0 +1,90 @@
+import Link from "next/link";
+import { Suspense } from "react";
+import { AutoRefresh } from "@/components/AutoRefresh";
+import { FleetMap, type MapMarker } from "@/components/FleetMap";
+import { StatusBadge } from "@/components/StatusBadge";
+import { connectionStatus, listDevices, requestTime } from "@/lib/data";
+import { fmt, TIER_LABELS, timeAgo } from "@/lib/format";
+
+export default function FleetPage() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Fleet</h1>
+        <p className="text-sm text-slate-500">Where your equipment is and when it last reported.</p>
+      </div>
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading fleet…</p>}>
+        <FleetOverview />
+      </Suspense>
+    </div>
+  );
+}
+
+async function FleetOverview() {
+  const [devices, now] = await Promise.all([listDevices(), requestTime()]);
+
+  if (devices.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center dark:border-slate-700">
+        <AutoRefresh />
+        <p className="font-medium">No devices have reported yet.</p>
+        <p className="mt-1 text-sm text-slate-500">
+          Run <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">npm run simulate</code> to send test data,
+          or point a Freematics device at this server. New devices appear here automatically.
+        </p>
+      </div>
+    );
+  }
+
+  const markers: MapMarker[] = devices
+    .filter((d) => d.lastLat !== null && d.lastLng !== null)
+    .map((d) => ({
+      id: d.id,
+      label: d.name ?? d.id,
+      lat: d.lastLat!,
+      lng: d.lastLng!,
+      status: connectionStatus(d, now),
+    }));
+
+  return (
+    <>
+      <AutoRefresh />
+      <FleetMap markers={markers} />
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-slate-200 text-xs uppercase text-slate-500 dark:border-slate-800">
+            <tr>
+              <th className="px-4 py-2">Machine</th>
+              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Level</th>
+              <th className="px-4 py-2">Last report</th>
+              <th className="px-4 py-2 text-right">Speed</th>
+              <th className="px-4 py-2 text-right">Battery</th>
+              <th className="px-4 py-2 text-right">Signal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {devices.map((d) => (
+              <tr key={d.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                <td className="px-4 py-2">
+                  <Link href={`/devices/${encodeURIComponent(d.id)}`} className="font-medium text-sky-700 hover:underline dark:text-sky-400">
+                    {d.name ?? "Unnamed machine"}
+                  </Link>
+                  <div className="font-mono text-xs text-slate-500">{d.id}</div>
+                </td>
+                <td className="px-4 py-2">
+                  <StatusBadge status={connectionStatus(d, now)} />
+                </td>
+                <td className="px-4 py-2">{TIER_LABELS[d.tier]}</td>
+                <td className="px-4 py-2">{timeAgo(d.lastSeenAt, now)}</td>
+                <td className="px-4 py-2 text-right">{fmt(d.lastSpeedKph, 0, " km/h")}</td>
+                <td className="px-4 py-2 text-right">{fmt(d.lastBatteryV, 1, " V")}</td>
+                <td className="px-4 py-2 text-right">{d.lastRssi === null ? "—" : `${d.lastRssi} dBm`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
