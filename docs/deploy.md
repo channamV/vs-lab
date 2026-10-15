@@ -21,7 +21,7 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
 3. **Database:** in the Vercel project → *Storage* → *Create Database* → **Neon** → accept the defaults.
    Vercel adds `DATABASE_URL` to the project automatically.
 4. **Environment variables:** project → *Settings → Environment Variables*:
-   - `ADMIN_PASSWORD` = a long password. **Required.** Without it, anyone with the link can see your fleet.
+   - `ADMIN_PASSWORD` = a long password. **Required.** Without it the build stops with *"No admin password"*, and the site stays locked.
    - `DEVICE_AUTO_REGISTER` = `true` for now (set to `false` once your devices are registered)
    - `APP_TIMEZONE` (optional) = the time zone for daily engine hours, e.g. `America/Toronto` (the default)
 5. **Deploy:** *Deployments* → *Redeploy*. When it finishes, open the address Vercel shows
@@ -43,7 +43,8 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
    for **Production and Preview**. If a deployment says *"No database connection"*, the database isn't
    connected to that project. Fix it under *Storage*, then redeploy.
 3. **Password set.** `ADMIN_PASSWORD` is listed. Opening the site should show the **Sign in** page,
-   not the Fleet page.
+   not the Fleet page. If a deployment says *"No admin password"*, or the sign-in page says
+   *"Sign-in isn't set up yet"*, add `ADMIN_PASSWORD` and redeploy.
 4. **App works.** Sign in. An empty Fleet page saying *"No devices have reported yet"* means everything
    is connected. Then run the simulator command above, and machines appear.
 
