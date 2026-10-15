@@ -42,6 +42,15 @@ npm run db:migrate   # apply migrations
 
 No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` → real Postgres.
 
+## Git workflow
+
+- **For now, commit straight to `main` and push** (Craig's decision, 2026-10-15). There are no outside
+  users yet, and every push to `main` deploys to production on Vercel, so run `npm run check` (and
+  `npm run build` for config or build changes) before pushing.
+- Bigger or riskier changes (schema migrations, auth, device protocol) can still go on a branch with a
+  pull request if Craig asks.
+- Once vs-lab has outside users, switch back to branches + pull requests reviewed before merging.
+
 ## Conventions
 
 - Next.js 16 differs from older versions: read `platform/node_modules/next/dist/docs/` before
