@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { afterDeviceReport } from "@/lib/alert-jobs";
 import type { SampleFields } from "@/lib/freematics/protocol";
 import { ingestSamples, isValidDeviceId, UnknownDeviceError } from "@/lib/telemetry/ingest";
 
@@ -29,6 +30,7 @@ export async function GET(request: Request) {
 
   try {
     const count = await ingestSamples(getDb(), id, Object.keys(sample).length ? [sample] : []);
+    afterDeviceReport(id);
     return new Response(`OK ${count}`);
   } catch (err) {
     if (err instanceof UnknownDeviceError) return new Response("Unknown device", { status: 403 });

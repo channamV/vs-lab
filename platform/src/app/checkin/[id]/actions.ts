@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
+import { afterCheckin } from "@/lib/alert-jobs";
 import { CHECKLIST } from "@/lib/checklist";
 import { checkIn, checkOut, type CheckinFailure, type LocationCheck, type PhoneLocation } from "@/lib/operators";
 
@@ -69,6 +70,7 @@ export async function checkInAction(prev: CheckinFormState, formData: FormData):
     const submitted = Object.fromEntries(CHECKLIST.map((item) => [item.id, String(formData.get(`item:${item.id}`) ?? "")]));
     return { status: "error", message: MESSAGES[result.reason], attempt: nextAttempt(prev), values: { answers: submitted, notes } };
   }
+  afterCheckin(result.checkinId);
   refresh();
   return {
     status: "checked-in",

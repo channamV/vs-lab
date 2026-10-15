@@ -1,9 +1,10 @@
 import "server-only";
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { getDb } from "@/lib/db";
 import {
+  alerts,
   checkins,
   deviceEvents,
   devices,
@@ -21,6 +22,12 @@ import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
  * All page data goes through these functions. Each one checks the session itself
  * (in addition to proxy.ts) so data can't leak if a route is ever left unprotected.
  */
+/** True if the request carries a valid sign-in (for UI that also renders on the sign-in page). */
+async function signedIn() {
+  const store = await cookies();
+  return isValidSession(store.get(SESSION_COOKIE)?.value);
+}
+
 async function requireSession() {
   await connection(); // always read fresh data at request time
   const store = await cookies();
@@ -225,4 +232,53 @@ export async function recentCheckins(deviceId: string, limit = 10) {
     .orderBy(desc(checkins.startedAt))
     .limit(limit);
   return withTiming(rows);
+}
+
+// ---------- Alerts ----------
+
+const alertWithMachine = {
+  id: alerts.id,
+  deviceId: alerts.deviceId,
+  machineName: devices.name,
+  type: alerts.type,
+  createdAt: alerts.createdAt,
+  title: alerts.title,
+  detail: alerts.detail,
+  acknowledgedAt: alerts.acknowledgedAt,
+  ackNote: alerts.ackNote,
+  emailStatus: alerts.emailStatus,
+  emailError: alerts.emailError,
+};
+
+/** Open (unacknowledged) alerts, newest first. */
+export async function openAlerts(deviceId?: string) {
+  await requireSession();
+  return getDb()
+    .select(alertWithMachine)
+    .from(alerts)
+    .innerJoin(devices, eq(devices.id, alerts.deviceId))
+    .where(and(isNull(alerts.acknowledgedAt), deviceId ? eq(alerts.deviceId, deviceId) : undefined))
+    .orderBy(desc(alerts.createdAt));
+}
+
+export async function acknowledgedAlerts(limit = 30, deviceId?: string) {
+  await requireSession();
+  return getDb()
+    .select(alertWithMachine)
+    .from(alerts)
+    .innerJoin(devices, eq(devices.id, alerts.deviceId))
+    .where(and(isNotNull(alerts.acknowledgedAt), deviceId ? eq(alerts.deviceId, deviceId) : undefined))
+    .orderBy(desc(alerts.createdAt))
+    .limit(limit);
+}
+
+/** Number of open alerts for the nav bar, or null when not signed in (the sign-in page shares the layout). */
+export async function openAlertCountIfSignedIn(): Promise<number | null> {
+  await connection();
+  if (!(await signedIn())) return null;
+  const [row] = await getDb()
+    .select({ count: sql<number>`count(*)::int` })
+    .from(alerts)
+    .where(isNull(alerts.acknowledgedAt));
+  return row.count;
 }

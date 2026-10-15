@@ -1,0 +1,136 @@
+import { and, desc, eq, isNull } from "drizzle-orm";
+import type { Db } from "@/lib/db";
+import { alerts, checkins, devices, engineSessions, operators, type Alert, type Device } from "@/lib/db/schema";
+import { isCheckinCurrent } from "@/lib/operators";
+import { appTimeZone } from "@/lib/telemetry/engine";
+import { clockTime, formatDistance } from "@/lib/format";
+
+/**
+ * Alerts for Safety & Access Monitoring (Tier 2, step 3). Plain functions that take the database,
+ * so the rules can be tested without a server. Sending email is in src/lib/notify.ts.
+ */
+
+export const ALERT_RULES = {
+  /** How long an armed machine's engine may run with nobody checked in before it's unauthorized use. */
+  unauthorizedGraceMinutes: 5,
+};
+
+export const ALERT_LABELS = {
+  "unauthorized-use": "Unauthorized use",
+  "checklist-failed": "Checklist issues",
+  "not-approved": "Operator not approved",
+  "not-at-machine": "Not confirmed at machine",
+} as const;
+
+export type AlertType = keyof typeof ALERT_LABELS;
+
+/** Alerts apply to Safety & Access Monitoring machines (and, later, Safety & Access Control). */
+export function isMonitored(device: Pick<Device, "tier">): boolean {
+  return device.tier === "monitor" || device.tier === "control";
+}
+
+/** Armed unless disarmed; a timed disarm re-arms itself when the time passes. */
+export function isArmed(device: Pick<Device, "disarmed" | "disarmedUntil">, now = Date.now()): boolean {
+  return !device.disarmed || (device.disarmedUntil !== null && device.disarmedUntil.getTime() <= now);
+}
+
+const machineName = (d: Pick<Device, "id" | "name">) => d.name ?? d.id;
+
+/** Inserts an alert unless the same one was already raised. Returns the new alert, or nothing. */
+async function raise(db: Db, values: typeof alerts.$inferInsert): Promise<Alert[]> {
+  return db.insert(alerts).values(values).onConflictDoNothing().returning();
+}
+
+/**
+ * Unauthorized use: an armed machine's engine has been running for the grace period with nobody
+ * checked in (and nobody checked out within the grace period). Raised once per engine-on period.
+ * Called after each device report, so it fires within a report or two of the grace period ending.
+ */
+export async function checkUnauthorizedUse(db: Db, deviceId: string, now = new Date()): Promise<Alert[]> {
+  const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
+  if (!device || !isMonitored(device) || !device.engineOn || !isArmed(device, now.getTime())) return [];
+
+  const [session] = await db
+    .select()
+    .from(engineSessions)
+    .where(and(eq(engineSessions.deviceId, deviceId), isNull(engineSessions.endedAt)));
+  const graceMs = ALERT_RULES.unauthorizedGraceMinutes * 60_000;
+  if (!session || now.getTime() - session.startedAt.getTime() < graceMs) return [];
+
+  const [latest] = await db
+    .select()
+    .from(checkins)
+    .where(eq(checkins.deviceId, deviceId))
+    .orderBy(desc(checkins.startedAt))
+    .limit(1);
+  if (latest && isCheckinCurrent(latest, now.getTime())) return [];
+  if (latest?.endedAt && now.getTime() - latest.endedAt.getTime() < graceMs) return [];
+
+  const minutes = Math.round((now.getTime() - session.startedAt.getTime()) / 60_000);
+  return raise(db, {
+    deviceId,
+    type: "unauthorized-use",
+    createdAt: now,
+    engineSessionId: session.id,
+    title: `Unauthorized use: ${machineName(device)}`,
+    detail: `Engine started at ${clockTime(session.startedAt, appTimeZone(), now.getTime())} and has been running for ${minutes} min with nobody checked in.`,
+  });
+}
+
+/** Alerts for problems found at check-in: checklist items not OK, operator not approved, not at the machine. */
+export async function raiseCheckinAlerts(db: Db, checkinId: number, now = new Date()): Promise<Alert[]> {
+  const [row] = await db
+    .select({ checkin: checkins, device: devices, operatorName: operators.name })
+    .from(checkins)
+    .innerJoin(devices, eq(devices.id, checkins.deviceId))
+    .innerJoin(operators, eq(operators.id, checkins.operatorId))
+    .where(eq(checkins.id, checkinId));
+  if (!row || !isMonitored(row.device)) return [];
+  const { checkin: c, device, operatorName: who } = row;
+  const name = machineName(device);
+  const base = { deviceId: device.id, checkinId: c.id, createdAt: now };
+  const raised: Alert[] = [];
+
+  if (!c.checklistOk) {
+    const failed = c.answers.filter((a) => !a.ok).map((a) => a.question);
+    raised.push(
+      ...(await raise(db, {
+        ...base,
+        type: "checklist-failed",
+        title: `Checklist issues: ${name}`,
+        detail: `${who} reported as not OK: ${failed.join("; ")}.${c.notes ? ` Notes: "${c.notes}"` : ""}`,
+      })),
+    );
+  }
+  if (!c.authorized) {
+    raised.push(
+      ...(await raise(db, {
+        ...base,
+        type: "not-approved",
+        title: `Operator not approved: ${name}`,
+        detail: `${who} checked in but isn't on the approved operator list for this machine.`,
+      })),
+    );
+  }
+  if (c.locationCheck === "far" || c.locationCheck === "no-phone-location") {
+    raised.push(
+      ...(await raise(db, {
+        ...base,
+        type: "not-at-machine",
+        title: `Check-in not confirmed at machine: ${name}`,
+        detail:
+          c.locationCheck === "far"
+            ? `${who} checked in ${formatDistance(c.distanceM)} away from the machine.`
+            : `${who} didn't share their phone's location, so we couldn't confirm they were at the machine.`,
+      })),
+    );
+  }
+  return raised;
+}
+
+export async function acknowledgeAlert(db: Db, alertId: number, note: string, now = new Date()) {
+  await db
+    .update(alerts)
+    .set({ acknowledgedAt: now, ackNote: note.trim() || null })
+    .where(and(eq(alerts.id, alertId), isNull(alerts.acknowledgedAt)));
+}

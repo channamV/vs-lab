@@ -48,6 +48,7 @@ describe("checkIn", () => {
     const result = await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk, notes: " all good " });
     expect(result).toEqual({
       ok: true,
+      checkinId: expect.any(Number),
       operatorName: "Jane",
       authorized: true,
       checklistOk: true,

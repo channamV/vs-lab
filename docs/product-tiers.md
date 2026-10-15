@@ -8,7 +8,7 @@ Mirrors the Veristart offering (one platform, three levels, chosen per machine).
 | Promise | See where equipment is and how it's used | Know who is operating; alert on unauthorized use | Physically enforce the rules |
 | Hardware | Device on diagnostic port | Same device, plus operator ID (beacon / phone) | Plus starter-control relay |
 | Stops a start? | No | No: detects, alerts, buzzes | Yes |
-| Lab status | **Working** (position, engine on/off, engine hours, battery, signal) | **In progress** (operators, QR check-in, pre-start checklist working) | Deferred |
+| Lab status | **Working** (position, engine on/off, engine hours, battery, signal) | **Working on the platform** (operators, QR check-in, checklist, alerts, arm/disarm). Next: firmware (buzzer, BLE beacons) | Deferred |
 
 ## Tier 1 — GPS & Telematics (built)
 
@@ -65,7 +65,7 @@ not iOS, so it isn't the primary method.
 1. ~~Run-state detection + engine hours (platform only)~~ ✅ done
 2. ~~Operators, machine assignments, QR check-in page, pre-start checklist, phone-location check and
    engine-start timing rule (platform only)~~ ✅ done, see [operator-checkin.md](operator-checkin.md)
-3. Arm/disarm + unauthorized-use rules + email alerts (platform only)
+3. ~~Arm/disarm + unauthorized-use rules + email alerts (platform only)~~ ✅ done, see [alerts.md](alerts.md)
 4. **First firmware work:** command channel from the server to the device (the server's reply to each
    report can carry a command), used for the buzzer
 5. **Firmware:** BLE beacon scanning, reported with each sample

@@ -187,6 +187,7 @@ export type CheckinFailure = "unknown-machine" | "locked" | "bad-pin" | "incompl
 export type CheckInResult =
   | {
       ok: true;
+      checkinId: number;
       operatorName: string;
       authorized: boolean;
       checklistOk: boolean;
@@ -234,7 +235,7 @@ export async function checkIn(
   const phone = input.phoneLocation ?? null;
   const location = checkLocation(phone, device);
 
-  await db.transaction(async (tx) => {
+  const inserted = await db.transaction(async (tx) => {
     await tx
       .update(checkins)
       .set({ endedAt: now, endReason: "replaced" })
@@ -243,24 +244,28 @@ export async function checkIn(
       .update(checkins)
       .set({ endedAt: now, endReason: "moved" })
       .where(and(eq(checkins.operatorId, operator.id), isNull(checkins.endedAt)));
-    await tx.insert(checkins).values({
-      deviceId: device.id,
-      operatorId: operator.id,
-      startedAt: now,
-      authorized,
-      checklistOk: failedItems.length === 0,
-      answers,
-      notes: input.notes?.trim() || null,
-      phoneLat: phone?.lat ?? null,
-      phoneLng: phone?.lng ?? null,
-      phoneAccuracyM: phone?.accuracyM ?? null,
-      distanceM: location.distanceM,
-      locationCheck: location.check,
-    });
+    return tx
+      .insert(checkins)
+      .values({
+        deviceId: device.id,
+        operatorId: operator.id,
+        startedAt: now,
+        authorized,
+        checklistOk: failedItems.length === 0,
+        answers,
+        notes: input.notes?.trim() || null,
+        phoneLat: phone?.lat ?? null,
+        phoneLng: phone?.lng ?? null,
+        phoneAccuracyM: phone?.accuracyM ?? null,
+        distanceM: location.distanceM,
+        locationCheck: location.check,
+      })
+      .returning({ id: checkins.id });
   });
 
   return {
     ok: true,
+    checkinId: inserted[0].id,
     operatorName: operator.name,
     authorized,
     checklistOk: failedItems.length === 0,

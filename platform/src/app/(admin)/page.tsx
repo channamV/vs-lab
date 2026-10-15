@@ -4,7 +4,8 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { FleetMap, type MapMarker } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EngineBadge } from "@/components/EngineBadge";
-import { connectionStatus, currentCheckins, engineHoursToday, engineStatus, listDevices, requestTime } from "@/lib/data";
+import { connectionStatus, currentCheckins, engineHoursToday, engineStatus, listDevices, openAlerts, requestTime } from "@/lib/data";
+import { isArmed, isMonitored } from "@/lib/alerts";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
 import { checkinFlags } from "@/lib/checkin-flags";
@@ -24,11 +25,12 @@ export default function FleetPage() {
 }
 
 async function FleetOverview() {
-  const [devices, now, hoursToday, checkedIn] = await Promise.all([
+  const [devices, now, hoursToday, checkedIn, alerts] = await Promise.all([
     listDevices(),
     requestTime(),
     engineHoursToday(),
     currentCheckins(),
+    openAlerts(),
   ]);
   const tz = appTimeZone();
 
@@ -55,9 +57,23 @@ async function FleetOverview() {
       status: connectionStatus(d, now),
     }));
 
+  const unauthorized = alerts.filter((a) => a.type === "unauthorized-use").length;
   return (
     <>
       <AutoRefresh />
+      {alerts.length > 0 && (
+        <Link
+          href="/alerts"
+          className={`block rounded-lg border px-4 py-3 text-sm font-medium ${
+            unauthorized
+              ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+              : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          }`}
+        >
+          ⚠ {alerts.length} open alert{alerts.length === 1 ? "" : "s"}
+          {unauthorized > 0 && ` (${unauthorized} unauthorized use)`}. View alerts →
+        </Link>
+      )}
       <FleetMap markers={markers} />
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <table className="w-full text-left text-sm">
@@ -97,7 +113,10 @@ async function FleetOverview() {
                 <td className="px-4 py-2">
                   <OperatorCell checkin={checkedIn.get(d.id)} />
                 </td>
-                <td className="px-4 py-2">{TIER_LABELS[d.tier]}</td>
+                <td className="px-4 py-2">
+                  {TIER_LABELS[d.tier]}
+                  {isMonitored(d) && !isArmed(d, now) && <div className="text-xs text-slate-500">Disarmed</div>}
+                </td>
                 <td className="px-4 py-2">{timeAgo(d.lastSeenAt, now)}</td>
                 <td className="px-4 py-2 text-right">{fmt(d.lastSpeedKph, 0, " km/h")}</td>
                 <td className="px-4 py-2 text-right">{fmt(d.lastBatteryV, 1, " V")}</td>

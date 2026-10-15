@@ -41,6 +41,12 @@ export const devices = pgTable("devices", {
   /** Latest engine state (null = unknown). See src/lib/telemetry/engine.ts. */
   engineOn: boolean("engine_on"),
   engineChangedAt: timestamp("engine_changed_at", { withTimezone: true }),
+  /**
+   * Safety & Access Monitoring machines are armed unless disarmed (e.g. during a service visit).
+   * disarmedUntil set → re-arms automatically at that time; null → disarmed until someone re-arms.
+   */
+  disarmed: boolean("disarmed").notNull().default(false),
+  disarmedUntil: timestamp("disarmed_until", { withTimezone: true }),
 });
 
 /** One row per data sample sent by a device. */
@@ -194,7 +200,42 @@ export const pinFailures = pgTable(
   (t) => [index("pin_failures_device_time_idx").on(t.deviceId, t.at)],
 );
 
+/**
+ * Alerts for the fleet manager (Tier 2). Each is raised once: per engine-on period for unauthorized use,
+ * per check-in for check-in problems (enforced by the unique indexes).
+ */
+export const alerts = pgTable(
+  "alerts",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    /** unauthorized-use, checklist-failed, not-approved, not-at-machine */
+    type: text("type").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    title: text("title").notNull(),
+    detail: text("detail"),
+    engineSessionId: bigint("engine_session_id", { mode: "number" }).references(() => engineSessions.id, {
+      onDelete: "set null",
+    }),
+    checkinId: bigint("checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    ackNote: text("ack_note"),
+    /** sent, failed or not-configured (no email settings yet). Null while sending. */
+    emailStatus: text("email_status"),
+    emailError: text("email_error"),
+  },
+  (t) => [
+    index("alerts_created_idx").on(t.createdAt),
+    index("alerts_device_created_idx").on(t.deviceId, t.createdAt),
+    uniqueIndex("alerts_one_per_engine_session_idx").on(t.type, t.engineSessionId),
+    uniqueIndex("alerts_one_per_checkin_idx").on(t.type, t.checkinId),
+  ],
+);
+
 export type Device = typeof devices.$inferSelect;
+export type Alert = typeof alerts.$inferSelect;
 export type TelemetryRow = typeof telemetry.$inferSelect;
 export type DeviceEvent = typeof deviceEvents.$inferSelect;
 export type EngineSession = typeof engineSessions.$inferSelect;

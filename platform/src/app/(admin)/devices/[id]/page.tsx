@@ -17,6 +17,7 @@ import {
   getRecentTelemetry,
   getTrack,
   listOperators,
+  openAlerts,
   recentCheckins,
   recentEngineSessions,
   requestTime,
@@ -26,7 +27,9 @@ import { tierEnum } from "@/lib/db/schema";
 import { PID_NAMES } from "@/lib/freematics/protocol";
 import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
 import { checkinFlags, locationLabel, timingLabel } from "@/lib/checkin-flags";
-import { endCheckinAction, setAllowedOperators, updateDevice } from "./actions";
+import { endCheckinAction, setAllowedOperators, setArming, updateDevice } from "./actions";
+import { AlertList } from "../../alerts/AlertList";
+import { ALERT_RULES, isArmed, isMonitored } from "@/lib/alerts";
 
 export default function DevicePage({ params }: PageProps<"/devices/[id]">) {
   return (
@@ -46,7 +49,7 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
   const device = await getDevice(id);
   if (!device) notFound();
 
-  const [track, [latest], events, now, hours, sessions, current, history, operators, allowed] = await Promise.all([
+  const [track, [latest], events, now, hours, sessions, current, history, operators, allowed, alerts] = await Promise.all([
     getTrack(id),
     getRecentTelemetry(id, 1),
     getRecentEvents(id),
@@ -57,6 +60,7 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
     recentCheckins(id, 10),
     listOperators(),
     allowedOperatorIds(id),
+    openAlerts(id),
   ]);
   const tz = appTimeZone();
   const engine = engineStatus(device, now);
@@ -153,6 +157,72 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
           <p className="text-xs text-slate-500">
             Detected from {sessions[0].source === "rpm" ? "engine RPM" : sessions[0].source === "vibration" ? "vibration" : "alternator voltage"}.
           </p>
+          )}
+        </section>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <section className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold">Open alerts</h2>
+          {alerts.length === 0 ? (
+            <p className="text-sm text-slate-500">None.</p>
+          ) : (
+            <AlertList alerts={alerts} timeZone={tz} now={now} showMachine={false} />
+          )}
+        </section>
+        <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold">Monitoring</h2>
+          {isMonitored(device) ? (
+            <>
+              {isArmed(device, now) ? (
+                <p className="text-sm">
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                    Armed
+                  </span>{" "}
+                  Alerts if the engine runs {ALERT_RULES.unauthorizedGraceMinutes} min with nobody checked in.
+                </p>
+              ) : (
+                <p className="text-sm">
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    Disarmed
+                  </span>{" "}
+                  {device.disarmedUntil ? `until ${clockTime(device.disarmedUntil, tz, now)}` : "until re-armed"}. No unauthorized-use
+                  alerts.
+                </p>
+              )}
+              <form action={setArming} className="flex flex-wrap gap-2">
+                <input type="hidden" name="id" value={device.id} />
+                {isArmed(device, now) ? (
+                  <>
+                    <span className="w-full text-xs text-slate-500">Disarm (e.g. for a service visit):</span>
+                    {[
+                      ["1h", "1 hour"],
+                      ["4h", "4 hours"],
+                      ["morning", "Until 6 AM"],
+                      ["indefinite", "Until re-armed"],
+                    ].map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        name="mode"
+                        value={mode}
+                        className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </>
+                ) : (
+                  <button name="mode" value="arm" className="rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800">
+                    Arm now
+                  </button>
+                )}
+              </form>
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">
+              Set the service level to Safety &amp; Access Monitoring (under Settings) to get unauthorized-use and check-in alerts
+              for this machine.
+            </p>
           )}
         </section>
       </div>

@@ -69,6 +69,10 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
 - Operators, approvals, check-in/out, PIN rate limit, phone-location check and engine-start timing rule:
   `src/lib/operators.ts` (takes the db, tested; thresholds in `CHECKIN_RULES`). Flag wording: `src/lib/checkin-flags.ts`.
   The pre-start checklist questions: `src/lib/checklist.ts`.
+- Alerts: rules in `src/lib/alerts.ts` (takes the db, tested; `ALERT_RULES`), email via Resend's HTTP API in
+  `src/lib/notify.ts`. Rules run in `after()` (`src/lib/alert-jobs.ts`) from the device routes and the
+  check-in action, so they never delay or break a device's HTTP 200. Dedupe is by unique index
+  (one per engine session / per check-in).
 - Forms using `useActionState`: React clears fields after every submit, so on an error return the
   submitted values and re-key the form (see `CheckinForms.tsx`, `OperatorForms.tsx`).
 - Engine on/off detection and engine-hours maths live in `src/lib/telemetry/engine.ts` (pure functions, tested).
