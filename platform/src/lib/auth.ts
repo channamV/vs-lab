@@ -1,7 +1,8 @@
 /**
  * Minimal single-password sign-in for the lab platform.
  *
- * - ADMIN_PASSWORD unset → sign-in is disabled (fine on your own PC, never on the internet).
+ * - ADMIN_PASSWORD unset → sign-in is disabled on your own PC. On Vercel the site stays locked
+ *   instead (nobody can get in) and the build fails with a message saying how to fix it.
  * - ADMIN_PASSWORD set   → every page requires the password. Device endpoints (/hub/api/*) stay open.
  *
  * The session cookie holds an HMAC of a fixed message keyed by the password, so changing the
@@ -11,6 +12,16 @@ export const SESSION_COOKIE = "vslab_session";
 
 export function authEnabled(): boolean {
   return Boolean(process.env.ADMIN_PASSWORD);
+}
+
+/** On a public host (Vercel) the site must never be open without a password. */
+export function authRequired(): boolean {
+  return Boolean(process.env.VERCEL);
+}
+
+/** Public host with no password set: everything stays locked until ADMIN_PASSWORD is added. */
+export function authMisconfigured(): boolean {
+  return authRequired() && !authEnabled();
 }
 
 async function hmacHex(key: string, message: string): Promise<string> {
@@ -38,12 +49,13 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export async function isValidSession(cookieValue: string | undefined): Promise<boolean> {
-  if (!authEnabled()) return true;
+  if (!authEnabled()) return !authRequired();
   if (!cookieValue) return false;
   return safeEqual(cookieValue, await sessionToken());
 }
 
 export async function isCorrectPassword(password: string): Promise<boolean> {
+  if (!authEnabled()) return false;
   const expected = process.env.ADMIN_PASSWORD ?? "";
   // Compare HMACs rather than raw strings so lengths don't leak.
   return safeEqual(await hmacHex("vs-lab-pw", password), await hmacHex("vs-lab-pw", expected));
