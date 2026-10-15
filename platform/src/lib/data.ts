@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gte, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { getDb } from "@/lib/db";
@@ -13,7 +13,7 @@ import {
   telemetry,
   type Device,
 } from "@/lib/db/schema";
-import { CHECKIN_RULES } from "@/lib/operators";
+import { CHECKIN_RULES, checkinTiming, type CheckinTiming } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 
@@ -181,7 +181,27 @@ const checkinWithOperator = {
   checklistOk: checkins.checklistOk,
   answers: checkins.answers,
   notes: checkins.notes,
+  locationCheck: checkins.locationCheck,
+  distanceM: checkins.distanceM,
 };
+
+type CheckinRow = { deviceId: string; startedAt: Date; endedAt: Date | null };
+
+/** Adds the timing-rule result (did the engine start soon after check-in?) to each check-in. */
+async function withTiming<T extends CheckinRow>(rows: T[]): Promise<(T & { timing: CheckinTiming })[]> {
+  if (rows.length === 0) return [];
+  const now = Date.now();
+  // Sessions from a little before the earliest check-in, to spot an engine already running at check-in.
+  const earliest = Math.min(...rows.map((r) => r.startedAt.getTime()));
+  const since = new Date(earliest - CHECKIN_RULES.maxHours * 3_600_000);
+  const deviceIds = [...new Set(rows.map((r) => r.deviceId))];
+  const sessions = await getDb()
+    .select()
+    .from(engineSessions)
+    .where(and(inArray(engineSessions.deviceId, deviceIds), or(isNull(engineSessions.endedAt), gte(engineSessions.endedAt, since))));
+  const byDevice = Map.groupBy(sessions, (s) => s.deviceId);
+  return rows.map((r) => ({ ...r, timing: checkinTiming(r, byDevice.get(r.deviceId) ?? [], now) }));
+}
 
 /** The operator currently checked in on each machine, keyed by device ID. */
 export async function currentCheckins() {
@@ -192,16 +212,17 @@ export async function currentCheckins() {
     .from(checkins)
     .innerJoin(operators, eq(operators.id, checkins.operatorId))
     .where(and(isNull(checkins.endedAt), gte(checkins.startedAt, since)));
-  return new Map(rows.map((r) => [r.deviceId, r]));
+  return new Map((await withTiming(rows)).map((r) => [r.deviceId, r]));
 }
 
 export async function recentCheckins(deviceId: string, limit = 10) {
   await requireSession();
-  return getDb()
+  const rows = await getDb()
     .select(checkinWithOperator)
     .from(checkins)
     .innerJoin(operators, eq(operators.id, checkins.operatorId))
     .where(eq(checkins.deviceId, deviceId))
     .orderBy(desc(checkins.startedAt))
     .limit(limit);
+  return withTiming(rows);
 }

@@ -8,12 +8,39 @@ they did the pre-start checklist. Works on any phone (iPhone or Android) with no
 1. Scan the **QR sticker** on the machine with the phone camera. The check-in page opens.
 2. Enter their **PIN**.
 3. Answer the **pre-start checklist**: OK or Not OK for each item, plus optional notes.
-4. Tap **Check in**. They stay checked in until they check out, another operator checks in on that
-   machine, or they check in on a different machine. A check-in left open for more than 12 hours
-   no longer counts.
+4. Tap **Check in**. The phone asks to share its location: tap **Allow**. They stay checked in until
+   they check out, another operator checks in on that machine, or they check in on a different machine.
+   A check-in left open for more than 12 hours no longer counts.
+5. Start the engine within 30 minutes.
 
 A "Not OK" answer doesn't block the check-in. The machine still starts (this is Monitoring, not
 Control), and the answer is recorded and flagged for the fleet manager.
+
+## How we confirm the operator is really at the machine
+
+Two automatic checks, both recorded with every check-in and shown as flags:
+
+**1. Location check.** At check-in, the page reads the phone's GPS position and compares it with the
+machine's last GPS position from the Freematics device. Both have GPS and cellular, so if they're
+close together, the operator was at the machine.
+- Within **100 m**, plus the phone's own GPS accuracy (up to 150 m extra): **at machine** ✓
+- Further away: flagged **not at machine (2.3 km away)**. This catches check-ins from the truck,
+  the site trailer or home using a photo of the QR code.
+- Operator declined to share location: flagged **location not shared**.
+- Machine has never had a GPS fix: not flagged (not the operator's fault), shown as "Machine has no GPS fix".
+
+**2. Timing rule.** The engine should start within **30 minutes** of check-in.
+- Started within 30 minutes: OK (shows "7 min after").
+- Not started within 30 minutes: flagged **no engine start within 30 min**, or **engine started
+  180 min after check-in** if it started later. This catches checking in once at 6 am to cover the whole day.
+- Engine already running when the operator checked in: flagged **engine running before check-in**.
+  Either the checklist was done after starting, or it's a shift change on an idling machine.
+- Checked out within 30 minutes without starting: fine ("Not used").
+
+Neither check blocks anyone: on Safety & Access Monitoring the machine always starts and the platform
+reports. In step 3, these flags can trigger email alerts.
+
+The numbers (100 m, 150 m, 30 minutes) are in `CHECKIN_RULES` in `platform/src/lib/operators.ts`.
 
 ## Setting it up (fleet manager)
 
@@ -28,13 +55,15 @@ Control), and the answer is recorded and flagged for the fleet manager.
 
 ## Where to see the results
 
-- **Fleet page:** *Operator* column shows who is checked in, with flags for checklist issues or
-  not-approved operators.
+- **Fleet page:** *Operator* column shows who is checked in, with flags for checklist issues,
+  not-approved operators, not at machine, location not shared and engine-start timing.
 - **Machine page:** current operator (with *End check-in* if they forgot to check out) and the
-  check-in history. Click "1 not OK" to see which items failed and the operator's notes.
+  check-in history, with *At machine* and *Engine start* columns. Click "1 not OK" to see which
+  items failed and the operator's notes.
 
 ## Security notes
 
+- Phone locations are stored with each check-in, for the audit trail only.
 - The check-in page is public: anyone with the QR code can open it. It shows only the machine's
   name and who is checked in. Nothing else is visible without the admin password.
 - PINs are short, so they're a convenience, not strong security. After 5 wrong PINs on a machine

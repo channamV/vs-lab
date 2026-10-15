@@ -43,3 +43,9 @@ export function clockTime(date: Date, timeZone: string, now = Date.now()): strin
     ...(sameDay ? {} : { month: "short", day: "numeric" }),
   }).format(date);
 }
+
+/** 85 → "85 m", 2300 → "2.3 km" */
+export function formatDistance(metres: number | null | undefined): string {
+  if (metres === null || metres === undefined) return "—";
+  return metres < 1000 ? `${Math.round(metres)} m` : `${(metres / 1000).toFixed(1)} km`;
+}

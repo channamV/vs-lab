@@ -25,6 +25,7 @@ import { appTimeZone, effectiveEnd } from "@/lib/telemetry/engine";
 import { tierEnum } from "@/lib/db/schema";
 import { PID_NAMES } from "@/lib/freematics/protocol";
 import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
+import { checkinFlags, locationLabel, timingLabel } from "@/lib/checkin-flags";
 import { endCheckinAction, setAllowedOperators, updateDevice } from "./actions";
 
 export default function DevicePage({ params }: PageProps<"/devices/[id]">) {
@@ -185,12 +186,16 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
                   <th className="py-1">Checked in</th>
                   <th className="py-1">Operator</th>
                   <th className="py-1">Until</th>
+                  <th className="py-1">At machine</th>
+                  <th className="py-1">Engine start</th>
                   <th className="py-1">Checklist</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {history.map((c) => {
                   const failed = c.answers.filter((a) => !a.ok);
+                  const where = locationLabel(c);
+                  const timing = timingLabel(c.timing);
                   return (
                     <tr key={c.id} className="align-top">
                       <td className="py-1.5">{clockTime(c.startedAt, tz, now)}</td>
@@ -209,6 +214,8 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
                           <span className="text-slate-500">No check-out</span>
                         )}
                       </td>
+                      <td className={`py-1.5 ${where.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{where.text}</td>
+                      <td className={`py-1.5 ${timing.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{timing.text}</td>
                       <td className="py-1.5">
                         {failed.length === 0 && !c.notes ? (
                           <span className="text-emerald-700 dark:text-emerald-400">All OK</span>
@@ -339,19 +346,14 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
   );
 }
 
-function CheckinFlags({ checkin }: { checkin: { authorized: boolean; checklistOk: boolean } }) {
+function CheckinFlags({ checkin }: { checkin: Parameters<typeof checkinFlags>[0] }) {
   return (
     <>
-      {!checkin.authorized && (
-        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
-          not approved
+      {checkinFlags(checkin).map((flag) => (
+        <span key={flag} className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+          {flag}
         </span>
-      )}
-      {!checkin.checklistOk && (
-        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
-          checklist issues
-        </span>
-      )}
+      ))}
     </>
   );
 }

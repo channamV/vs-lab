@@ -22,6 +22,13 @@
       "when": 1792100767350,
       "tag": "0002_operators_checkins",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792105113410,
+      "tag": "0003_checkin_location",
+      "breakpoints": true
     }
   ]
 }

@@ -63,7 +63,8 @@ not iOS, so it isn't the primary method.
 ### Build order
 
 1. ~~Run-state detection + engine hours (platform only)~~ ✅ done
-2. ~~Operators, machine assignments, QR check-in page, pre-start checklist (platform only)~~ ✅ done, see [operator-checkin.md](operator-checkin.md)
+2. ~~Operators, machine assignments, QR check-in page, pre-start checklist, phone-location check and
+   engine-start timing rule (platform only)~~ ✅ done, see [operator-checkin.md](operator-checkin.md)
 3. Arm/disarm + unauthorized-use rules + email alerts (platform only)
 4. **First firmware work:** command channel from the server to the device (the server's reply to each
    report can carry a command), used for the buzzer

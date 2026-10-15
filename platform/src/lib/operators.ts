@@ -3,6 +3,7 @@ import { and, eq, gte, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { checkins, devices, machineOperators, operators, pinFailures, type ChecklistAnswer } from "@/lib/db/schema";
 import { CHECKLIST } from "@/lib/checklist";
+import { effectiveEnd, type SessionSpan } from "@/lib/telemetry/engine";
 
 /**
  * Operators, machine assignments and QR check-in (Tier 2 — Safety & Access Monitoring).
@@ -17,7 +18,83 @@ export const CHECKIN_RULES = {
   /** Wrong PINs allowed per machine within `lockoutMinutes` before the page stops accepting PINs. */
   maxPinFailures: 5,
   lockoutMinutes: 10,
+  /** The phone must be within this distance of the machine's last GPS position... */
+  maxDistanceM: 100,
+  /** ...plus the phone's own accuracy radius, up to this much (phone GPS can be off by tens of metres). */
+  maxAccuracyAllowanceM: 150,
+  /** The engine should start within this many minutes of check-in. */
+  engineStartWindowMinutes: 30,
 };
+
+// ---------- Location check: is the phone near the machine? ----------
+
+export type LocationCheck = "near" | "far" | "no-phone-location" | "no-machine-location";
+export type PhoneLocation = { lat: number; lng: number; accuracyM: number };
+
+/** Great-circle distance in metres. */
+export function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * Compares the phone's position with the machine's last GPS position. Both have cellular + GPS, so
+ * being close together is good evidence the operator is at the machine. The machine's position can be
+ * hours old (the device goes quiet when parked), which is fine: parked machines don't move.
+ */
+export function checkLocation(
+  phone: PhoneLocation | null | undefined,
+  machine: { lat: number | null; lng: number | null },
+): { check: LocationCheck; distanceM: number | null } {
+  if (!phone) return { check: "no-phone-location", distanceM: null };
+  if (machine.lat === null || machine.lng === null) return { check: "no-machine-location", distanceM: null };
+  const distanceM = distanceMeters(phone, { lat: machine.lat, lng: machine.lng });
+  const allowed = CHECKIN_RULES.maxDistanceM + Math.min(Math.max(phone.accuracyM, 0), CHECKIN_RULES.maxAccuracyAllowanceM);
+  return { check: distanceM <= allowed ? "near" : "far", distanceM };
+}
+
+// ---------- Timing rule: did the engine start soon after check-in? ----------
+
+export type CheckinTiming =
+  /** Engine started within the window after check-in. */
+  | { kind: "on-time"; minutes: number }
+  /** Engine was already running when the operator checked in (checklist done after starting, or a takeover). */
+  | { kind: "already-running" }
+  /** Still inside the window, engine not started yet. */
+  | { kind: "waiting" }
+  /** No engine start within the window. `minutes` = when it did start, or null if it never did. */
+  | { kind: "late"; minutes: number | null }
+  /** Checked out before the window ended without starting the engine. Nothing suspicious. */
+  | { kind: "not-used" };
+
+/**
+ * Applies the timing rule to one check-in, given that machine's engine sessions around it.
+ * Catches checking in long before actually operating (e.g. once at 6 am to cover the whole day).
+ */
+export function checkinTiming(
+  c: { startedAt: Date; endedAt: Date | null },
+  sessions: SessionSpan[],
+  now = Date.now(),
+): CheckinTiming {
+  const start = c.startedAt.getTime();
+  const end = c.endedAt?.getTime() ?? now;
+  const windowEnd = start + CHECKIN_RULES.engineStartWindowMinutes * 60_000;
+
+  if (sessions.some((s) => s.startedAt.getTime() < start && effectiveEnd(s, now) > start)) return { kind: "already-running" };
+
+  const firstStart = sessions
+    .map((s) => s.startedAt.getTime())
+    .filter((t) => t >= start && t <= end)
+    .sort((a, b) => a - b)[0];
+  const minutes = firstStart === undefined ? null : Math.round((firstStart - start) / 60_000);
+
+  if (firstStart !== undefined && firstStart <= windowEnd) return { kind: "on-time", minutes: minutes! };
+  if (Math.min(end, now) < windowEnd) return c.endedAt ? { kind: "not-used" } : { kind: "waiting" };
+  return { kind: "late", minutes };
+}
 
 /**
  * PINs are looked up by hash, so the same PIN always gives the same hash (no per-row salt).
@@ -108,7 +185,15 @@ async function operatorForPin(db: Db, deviceId: string, pin: string, now: Date) 
 export type CheckinFailure = "unknown-machine" | "locked" | "bad-pin" | "incomplete" | "not-checked-in";
 
 export type CheckInResult =
-  | { ok: true; operatorName: string; authorized: boolean; checklistOk: boolean; failedItems: string[] }
+  | {
+      ok: true;
+      operatorName: string;
+      authorized: boolean;
+      checklistOk: boolean;
+      failedItems: string[];
+      location: LocationCheck;
+      distanceM: number | null;
+    }
   | { ok: false; reason: CheckinFailure };
 
 /**
@@ -118,10 +203,19 @@ export type CheckInResult =
  */
 export async function checkIn(
   db: Db,
-  input: { deviceId: string; pin: string; answers: Record<string, boolean | undefined>; notes?: string },
+  input: {
+    deviceId: string;
+    pin: string;
+    answers: Record<string, boolean | undefined>;
+    notes?: string;
+    phoneLocation?: PhoneLocation | null;
+  },
   now = new Date(),
 ): Promise<CheckInResult> {
-  const [device] = await db.select({ id: devices.id }).from(devices).where(eq(devices.id, input.deviceId));
+  const [device] = await db
+    .select({ id: devices.id, lat: devices.lastLat, lng: devices.lastLng })
+    .from(devices)
+    .where(eq(devices.id, input.deviceId));
   if (!device) return { ok: false, reason: "unknown-machine" };
   if (await isLockedOut(db, device.id, now)) return { ok: false, reason: "locked" };
 
@@ -137,6 +231,8 @@ export async function checkIn(
     .from(machineOperators)
     .where(eq(machineOperators.deviceId, device.id));
   const authorized = allowed.length === 0 || allowed.some((a) => a.operatorId === operator.id);
+  const phone = input.phoneLocation ?? null;
+  const location = checkLocation(phone, device);
 
   await db.transaction(async (tx) => {
     await tx
@@ -155,10 +251,23 @@ export async function checkIn(
       checklistOk: failedItems.length === 0,
       answers,
       notes: input.notes?.trim() || null,
+      phoneLat: phone?.lat ?? null,
+      phoneLng: phone?.lng ?? null,
+      phoneAccuracyM: phone?.accuracyM ?? null,
+      distanceM: location.distanceM,
+      locationCheck: location.check,
     });
   });
 
-  return { ok: true, operatorName: operator.name, authorized, checklistOk: failedItems.length === 0, failedItems };
+  return {
+    ok: true,
+    operatorName: operator.name,
+    authorized,
+    checklistOk: failedItems.length === 0,
+    failedItems,
+    location: location.check,
+    distanceM: location.distanceM,
+  };
 }
 
 /** Ends the open check-in on a machine. The PIN must belong to the operator who is checked in. */

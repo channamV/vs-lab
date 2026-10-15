@@ -7,6 +7,7 @@ import { EngineBadge } from "@/components/EngineBadge";
 import { connectionStatus, currentCheckins, engineHoursToday, engineStatus, listDevices, requestTime } from "@/lib/data";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
+import { checkinFlags } from "@/lib/checkin-flags";
 
 export default function FleetPage() {
   return (
@@ -110,9 +111,9 @@ async function FleetOverview() {
   );
 }
 
-function OperatorCell({ checkin }: { checkin?: { operatorName: string; authorized: boolean; checklistOk: boolean } }) {
+function OperatorCell({ checkin }: { checkin?: Parameters<typeof checkinFlags>[0] & { operatorName: string } }) {
   if (!checkin) return <span className="text-slate-500">—</span>;
-  const flags = [!checkin.authorized && "not approved", !checkin.checklistOk && "checklist issues"].filter(Boolean);
+  const flags = checkinFlags(checkin);
   return (
     <>
       {checkin.operatorName}

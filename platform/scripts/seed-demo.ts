@@ -73,6 +73,10 @@ async function main() {
         authorized: true,
         checklistOk: answers.every((a) => a.ok),
         answers,
+        // Phone location: usually right beside the machine, occasionally checked in from elsewhere.
+        ...(Math.random() < 0.08
+          ? { locationCheck: "far", distanceM: rand(800, 6000) }
+          : { locationCheck: "near", distanceM: rand(4, 45) }),
       });
       while (t < endOfDay) {
         const len = rand(0.4, 2.2) * HOUR * (0.6 + 0.2 * (n % 3));

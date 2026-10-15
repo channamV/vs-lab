@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { startTransition, useActionState, useState, type FormEvent } from "react";
 import { CHECKLIST } from "@/lib/checklist";
+import { formatDistance } from "@/lib/format";
 import { checkInAction, checkOutAction, type CheckinFormState } from "./actions";
 
 const idle: CheckinFormState = { status: "idle" };
@@ -31,13 +32,56 @@ function ErrorMessage({ state }: { state: CheckinFormState }) {
   return <p className="rounded bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950 dark:text-red-300">{state.message}</p>;
 }
 
+/** Asks the phone for its position. Resolves to null if the operator declines or it takes too long. */
+function getPhoneLocation(): Promise<GeolocationPosition | null> {
+  return new Promise((resolve) => {
+    if (!("geolocation" in navigator)) return resolve(null);
+    navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), {
+      enableHighAccuracy: true,
+      timeout: 15_000,
+      maximumAge: 60_000,
+    });
+  });
+}
+
 export function CheckInForm({ deviceId }: { deviceId: string }) {
   const [state, action, pending] = useActionState(checkInAction, idle);
+  const [locating, setLocating] = useState(false);
+
+  // Get the phone's location first, then submit it with the form.
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setLocating(true);
+    const position = await getPhoneLocation();
+    setLocating(false);
+    if (position) {
+      formData.set("phoneLat", String(position.coords.latitude));
+      formData.set("phoneLng", String(position.coords.longitude));
+      formData.set("phoneAccuracy", String(position.coords.accuracy));
+    }
+    startTransition(() => action(formData));
+  }
 
   if (state.status === "checked-in") {
     return (
       <div className="space-y-3 rounded-lg border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950">
         <p className="text-xl font-semibold text-emerald-800 dark:text-emerald-300">✓ Checked in: {state.operatorName}</p>
+        {state.location === "near" && (
+          <p className="text-emerald-800 dark:text-emerald-300">📍 Location confirmed: you&apos;re at the machine.</p>
+        )}
+        {state.location === "far" && (
+          <p className="rounded bg-amber-100 px-3 py-2 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200">
+            Your phone is {formatDistance(state.distanceM)} from this machine. Your check-in was recorded and flagged. Check in
+            standing at the machine.
+          </p>
+        )}
+        {state.location === "no-phone-location" && (
+          <p className="rounded bg-amber-100 px-3 py-2 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200">
+            Your location wasn&apos;t shared, so we couldn&apos;t confirm you&apos;re at the machine. Your check-in was recorded
+            and flagged. Next time, tap Allow when your phone asks.
+          </p>
+        )}
         {!state.authorized && (
           <p className="rounded bg-amber-100 px-3 py-2 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200">
             You&apos;re not on the approved operator list for this machine. Your check-in was recorded. Talk to your
@@ -62,7 +106,7 @@ export function CheckInForm({ deviceId }: { deviceId: string }) {
   const values = state.status === "error" ? state.values : undefined;
   return (
     // key: rebuild the form after an error so it shows the operator's previous answers again
-    <form key={state.status === "error" ? state.attempt : 0} action={action} className="space-y-4">
+    <form key={state.status === "error" ? state.attempt : 0} onSubmit={onSubmit} className="space-y-4">
       <input type="hidden" name="deviceId" value={deviceId} />
       <label className="block space-y-1">
         <span className="font-medium">1. Your PIN</span>
@@ -114,9 +158,12 @@ export function CheckInForm({ deviceId }: { deviceId: string }) {
       </label>
 
       <ErrorMessage state={state} />
-      <button disabled={pending} className={buttonClass}>
-        {pending ? "Checking in…" : "Check in"}
+      <button disabled={pending || locating} className={buttonClass}>
+        {locating ? "Getting your location…" : pending ? "Checking in…" : "Check in"}
       </button>
+      <p className="text-center text-sm text-slate-500">
+        Your phone will ask to share your location. This confirms you&apos;re at the machine.
+      </p>
     </form>
   );
 }

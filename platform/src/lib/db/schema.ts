@@ -167,6 +167,14 @@ export const checkins = pgTable(
     checklistOk: boolean("checklist_ok").notNull(),
     answers: jsonb("answers").$type<ChecklistAnswer[]>().notNull(),
     notes: text("notes"),
+    /** Phone position at check-in (if the operator shared it) and its accuracy radius in metres. */
+    phoneLat: doublePrecision("phone_lat"),
+    phoneLng: doublePrecision("phone_lng"),
+    phoneAccuracyM: real("phone_accuracy_m"),
+    /** Distance between the phone and the machine's last GPS position, in metres. */
+    distanceM: real("distance_m"),
+    /** near, far, no-phone-location or no-machine-location. Null for check-ins made before this check existed. */
+    locationCheck: text("location_check"),
   },
   (t) => [
     index("checkins_device_start_idx").on(t.deviceId, t.startedAt),

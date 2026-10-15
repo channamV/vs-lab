@@ -5,6 +5,9 @@ import { CHECKLIST } from "@/lib/checklist";
 import {
   CHECKIN_RULES,
   checkIn,
+  checkinTiming,
+  checkLocation,
+  distanceMeters,
   checkOut,
   createOperator,
   isCheckinCurrent,
@@ -43,7 +46,15 @@ describe("checkIn", () => {
   it("checks an operator in with a passed checklist", async () => {
     await createOperator(db, { name: "Jane", pin: "1111" });
     const result = await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk, notes: " all good " });
-    expect(result).toEqual({ ok: true, operatorName: "Jane", authorized: true, checklistOk: true, failedItems: [] });
+    expect(result).toEqual({
+      ok: true,
+      operatorName: "Jane",
+      authorized: true,
+      checklistOk: true,
+      failedItems: [],
+      location: "no-phone-location",
+      distanceM: null,
+    });
     const [row] = await db.select().from(checkins);
     expect(row).toMatchObject({ deviceId: "DEV00001", endedAt: null, notes: "all good", checklistOk: true });
     expect(row.answers).toHaveLength(CHECKLIST.length);
@@ -139,5 +150,81 @@ describe("isCheckinCurrent", () => {
     expect(isCheckinCurrent({ startedAt: hoursAgo(2), endedAt: null }, now)).toBe(true);
     expect(isCheckinCurrent({ startedAt: hoursAgo(CHECKIN_RULES.maxHours + 1), endedAt: null }, now)).toBe(false);
     expect(isCheckinCurrent({ startedAt: hoursAgo(2), endedAt: hoursAgo(1) }, now)).toBe(false);
+  });
+});
+
+describe("location check", () => {
+  const machine = { lat: 43.6527, lng: -79.3835 };
+  // ~0.0009° latitude ≈ 100 m
+  const offsetNorth = (m: number) => ({ lat: machine.lat + m / 111_195, lng: machine.lng });
+
+  it("measures distance in metres", () => {
+    expect(distanceMeters(machine, offsetNorth(100))).toBeCloseTo(100, 0);
+    // Toronto → Mississauga, about 23 km
+    expect(distanceMeters(machine, { lat: 43.589, lng: -79.644 }) / 1000).toBeCloseTo(22.1, 0);
+  });
+
+  it("is near within 100 m plus the phone's accuracy (capped)", () => {
+    expect(checkLocation({ ...offsetNorth(90), accuracyM: 10 }, machine).check).toBe("near");
+    expect(checkLocation({ ...offsetNorth(150), accuracyM: 10 }, machine).check).toBe("far");
+    expect(checkLocation({ ...offsetNorth(150), accuracyM: 60 }, machine).check).toBe("near");
+    // A very inaccurate phone fix can't stretch the limit past 100 + 150 m
+    expect(checkLocation({ ...offsetNorth(400), accuracyM: 2000 }, machine).check).toBe("far");
+  });
+
+  it("says why it couldn't check", () => {
+    expect(checkLocation(null, machine)).toEqual({ check: "no-phone-location", distanceM: null });
+    expect(checkLocation({ ...machine, accuracyM: 5 }, { lat: null, lng: null })).toEqual({
+      check: "no-machine-location",
+      distanceM: null,
+    });
+  });
+
+  it("is stored with the check-in", async () => {
+    await db.update(devices).set({ lastLat: machine.lat, lastLng: machine.lng });
+    await createOperator(db, { name: "Jane", pin: "1111" });
+    const near = await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk, phoneLocation: { ...offsetNorth(20), accuracyM: 8 } });
+    expect(near).toMatchObject({ ok: true, location: "near" });
+    const far = await checkIn(db, { deviceId: "DEV00002", pin: "1111", answers: allOk, phoneLocation: { lat: 43.7, lng: -79.4, accuracyM: 8 } });
+    expect(far).toMatchObject({ ok: true, location: "far" });
+    const none = await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk });
+    expect(none).toMatchObject({ ok: true, location: "no-phone-location" });
+
+    const rows = await db.select().from(checkins).orderBy(checkins.id);
+    expect(rows.map((r) => r.locationCheck)).toEqual(["near", "far", "no-phone-location"]);
+    expect(rows[0].distanceM).toBeCloseTo(20, 0);
+    expect(rows[0].phoneAccuracyM).toBe(8);
+  });
+});
+
+describe("timing rule", () => {
+  const t0 = Date.parse("2026-10-15T11:00:00Z"); // check-in time
+  const min = (m: number) => new Date(t0 + m * 60_000);
+  const session = (from: number, to: number | null) => ({ startedAt: min(from), endedAt: to === null ? null : min(to), lastSeenAt: min(to ?? from) });
+  const open = { startedAt: min(0), endedAt: null };
+  const window = CHECKIN_RULES.engineStartWindowMinutes;
+
+  it("is on time when the engine starts within the window", () => {
+    expect(checkinTiming(open, [session(12, 80)], min(90).getTime())).toEqual({ kind: "on-time", minutes: 12 });
+  });
+
+  it("waits during the window, then flags a late or missing start", () => {
+    expect(checkinTiming(open, [], min(10).getTime())).toEqual({ kind: "waiting" });
+    expect(checkinTiming(open, [], min(window + 5).getTime())).toEqual({ kind: "late", minutes: null });
+    // Checked in at 6 am, engine started 3 hours later
+    expect(checkinTiming(open, [session(180, 240)], min(250).getTime())).toEqual({ kind: "late", minutes: 180 });
+  });
+
+  it("notes an engine that was already running at check-in", () => {
+    expect(checkinTiming(open, [session(-20, 60)], min(70).getTime())).toEqual({ kind: "already-running" });
+    // A session that ended before check-in doesn't count
+    expect(checkinTiming(open, [session(-60, -30), session(5, 60)], min(70).getTime())).toEqual({ kind: "on-time", minutes: 5 });
+  });
+
+  it("ignores engine starts after check-out", () => {
+    const ended = { startedAt: min(0), endedAt: min(10) };
+    expect(checkinTiming(ended, [session(20, 60)], min(70).getTime())).toEqual({ kind: "not-used" });
+    const endedLate = { startedAt: min(0), endedAt: min(window + 30) };
+    expect(checkinTiming(endedLate, [session(window + 40, window + 90)], min(200).getTime())).toEqual({ kind: "late", minutes: null });
   });
 });

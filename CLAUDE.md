@@ -66,7 +66,8 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   using an API you're unsure of. `middleware` is now `proxy`. Request-time data must sit under
   `<Suspense>`; data functions call `connection()` (via `requireSession`).
 - All DB reads for pages go through `src/lib/data.ts`. Device writes go through `src/lib/telemetry/ingest.ts`.
-- Operators, approvals, check-in/out, PIN rate limit: `src/lib/operators.ts` (takes the db, tested).
+- Operators, approvals, check-in/out, PIN rate limit, phone-location check and engine-start timing rule:
+  `src/lib/operators.ts` (takes the db, tested; thresholds in `CHECKIN_RULES`). Flag wording: `src/lib/checkin-flags.ts`.
   The pre-start checklist questions: `src/lib/checklist.ts`.
 - Forms using `useActionState`: React clears fields after every submit, so on an error return the
   submitted values and re-key the form (see `CheckinForms.tsx`, `OperatorForms.tsx`).
