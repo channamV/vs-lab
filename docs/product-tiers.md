@@ -8,21 +8,32 @@ Mirrors the Veristart offering (one platform, three levels, chosen per machine).
 | Promise | See where equipment is and how it's used | Know who is operating; alert on unauthorized use | Physically enforce the rules |
 | Hardware | Device on diagnostic port | Same device, plus operator ID (beacon / phone) | Plus starter-control relay |
 | Stops a start? | No | No: detects, alerts, buzzes | Yes |
-| Lab status | **Working** (position, battery, signal, motion) | Next | Deferred |
+| Lab status | **Working** (position, engine on/off, engine hours, battery, signal) | Next | Deferred |
 
 ## Tier 1 — GPS & Telematics (built)
 
 - GPS location and 24-hour track ✅
 - Last report, battery voltage, cellular signal, connection events ✅
 - Raw machine telemetry stored (motion, OBD-II where available) ✅
-- Still to add: **run-state / utilization** (engine-on hours per day), activity reports, CSV export
+- Engine on/off ("run state") and engine hours per day ✅
+- Still to add: activity reports, idle vs. working time, CSV export
 
-**Run-state from the stock firmware, without OBD.** Many machines have no OBD-II port (J1939 or
-none), so we infer "engine running" from data the device already sends:
-- **Battery voltage:** above ~13.2 V means the alternator is charging, so the engine is running.
-  About 12.6 V or below means it's off.
-- **Vibration / motion** from the accelerometer, as a second signal.
-- **OBD RPM**, when the machine provides it, overrides both.
+**How engine-on is detected** (`platform/src/lib/telemetry/engine.ts`). Many heavy machines have
+no OBD-II port (J1939 or none), so we infer "engine running" from data the stock device already
+sends, best signal first:
+1. **OBD RPM**, when the machine provides it (300 RPM or more means running).
+2. **Alternator voltage:** a running engine charges the battery.
+   - 12 V machines: 13.2 V or more means running
+   - 24 V machines (most heavy equipment): 26.4 V or more means running. The system type is picked automatically from the voltage.
+3. **Vibration** from the accelerometer, only if neither of the above is available.
+
+Each on-period is stored as an **engine session**. If a running machine's device goes quiet for
+10+ minutes, the session is ended at its last report rather than counted until it reappears.
+Engine hours per day are counted in local time (`APP_TIMEZONE`, default Toronto).
+
+**To verify on real machines:** the voltage thresholds are standard values but haven't been
+checked against our equipment yet. A battery charger or a weak alternator can fool voltage
+detection. Spot-check against hour meters during the first device trials.
 
 ## Tier 2 — Safety & Access Monitoring (next)
 
@@ -51,7 +62,7 @@ not iOS, so it isn't the primary method.
 
 ### Build order
 
-1. Run-state detection + engine hours (platform only)
+1. ~~Run-state detection + engine hours (platform only)~~ ✅ done
 2. Operators, machine assignments, QR check-in page, pre-start checklist (platform only)
 3. Arm/disarm + unauthorized-use rules + email alerts (platform only)
 4. **First firmware work:** command channel from the server to the device (the server's reply to each

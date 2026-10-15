@@ -23,6 +23,7 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
 4. **Environment variables:** project → *Settings → Environment Variables*:
    - `ADMIN_PASSWORD` = a long password. **Required.** Without it, anyone with the link can see your fleet.
    - `DEVICE_AUTO_REGISTER` = `true` for now (set to `false` once your devices are registered)
+   - `APP_TIMEZONE` (optional) = the time zone for daily engine hours, e.g. `America/Toronto` (the default)
 5. **Deploy:** *Deployments* → *Redeploy*. When it finishes, open the address Vercel shows
    (e.g. `vs-lab-xyz.vercel.app`) and sign in.
 6. **Test with the simulator from your PC:**

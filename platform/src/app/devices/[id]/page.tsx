@@ -4,10 +4,23 @@ import { Suspense } from "react";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { FleetMap } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
-import { connectionStatus, getDevice, getRecentEvents, getRecentTelemetry, getTrack, requestTime } from "@/lib/data";
+import { EngineBadge } from "@/components/EngineBadge";
+import { EngineHoursChart } from "@/components/EngineHoursChart";
+import {
+  connectionStatus,
+  engineHoursByDay,
+  engineStatus,
+  getDevice,
+  getRecentEvents,
+  getRecentTelemetry,
+  getTrack,
+  recentEngineSessions,
+  requestTime,
+} from "@/lib/data";
+import { appTimeZone, effectiveEnd } from "@/lib/telemetry/engine";
 import { tierEnum } from "@/lib/db/schema";
 import { PID_NAMES } from "@/lib/freematics/protocol";
-import { fmt, TIER_LABELS, timeAgo } from "@/lib/format";
+import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
 import { updateDevice } from "./actions";
 
 export default function DevicePage({ params }: PageProps<"/devices/[id]">) {
@@ -28,12 +41,16 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
   const device = await getDevice(id);
   if (!device) notFound();
 
-  const [track, [latest], events, now] = await Promise.all([
+  const [track, [latest], events, now, hours, sessions] = await Promise.all([
     getTrack(id),
     getRecentTelemetry(id, 1),
     getRecentEvents(id),
     requestTime(),
+    engineHoursByDay(id, 7),
+    recentEngineSessions(id, 8),
   ]);
+  const tz = appTimeZone();
+  const engine = engineStatus(device, now);
   const status = connectionStatus(device, now);
 
   return (
@@ -45,7 +62,17 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
         <span className="font-mono text-sm text-slate-500">{device.id}</span>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+          <div className="text-xs uppercase text-slate-500">Engine</div>
+          <div className="mt-1.5">
+            <EngineBadge status={engine} />
+          </div>
+          {device.engineChangedAt && engine !== "unknown" && (
+            <div className="mt-1 text-xs text-slate-500">since {clockTime(device.engineChangedAt, tz, now)}</div>
+          )}
+        </div>
+        <Stat label="Hours today" value={formatHours(hours.at(-1)?.hours ?? 0)} />
         <Stat label="Last report" value={timeAgo(device.lastSeenAt, now)} />
         <Stat label="Last GPS fix" value={timeAgo(device.lastFixAt, now)} />
         <Stat label="Battery" value={fmt(device.lastBatteryV, 1, " V")} />
@@ -65,6 +92,56 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
           No GPS position yet. A new device can take a few minutes to get its first fix — it needs a clear view of the sky.
         </p>
       )}
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold">Engine hours</h2>
+          <EngineHoursChart days={hours} timeZone={tz} />
+        </section>
+        <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold">Recent engine sessions</h2>
+          {sessions.length === 0 ? (
+            <p className="text-sm text-slate-500">No engine activity recorded yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="py-1">Started</th>
+                  <th className="py-1">Ended</th>
+                  <th className="py-1 text-right">Duration</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {sessions.map((s) => {
+                  const end = effectiveEnd(s, now);
+                  const ongoing = !s.endedAt && end === now;
+                  return (
+                    <tr key={s.id}>
+                      <td className="py-1.5">{clockTime(s.startedAt, tz, now)}</td>
+                      <td className="py-1.5">
+                        {ongoing ? (
+                          <span className="text-emerald-700 dark:text-emerald-400">Running</span>
+                        ) : (
+                          <>
+                            {clockTime(new Date(end), tz, now)}
+                            {!s.endedAt && <span className="text-slate-500"> (last report)</span>}
+                          </>
+                        )}
+                      </td>
+                      <td className="py-1.5 text-right">{formatHours((end - s.startedAt.getTime()) / 3_600_000)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          {sessions.length > 0 && (
+          <p className="text-xs text-slate-500">
+            Detected from {sessions[0].source === "rpm" ? "engine RPM" : sessions[0].source === "vibration" ? "vibration" : "alternator voltage"}.
+          </p>
+          )}
+        </section>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">

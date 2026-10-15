@@ -65,8 +65,15 @@ npm run simulate
 ```
 
 Three simulated machines appear on the map within a few seconds and move around Toronto-area
-jobsites. Click one to see its details, rename it, or change its service level.
+jobsites. Their engines start and stop every few minutes, so you can watch the Engine column
+change. Click one to see its details, rename it, or change its service level.
 Press **Ctrl+C** in either window to stop it.
+
+To see a week of engine-hours history straight away (otherwise it builds up day by day), run once:
+
+```powershell
+npm run demo:seed
+```
 
 Your data is kept in `platform\.data\`. Delete that folder to start fresh.
 
@@ -75,7 +82,7 @@ Your data is kept in `platform\.data\`. Delete that folder to start fresh.
 From the `vs-lab` folder, run `claude`. Useful first requests:
 
 - *"Explain how a device report gets from the Freematics into the database."*
-- *"Add a column to the fleet table showing how long each machine has been running today."*
+- *"Add a CSV export of engine hours for the last 30 days."*
 - *"Run the checks and tell me if anything is broken."*
 
 Claude reads `CLAUDE.md` automatically. That file tells it how this project is put together.
