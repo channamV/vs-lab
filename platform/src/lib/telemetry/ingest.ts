@@ -1,7 +1,8 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { deviceEvents, devices, telemetry } from "@/lib/db/schema";
+import { deviceEvents, devices, engineSessions, telemetry, type EngineSession } from "@/lib/db/schema";
 import { num, type SampleFields } from "@/lib/freematics/protocol";
+import { detectEngine, ENGINE_THRESHOLDS, type EngineReading } from "./engine";
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 
@@ -48,7 +49,8 @@ export async function ingestSamples(
     return 0;
   }
 
-  const rows = samples.map((f) => {
+  const readings = samples.map(detectEngine);
+  const rows = samples.map((f, i) => {
     const lat = num(f, "lat");
     const lng = num(f, "lng");
     const hasFix = validFix(lat, lng);
@@ -66,6 +68,7 @@ export async function ingestSamples(
       batteryV: centivolts === null ? null : centivolts / 100,
       rssi: num(f, "rssi"),
       deviceTempC: num(f, "deviceTempC"),
+      engineOn: readings[i].running,
       fields: f,
     };
   });
@@ -88,7 +91,51 @@ export async function ingestSamples(
     })
     .where(eq(devices.id, deviceId));
 
+  // Samples in one upload arrive together, so the last one with a reading decides the engine state.
+  const lastReading = readings.findLast((r) => r.running !== null);
+  if (lastReading) await updateEngineState(db, deviceId, lastReading, now);
+
   return rows.length;
+}
+
+/**
+ * Keeps the engine session table in step with the latest reading:
+ *  - running, no open session      → open one
+ *  - running, open session         → extend it
+ *  - stopped, open session         → close it
+ *  - open session gone stale (device silent > staleMinutes) → close it at its last report first
+ */
+async function updateEngineState(db: Db, deviceId: string, reading: EngineReading, now: Date) {
+  const openWhere = and(eq(engineSessions.deviceId, deviceId), isNull(engineSessions.endedAt));
+  let open: EngineSession | undefined = (await db.select().from(engineSessions).where(openWhere))[0];
+
+  const staleMs = ENGINE_THRESHOLDS.staleMinutes * 60_000;
+  if (open && now.getTime() - open.lastSeenAt.getTime() > staleMs) {
+    await db.update(engineSessions).set({ endedAt: open.lastSeenAt }).where(eq(engineSessions.id, open.id));
+    open = undefined;
+  }
+
+  if (reading.running) {
+    if (open) {
+      await db.update(engineSessions).set({ lastSeenAt: now }).where(eq(engineSessions.id, open.id));
+    } else {
+      // The unique index allows only one open session; a simultaneous upload may have opened it already.
+      await db
+        .insert(engineSessions)
+        .values({ deviceId, startedAt: now, lastSeenAt: now, source: reading.source })
+        .onConflictDoNothing();
+    }
+  } else if (open) {
+    await db.update(engineSessions).set({ endedAt: now, lastSeenAt: now }).where(eq(engineSessions.id, open.id));
+  }
+
+  // engineChangedAt marks when the current state began ("running since 9:42").
+  // It moves when the state flips, or when a new running session starts after a stale one.
+  const [prev] = await db.select({ engineOn: devices.engineOn }).from(devices).where(eq(devices.id, deviceId));
+  const startedNewSession = reading.running && !open;
+  if (prev?.engineOn !== reading.running || startedNewSession) {
+    await db.update(devices).set({ engineOn: reading.running, engineChangedAt: now }).where(eq(devices.id, deviceId));
+  }
 }
 
 export async function recordEvent(

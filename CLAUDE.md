@@ -32,7 +32,8 @@ github.com/stanleyhuangyc/Freematics.
 
 ```
 npm run dev          # migrate DB + start at http://localhost:3000
-npm run simulate     # fake devices sending real Telelogger-format data
+npm run simulate     # fake devices sending real Telelogger-format data (engines cycle on/off)
+npm run demo:seed    # a week of engine-session history for the SIM* devices
 npm run check        # lint + typecheck + tests — run before every commit
 npm run build        # production build
 npm run db:generate  # after editing src/lib/db/schema.ts → creates SQL in drizzle/
@@ -47,6 +48,8 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   using an API you're unsure of. `middleware` is now `proxy`. Request-time data must sit under
   `<Suspense>`; data functions call `connection()` (via `requireSession`).
 - All DB reads for pages go through `src/lib/data.ts`. Device writes go through `src/lib/telemetry/ingest.ts`.
+- Engine on/off detection and engine-hours maths live in `src/lib/telemetry/engine.ts` (pure functions, tested).
+  Ingest keeps `engine_sessions` up to date: at most one open session per device.
 - Schema changes: edit `schema.ts`, run `db:generate`, commit the generated SQL. Never edit applied migrations.
 - Add a test for every parser/ingest change (`*.test.ts`, Vitest, in-memory PGlite).
 - Product language: tiers are "GPS & Telematics", "Safety & Access Monitoring",

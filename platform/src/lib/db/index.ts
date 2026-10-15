@@ -36,10 +36,27 @@ export async function migrateDb(db: Db, usingPostgres: boolean) {
   }
 }
 
+/**
+ * Connection string from the environment. Vercel's Neon integration sets DATABASE_URL;
+ * POSTGRES_URL is accepted too in case the integration was set up with that name.
+ */
+export function databaseUrl(): string | undefined {
+  return process.env.DATABASE_URL || process.env.POSTGRES_URL || undefined;
+}
+
 export function defaultDbOptions() {
-  return process.env.DATABASE_URL
-    ? { url: process.env.DATABASE_URL }
-    : { dataDir: path.join(process.cwd(), ".data", "pglite") };
+  const url = databaseUrl();
+  if (url) return { url };
+  // On Vercel the file system is read-only and wiped between requests, so the embedded
+  // database can't work there. Fail the build with a clear message instead.
+  if (process.env.VERCEL) {
+    throw new Error(
+      "No database connection: DATABASE_URL is not set for this Vercel deployment. " +
+        "In Vercel → this project → Storage, connect the Neon database to this project " +
+        "(tick Production and Preview), then redeploy.",
+    );
+  }
+  return { dataDir: path.join(process.cwd(), ".data", "pglite") };
 }
 
 // Reuse one connection per server process (also survives dev hot reloads).

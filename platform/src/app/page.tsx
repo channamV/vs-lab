@@ -3,8 +3,10 @@ import { Suspense } from "react";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { FleetMap, type MapMarker } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
-import { connectionStatus, listDevices, requestTime } from "@/lib/data";
-import { fmt, TIER_LABELS, timeAgo } from "@/lib/format";
+import { EngineBadge } from "@/components/EngineBadge";
+import { connectionStatus, engineHoursToday, engineStatus, listDevices, requestTime } from "@/lib/data";
+import { appTimeZone } from "@/lib/telemetry/engine";
+import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
 
 export default function FleetPage() {
   return (
@@ -21,7 +23,8 @@ export default function FleetPage() {
 }
 
 async function FleetOverview() {
-  const [devices, now] = await Promise.all([listDevices(), requestTime()]);
+  const [devices, now, hoursToday] = await Promise.all([listDevices(), requestTime(), engineHoursToday()]);
+  const tz = appTimeZone();
 
   if (devices.length === 0) {
     return (
@@ -56,6 +59,8 @@ async function FleetOverview() {
             <tr>
               <th className="px-4 py-2">Machine</th>
               <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Engine</th>
+              <th className="px-4 py-2 text-right">Hours today</th>
               <th className="px-4 py-2">Level</th>
               <th className="px-4 py-2">Last report</th>
               <th className="px-4 py-2 text-right">Speed</th>
@@ -75,6 +80,13 @@ async function FleetOverview() {
                 <td className="px-4 py-2">
                   <StatusBadge status={connectionStatus(d, now)} />
                 </td>
+                <td className="px-4 py-2">
+                  <EngineBadge status={engineStatus(d, now)} />
+                  {d.engineChangedAt && engineStatus(d, now) !== "unknown" && (
+                    <div className="mt-0.5 text-xs text-slate-500">since {clockTime(d.engineChangedAt, tz, now)}</div>
+                  )}
+                </td>
+                <td className="px-4 py-2 text-right">{hoursToday.has(d.id) ? formatHours(hoursToday.get(d.id)!) : "—"}</td>
                 <td className="px-4 py-2">{TIER_LABELS[d.tier]}</td>
                 <td className="px-4 py-2">{timeAgo(d.lastSeenAt, now)}</td>
                 <td className="px-4 py-2 text-right">{fmt(d.lastSpeedKph, 0, " km/h")}</td>

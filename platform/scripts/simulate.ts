@@ -7,6 +7,9 @@
  *   npm run simulate -- --devices 5 --interval 2
  *   npm run simulate -- --host https://your-app.vercel.app
  *   npm run simulate -- --once             # send one report from each machine and stop
+ *
+ * Each machine cycles its engine on and off (a few minutes each, so you can watch it happen).
+ * Machine 3 is a 24 V machine, like most heavy equipment, to exercise that detection path.
  */
 import { parseArgs } from "node:util";
 import { encodePayload, type SampleFields } from "../src/lib/freematics/protocol";
@@ -42,7 +45,13 @@ interface SimDevice {
   duty: number;
   startedAt: number;
   rssi: number;
+  engineOn: boolean;
+  /** When the engine next switches on/off. */
+  nextSwitchAt: number;
+  system24V: boolean;
 }
+
+const minutes = (min: number, max: number) => (min + Math.random() * (max - min)) * 60_000;
 
 const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => ({
   id: `SIM${String(i + 1).padStart(5, "0")}`,
@@ -52,10 +61,18 @@ const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => ({
   duty: [0.8, 0.3, 0.6][i % 3],
   startedAt: Date.now(),
   rssi: -65 - Math.round(Math.random() * 20),
+  engineOn: i % 2 === 0,
+  nextSwitchAt: Date.now() + minutes(1, 4),
+  system24V: i % 3 === 2,
 }));
 
 function nextSample(d: SimDevice): SampleFields {
-  const working = Math.random() < d.duty;
+  if (Date.now() >= d.nextSwitchAt) {
+    d.engineOn = !d.engineOn;
+    d.nextSwitchAt = Date.now() + (d.engineOn ? minutes(3, 8) : minutes(1, 3));
+    console.log(`${d.id}: engine ${d.engineOn ? "ON" : "OFF"}`);
+  }
+  const working = d.engineOn && Math.random() < d.duty;
   const speedKph = working ? 3 + Math.random() * 7 : 0;
   // Move along a circle around the jobsite.
   d.angle += ((speedKph / 3.6) * intervalS) / d.radiusM;
@@ -72,14 +89,16 @@ function nextSample(d: SimDevice): SampleFields {
     speedKph: Number(speedKph.toFixed(1)),
     heading: headingDeg,
     satellites: 8 + Math.floor(Math.random() * 5),
-    // Alternator voltage while working, battery voltage while parked.
-    batteryCentivolts: Math.round((working ? 13.9 : 12.6) * 100 + Math.random() * 20),
+    // Alternator charging voltage while the engine runs, resting battery voltage when off.
+    batteryCentivolts: Math.round(
+      (d.system24V ? (d.engineOn ? 27.9 : 25.2) : d.engineOn ? 13.9 : 12.6) * 100 + Math.random() * 20,
+    ),
     rssi: d.rssi,
     deviceTempC: 35 + Math.floor(Math.random() * 6),
     accel: [
-      Number((Math.random() * 0.1 - 0.05).toFixed(2)),
-      Number((Math.random() * 0.1 - 0.05).toFixed(2)),
-      working ? Number((0.95 + Math.random() * 0.1).toFixed(2)) : 1,
+      d.engineOn ? Number((Math.random() * 0.1 - 0.05).toFixed(2)) : 0,
+      d.engineOn ? Number((Math.random() * 0.1 - 0.05).toFixed(2)) : 0,
+      d.engineOn ? Number((0.95 + Math.random() * 0.1).toFixed(2)) : 1,
     ],
   };
 }
@@ -99,7 +118,7 @@ async function report(d: SimDevice) {
   const sample = nextSample(d);
   const reply = await send(`/hub/api/post/${d.id}`, { method: "POST", body: encodePayload([sample]) });
   console.log(
-    `${new Date().toLocaleTimeString()}  ${d.id}  ${sample.lat}, ${sample.lng}  ${sample.speedKph} km/h  → ${reply}`,
+    `${new Date().toLocaleTimeString()}  ${d.id}  engine ${d.engineOn ? "on " : "off"}  ${sample.lat}, ${sample.lng}  ${sample.speedKph} km/h  → ${reply}`,
   );
 }
 

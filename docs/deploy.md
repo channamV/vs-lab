@@ -23,6 +23,7 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
 4. **Environment variables:** project → *Settings → Environment Variables*:
    - `ADMIN_PASSWORD` = a long password. **Required.** Without it, anyone with the link can see your fleet.
    - `DEVICE_AUTO_REGISTER` = `true` for now (set to `false` once your devices are registered)
+   - `APP_TIMEZONE` (optional) = the time zone for daily engine hours, e.g. `America/Toronto` (the default)
 5. **Deploy:** *Deployments* → *Redeploy*. When it finishes, open the address Vercel shows
    (e.g. `vs-lab-xyz.vercel.app`) and sign in.
 6. **Test with the simulator from your PC:**
@@ -32,6 +33,19 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
    ```
    Three machines should appear. To clear test data, use Neon's SQL editor:
    `DELETE FROM devices WHERE id LIKE 'SIM%';`
+
+## Check it worked
+
+1. **One project only.** Vercel dashboard → you should see a single project for `vs-lab`. If you
+   see two (e.g. `vs-lab-platform` and `vs-lab-platform-abcd`), the repo was imported twice. Keep the
+   one with the Neon database under *Storage*, and delete the other one (*Settings → Advanced → Delete Project*).
+2. **Database connected.** Project → *Settings → Environment Variables* → `DATABASE_URL` is listed,
+   for **Production and Preview**. If a deployment says *"No database connection"*, the database isn't
+   connected to that project. Fix it under *Storage*, then redeploy.
+3. **Password set.** `ADMIN_PASSWORD` is listed. Opening the site should show the **Sign in** page,
+   not the Fleet page.
+4. **App works.** Sign in. An empty Fleet page saying *"No devices have reported yet"* means everything
+   is connected. Then run the simulator command above, and machines appear.
 
 From now on, every change pushed to the `main` branch on GitHub deploys automatically. Pushes to
 other branches get their own preview address, so you can try a change before it's live.

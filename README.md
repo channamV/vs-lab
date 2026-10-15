@@ -5,6 +5,7 @@ operator monitoring and (later) access control.
 
 **Status:** Tier 1 (GPS & Telematics) is working end to end. A Freematics ONE+ running stock firmware,
 or the built-in simulator, reports position, battery, signal and motion data to the platform.
+The platform works out when each engine is running and counts engine hours per day.
 
 | Folder | Contents |
 |---|---|

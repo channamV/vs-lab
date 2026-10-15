@@ -21,3 +21,25 @@ export function fmt(value: number | null | undefined, digits = 1, unit = ""): st
   if (value === null || value === undefined) return "—";
   return `${value.toFixed(digits)}${unit}`;
 }
+
+/** 1.5 → "1 h 30 min", 0.25 → "15 min" */
+export function formatHours(hours: number): string {
+  const totalMin = Math.round(hours * 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m} min`;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
+/** Clock time in the platform's time zone, e.g. "9:42 AM" or "Oct 14, 9:42 AM" if not today. */
+export function clockTime(date: Date, timeZone: string, now = Date.now()): string {
+  const sameDay =
+    new Intl.DateTimeFormat("en-CA", { timeZone, dateStyle: "short" }).format(date) ===
+    new Intl.DateTimeFormat("en-CA", { timeZone, dateStyle: "short" }).format(now);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+    ...(sameDay ? {} : { month: "short", day: "numeric" }),
+  }).format(date);
+}
