@@ -190,6 +190,11 @@ export const checkins = pgTable(
     }),
     /** How it was linked: started (after check-in), already-running (nobody had it) or takeover (from another operator). */
     engineLink: text("engine_link"),
+    /**
+     * How the operator checked in: web (QR code + PIN). Later: ble (beacon detected by the device).
+     * Decides how long the check-in survives the engine being off (see CHECKIN_RULES.breakMinutes).
+     */
+    method: text("method").notNull().default("web"),
   },
   (t) => [
     index("checkins_device_start_idx").on(t.deviceId, t.startedAt),

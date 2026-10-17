@@ -111,7 +111,7 @@ async function FleetOverview() {
                 </td>
                 <td className="px-4 py-2 text-right">{hoursToday.has(d.id) ? formatHours(hoursToday.get(d.id)!) : "—"}</td>
                 <td className="px-4 py-2">
-                  <OperatorCell checkin={checkedIn.get(d.id)} />
+                  <OperatorCell checkin={checkedIn.get(d.id)} timeZone={tz} now={now} />
                 </td>
                 <td className="px-4 py-2">
                   {TIER_LABELS[d.tier]}
@@ -130,12 +130,23 @@ async function FleetOverview() {
   );
 }
 
-function OperatorCell({ checkin }: { checkin?: Parameters<typeof checkinFlags>[0] & { operatorName: string } }) {
+function OperatorCell({
+  checkin,
+  timeZone,
+  now,
+}: {
+  checkin?: Parameters<typeof checkinFlags>[0] & { operatorName: string; engineOffSince: Date | null };
+  timeZone: string;
+  now: number;
+}) {
   if (!checkin) return <span className="text-slate-500">—</span>;
   const flags = checkinFlags(checkin);
   return (
     <>
       {checkin.operatorName}
+      {checkin.engineOffSince && (
+        <div className="text-xs text-slate-500">on a break, engine off since {clockTime(checkin.engineOffSince, timeZone, now)}</div>
+      )}
       {flags.length > 0 && <div className="text-xs text-amber-700 dark:text-amber-400">{flags.join(", ")}</div>}
     </>
   );

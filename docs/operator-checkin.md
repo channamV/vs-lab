@@ -11,7 +11,8 @@ they did the pre-start checklist. Works on any phone (iPhone or Android) with no
 4. Tap **Check in**. The phone asks to share its location: tap **Allow**.
 5. **Start the engine within 5 minutes.** That engine run now belongs to them.
 6. Nothing to do at the end: when the engine stops, they're **checked out automatically**.
-   Next time they start the machine (after lunch, the next morning), they scan and check in again.
+   A break is fine: if they restart within **30 minutes** (coffee, refuelling), they're still checked in.
+   After a longer stop (lunch, the next morning), they scan and check in again.
 
 No check-out needed. (Experience with tap-in/tap-out cards: people don't check out.) A check-out
 option is still on the page for anyone who wants it.
@@ -35,7 +36,11 @@ close together, the operator was at the machine.
 **2. Check-in follows the engine.** One check-in covers one engine run:
 - Engine starts within **5 minutes** of check-in: the run is linked to that operator ("Started 2 min after").
 - Engine doesn't start within 5 minutes: the operator is checked out automatically ("No start").
-- Engine stops, or the device stops reporting: the operator is checked out automatically ("engine stopped").
+- Engine stops, or the device stops reporting: the operator stays checked in for a **30-minute break
+  allowance**. A restart within it is still theirs ("on a break" shows on the Fleet page meanwhile).
+  After that they're checked out automatically, recorded as of when the engine stopped ("engine stopped").
+- The allowance depends on how they checked in: 30 minutes for the web check-in (QR + PIN). Beacon
+  check-ins (planned) get none: the device sees the beacon again when the operator returns.
 - Engine already running at check-in:
   - another operator had it (shift change on an idling machine): **takeover**, no flag;
   - nobody had it: flagged **engine running before check-in** (the checklist was done after starting).
@@ -46,7 +51,7 @@ armed Safety & Access Monitoring machines (see [alerts.md](alerts.md)).
 Neither check blocks anyone: on Safety & Access Monitoring the machine always starts and the platform
 reports. In step 3, these flags can trigger email alerts.
 
-The numbers (100 m, 150 m, 5 minutes) are in `CHECKIN_RULES` in `platform/src/lib/operators.ts`.
+The numbers (100 m, 150 m, 5 minutes, 30-minute break) are in `CHECKIN_RULES` in `platform/src/lib/operators.ts`.
 
 ## Setting it up (fleet manager)
 

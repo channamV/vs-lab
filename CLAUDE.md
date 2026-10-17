@@ -70,8 +70,9 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   (takes the db, tested; thresholds in `CHECKIN_RULES`). Flag wording: `src/lib/checkin-flags.ts`.
   The pre-start checklist questions: `src/lib/checklist.ts`.
 - Check-ins follow the engine (Craig's rule, 2026-10-17): start within 5 min → the check-in is linked to that
-  engine session (`checkins.engine_session_id`); engine stops or no start → automatic check-out. Operators
-  never have to check out. `syncCheckins()` saves this on each device report and before check-in/out;
+  engine session (`checkins.engine_session_id`); engine stops (after a break allowance by check-in
+  `method`: web 30 min, ble 0, `CHECKIN_RULES.breakMinutes`) or no start → automatic check-out, recorded at
+  the engine-stop time. A restart within the allowance re-links to the new session. Operators never have to check out. `syncCheckins()` saves this on each device report and before check-in/out;
   pages apply the same rules on read (`automaticEnd`, `isCheckinCurrent`) so they're right between reports.
 - Alerts: rules in `src/lib/alerts.ts` (takes the db, tested; `ALERT_RULES`), email via Resend's HTTP API in
   `src/lib/notify.ts`. Rules run in `after()` (`src/lib/alert-jobs.ts`) from the device routes and the

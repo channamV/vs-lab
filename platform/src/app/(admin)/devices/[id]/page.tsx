@@ -239,6 +239,12 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
             <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
               <span>
                 <span className="font-medium">{current.operatorName}</span> checked in since {clockTime(current.startedAt, tz, now)}
+                {current.engineOffSince && (
+                  <span className="text-slate-500">
+                    {" "}
+                    · on a break, engine off since {clockTime(current.engineOffSince, tz, now)}
+                  </span>
+                )}
                 <CheckinFlags checkin={current} />
               </span>
               <form action={endCheckinAction}>

@@ -33,6 +33,12 @@ export const CHECKIN_RULES = {
    * that engine-on period and ends automatically when the engine stops. No start → checked out.
    */
   engineStartWindowMinutes: 5,
+  /**
+   * How long a check-in survives the engine being off (a break, refuelling) before the operator is
+   * checked out, by check-in method. A restart within this time stays with the same operator.
+   * Beacon check-ins need no allowance: the device sees the beacon again when the operator returns.
+   */
+  breakMinutes: { web: 30, ble: 0 } as Record<string, number>,
 };
 
 // ---------- Location check: is the phone near the machine? ----------
@@ -69,7 +75,8 @@ export function checkLocation(
 //
 // Operators don't check out (in practice they never do). Instead:
 //  - check in, then start the engine within the window → the check-in is linked to that engine-on period
-//  - the engine stops (or the device goes silent) → the operator is checked out automatically
+//  - the engine stops (or the device goes silent) → the operator is checked out automatically, after a
+//    break allowance for web check-ins (a restart within it stays with the same operator)
 //  - no start within the window → the operator is checked out automatically ("no start")
 //  - engine already running at check-in → linked straight away: a "takeover" if another operator had it,
 //    otherwise "already-running" (flagged: the checklist was done after starting)
@@ -83,15 +90,26 @@ function isLive(s: SessionSpan, now: number): boolean {
   return !s.endedAt && s.startedAt.getTime() <= now && effectiveEnd(s, now) >= now;
 }
 
-type OpenCheckin = { startedAt: Date; endedAt: Date | null; engineSessionId: number | null };
+type OpenCheckin = { startedAt: Date; endedAt: Date | null; engineSessionId: number | null; method?: string };
+
+const breakMs = (c: OpenCheckin) => (CHECKIN_RULES.breakMinutes[c.method ?? "web"] ?? 0) * 60_000;
+
+/** When the linked engine stopped, or null while it's still running. */
+export function engineStoppedAt(linked: SessionSpan, now = Date.now()): Date | null {
+  return isLive(linked, now) ? null : new Date(effectiveEnd(linked, now));
+}
 
 /**
  * When and why an open check-in ends, or null if it still counts at `now`.
  * `linked` is the engine session the check-in is linked to (null if not linked yet).
+ * After the engine stops, the check-in survives the break allowance; if it then ends, it's recorded as
+ * ending when the engine stopped.
  */
 export function automaticEnd(c: OpenCheckin, linked: SessionSpan | null, now = Date.now()): { endedAt: Date; endReason: string } | null {
   if (c.engineSessionId && linked) {
-    return isLive(linked, now) ? null : { endedAt: new Date(effectiveEnd(linked, now)), endReason: "engine stopped" };
+    const stopped = engineStoppedAt(linked, now);
+    if (!stopped || now < stopped.getTime() + breakMs(c)) return null;
+    return { endedAt: stopped, endReason: "engine stopped" };
   }
   const windowEnd = c.startedAt.getTime() + windowMs();
   return now < windowEnd ? null : { endedAt: new Date(windowEnd), endReason: "no start" };
@@ -119,15 +137,24 @@ export async function syncCheckins(db: Db, deviceId: string, now = new Date()) {
     .where(and(eq(engineSessions.deviceId, deviceId), isNull(engineSessions.endedAt)));
   const t = now.getTime();
 
+  const live = running && isLive(running, t) ? running : null;
+
   for (const c of open) {
-    if (!c.engineSessionId && running && isLive(running, t) && running.startedAt.getTime() <= c.startedAt.getTime() + windowMs()) {
-      const engineLink: EngineLink = running.startedAt >= c.startedAt ? "started" : "already-running";
-      await db.update(checkins).set({ engineSessionId: running.id, engineLink }).where(eq(checkins.id, c.id));
+    // Waiting for a start: link it if the engine started within the window.
+    if (!c.engineSessionId && live && live.startedAt.getTime() <= c.startedAt.getTime() + windowMs()) {
+      const engineLink: EngineLink = live.startedAt >= c.startedAt ? "started" : "already-running";
+      await db.update(checkins).set({ engineSessionId: live.id, engineLink }).where(eq(checkins.id, c.id));
       continue;
     }
     const [linked] = c.engineSessionId
       ? await db.select().from(engineSessions).where(eq(engineSessions.id, c.engineSessionId))
       : [];
+    // On a break: a restart within the allowance stays with this operator.
+    const stopped = linked ? engineStoppedAt(linked, t) : null;
+    if (live && stopped && live.id !== c.engineSessionId && live.startedAt.getTime() <= stopped.getTime() + breakMs(c)) {
+      await db.update(checkins).set({ engineSessionId: live.id }).where(eq(checkins.id, c.id));
+      continue;
+    }
     const end = automaticEnd(c, linked ?? null, t);
     if (end) await db.update(checkins).set(end).where(eq(checkins.id, c.id));
   }
@@ -336,6 +363,7 @@ export async function checkIn(
         locationCheck: location.check,
         engineSessionId: live?.id ?? null,
         engineLink,
+        method: "web",
       })
       .returning({ id: checkins.id });
   });

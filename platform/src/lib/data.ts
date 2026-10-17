@@ -14,7 +14,7 @@ import {
   telemetry,
   type Device,
 } from "@/lib/db/schema";
-import { automaticEnd, checkinEngine, type CheckinEngine } from "@/lib/operators";
+import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 
@@ -192,6 +192,7 @@ const checkinWithOperator = {
   distanceM: checkins.distanceM,
   engineSessionId: checkins.engineSessionId,
   engineLink: checkins.engineLink,
+  method: checkins.method,
 };
 
 type CheckinRow = {
@@ -200,13 +201,16 @@ type CheckinRow = {
   endReason: string | null;
   engineSessionId: number | null;
   engineLink: string | null;
+  method: string;
 };
 
 /**
  * Adds what happened with the engine to each check-in, and applies automatic check-out (engine
  * stopped / never started) even if no device report has saved it yet, so pages are always current.
  */
-async function withEngine<T extends CheckinRow>(rows: T[]): Promise<(T & { engine: CheckinEngine; current: boolean })[]> {
+async function withEngine<T extends CheckinRow>(
+  rows: T[],
+): Promise<(T & { engine: CheckinEngine; current: boolean; engineOffSince: Date | null })[]> {
   if (rows.length === 0) return [];
   const now = Date.now();
   const ids = [...new Set(rows.map((r) => r.engineSessionId).filter((id) => id !== null))];
@@ -216,7 +220,9 @@ async function withEngine<T extends CheckinRow>(rows: T[]): Promise<(T & { engin
     const linked = r.engineSessionId ? (byId.get(r.engineSessionId) ?? null) : null;
     const end = r.endedAt ? null : automaticEnd(r, linked, now);
     const row = end ? { ...r, ...end } : r;
-    return { ...row, engine: checkinEngine(row, linked, now), current: !row.endedAt };
+    // Still checked in with the engine off = on a break (web check-ins survive a short stop).
+    const engineOffSince = !row.endedAt && linked ? engineStoppedAt(linked, now) : null;
+    return { ...row, engine: checkinEngine(row, linked, now), current: !row.endedAt, engineOffSince };
   });
 }
 

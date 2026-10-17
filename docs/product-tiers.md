@@ -68,7 +68,8 @@ not iOS, so it isn't the primary method.
 3. ~~Arm/disarm + unauthorized-use rules + email alerts (platform only)~~ ✅ done, see [alerts.md](alerts.md)
 4. **First firmware work:** command channel from the server to the device (the server's reply to each
    report can carry a command), used for the buzzer
-5. **Firmware:** BLE beacon scanning, reported with each sample
+5. **Firmware:** BLE beacon scanning, reported with each sample. An approved operator's beacon checks
+   them in (check-in `method` = `ble`, no break allowance)
 6. Device authentication (signed device credentials), so data can't be faked
 
 Steps 1–3 need no firmware changes. They work with the stock Telelogger and the simulator.

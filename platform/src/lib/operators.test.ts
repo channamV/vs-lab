@@ -195,6 +195,7 @@ describe("check-in follows the engine", () => {
   const t0 = new Date("2026-10-15T11:00:00Z"); // check-in time
   const at = (min: number) => new Date(t0.getTime() + min * 60_000);
   const window = CHECKIN_RULES.engineStartWindowMinutes;
+  const breakMin = CHECKIN_RULES.breakMinutes.web;
   const startEngine = async (deviceId: string, min: number) =>
     (await db.insert(engineSessions).values({ deviceId, startedAt: at(min), lastSeenAt: at(min) }).returning())[0];
   const engineReport = (id: number, min: number) => db.update(engineSessions).set({ lastSeenAt: at(min) }).where(eq(engineSessions.id, id));
@@ -218,9 +219,37 @@ describe("check-in follows the engine", () => {
     await syncCheckins(db, "DEV00001", at(60));
     expect((await rows())[0].endedAt).toBeNull();
 
+    // Engine off: a web check-in survives the break allowance...
     await stopEngine(s.id, 95);
-    await syncCheckins(db, "DEV00001", at(96));
+    await syncCheckins(db, "DEV00001", at(95 + breakMin - 1));
+    expect((await rows())[0].endedAt).toBeNull();
+    // ...then ends, recorded as of when the engine stopped
+    await syncCheckins(db, "DEV00001", at(95 + breakMin + 1));
     expect((await rows())[0]).toMatchObject({ endedAt: at(95), endReason: "engine stopped" });
+  });
+
+  it("keeps the same operator when the engine restarts within the break allowance", async () => {
+    await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk }, at(0));
+    const first = await startEngine("DEV00001", 2);
+    await syncCheckins(db, "DEV00001", at(2));
+    await stopEngine(first.id, 60); // lunch
+    await syncCheckins(db, "DEV00001", at(70));
+    const [onBreak] = await rows();
+    expect(isCheckinCurrent(onBreak, { ...first, endedAt: at(60) }, at(70).getTime())).toBe(true);
+
+    const second = await startEngine("DEV00001", 60 + breakMin - 5);
+    await syncCheckins(db, "DEV00001", at(60 + breakMin - 5));
+    expect((await rows())[0]).toMatchObject({ engineSessionId: second.id, endedAt: null });
+  });
+
+  it("gives beacon check-ins no break allowance", async () => {
+    await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk }, at(0));
+    await db.update(checkins).set({ method: "ble" });
+    const s = await startEngine("DEV00001", 1);
+    await syncCheckins(db, "DEV00001", at(1));
+    await stopEngine(s.id, 20);
+    await syncCheckins(db, "DEV00001", at(21));
+    expect((await rows())[0]).toMatchObject({ endedAt: at(20), endReason: "engine stopped" });
   });
 
   it("checks the operator out if the engine doesn't start within the window", async () => {
@@ -239,7 +268,8 @@ describe("check-in follows the engine", () => {
     await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk }, at(0));
     await startEngine("DEV00001", 1);
     await syncCheckins(db, "DEV00001", at(1));
-    await syncCheckins(db, "DEV00001", at(30)); // no reports since minute 1 → session gone stale
+    // No reports since minute 1 → session gone stale; after the break allowance the check-in ends
+    await syncCheckins(db, "DEV00001", at(1 + 10 + breakMin + 1));
     expect((await rows())[0]).toMatchObject({ endedAt: at(1), endReason: "engine stopped" });
   });
 

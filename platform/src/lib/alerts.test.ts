@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
 import { alerts, devices, engineSessions } from "@/lib/db/schema";
 import { CHECKLIST } from "@/lib/checklist";
-import { checkIn, checkOut, createOperator, setMachineOperators, syncCheckins } from "@/lib/operators";
+import { CHECKIN_RULES, checkIn, checkOut, createOperator, setMachineOperators, syncCheckins } from "@/lib/operators";
 import { acknowledgeAlert, ALERT_RULES, checkUnauthorizedUse, isArmed, raiseCheckinAlerts } from "./alerts";
 import { alertEmail, deliverAlerts } from "./notify";
 
@@ -55,11 +55,21 @@ describe("unauthorized use", () => {
   it("alerts on a restart after the operator's engine-on period ended", async () => {
     await checkIn(db, { deviceId: "DEV1", pin: "1111", answers: allOk }, at(-2));
     await syncCheckins(db, "DEV1", at(1));
-    // Engine stops at 30 (Jane is checked out automatically), then restarts at 60 with nobody checking in
+    // Engine stops at 30. Jane's break allowance runs out, then the engine restarts with nobody checking in.
     await db.update(engineSessions).set({ endedAt: at(30), lastSeenAt: at(30) });
-    await syncCheckins(db, "DEV1", at(31));
-    await db.insert(engineSessions).values({ deviceId: "DEV1", startedAt: at(60), lastSeenAt: at(60 + grace + 1) });
-    expect(await checkUnauthorizedUse(db, "DEV1", at(60 + grace + 1))).toHaveLength(1);
+    const restart = 30 + CHECKIN_RULES.breakMinutes.web + 10;
+    await db.insert(engineSessions).values({ deviceId: "DEV1", startedAt: at(restart), lastSeenAt: at(restart + grace + 1) });
+    await syncCheckins(db, "DEV1", at(restart + grace + 1));
+    expect(await checkUnauthorizedUse(db, "DEV1", at(restart + grace + 1))).toHaveLength(1);
+  });
+
+  it("doesn't alert when the same operator restarts after a short break", async () => {
+    await checkIn(db, { deviceId: "DEV1", pin: "1111", answers: allOk }, at(-2));
+    await syncCheckins(db, "DEV1", at(1));
+    await db.update(engineSessions).set({ endedAt: at(30), lastSeenAt: at(30) });
+    await db.insert(engineSessions).values({ deviceId: "DEV1", startedAt: at(45), lastSeenAt: at(45 + grace + 1) });
+    await syncCheckins(db, "DEV1", at(45 + grace + 1));
+    expect(await checkUnauthorizedUse(db, "DEV1", at(45 + grace + 1))).toHaveLength(0);
   });
 
   it("only applies to armed Safety & Access Monitoring machines with the engine running", async () => {
