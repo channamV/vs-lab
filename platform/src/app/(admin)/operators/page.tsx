@@ -46,7 +46,10 @@ async function OperatorList() {
         <tbody>
           {operators.map((op) => (
             <tr key={op.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-              <td className="px-4 py-2 font-medium">{op.name}</td>
+              <td className="px-4 py-2">
+                <span className="font-medium">{op.name}</span>
+                {op.employeeNumber && <span className="text-slate-500"> #{op.employeeNumber}</span>}
+              </td>
               <td className="px-4 py-2">
                 {op.active ? (
                   "Active"

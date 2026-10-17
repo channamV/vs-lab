@@ -335,6 +335,7 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
                   <label key={o.id} className="flex items-center gap-2 text-sm">
                     <input type="checkbox" name="operator" value={o.id} defaultChecked={allowed.includes(o.id)} />
                     {o.name}
+                    {o.employeeNumber && <span className="text-xs text-slate-500">#{o.employeeNumber}</span>}
                     {!o.active && <span className="text-xs text-slate-500">(inactive)</span>}
                   </label>
                 ))}

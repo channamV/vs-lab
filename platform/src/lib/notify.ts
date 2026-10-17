@@ -1,29 +1,44 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { alerts, type Alert } from "@/lib/db/schema";
+import { alerts, users, type Alert } from "@/lib/db/schema";
 
 /**
- * Alert emails through Resend (resend.com, free tier: 3,000 emails a month). Uses Resend's HTTP API
- * directly, so swapping to another email service only means changing sendEmail().
+ * Email (sign-in links and alerts) through Resend (resend.com, free tier: 3,000 emails a month). Uses
+ * Resend's HTTP API directly, so swapping to another email service only means changing sendEmail().
  *
  * Settings (Vercel → Settings → Environment Variables):
  *   RESEND_API_KEY    the API key from resend.com
- *   ALERT_EMAIL_TO    who gets alerts; several addresses separated by commas
- *   ALERT_EMAIL_FROM  optional. Defaults to Resend's test sender, which can only send to the email
- *                     address you signed up to Resend with. Verify a domain in Resend to send to anyone.
+ *   ALERT_EMAIL_FROM  optional sender, e.g. "VS Lab <alerts@veristart.ai>" (a domain verified in Resend).
+ *                     Defaults to Resend's test sender, which only delivers to your own Resend address.
+ *   ALERT_EMAIL_TO    optional extra addresses that get every alert from every organization (platform
+ *                     staff). Each organization's owners and managers get its alerts automatically.
  *   APP_URL           optional. The site address for links in emails (Vercel's own address is used if unset).
  */
 
-export type EmailSettings = { apiKey: string; to: string[]; from: string };
+export type Sender = { apiKey: string; from: string };
 
-export function emailSettings(): EmailSettings | null {
+export function senderSettings(): Sender | null {
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  const to = (process.env.ALERT_EMAIL_TO ?? "")
+  if (!apiKey) return null;
+  return { apiKey, from: process.env.ALERT_EMAIL_FROM?.trim() || "VS Lab <onboarding@resend.dev>" };
+}
+
+const splitEmails = (value: string | undefined) =>
+  (value ?? "")
     .split(",")
-    .map((s) => s.trim())
+    .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  if (!apiKey || to.length === 0) return null;
-  return { apiKey, to, from: process.env.ALERT_EMAIL_FROM?.trim() || "VS Lab <onboarding@resend.dev>" };
+
+/**
+ * Who gets an organization's alerts: its active owners and managers, plus ALERT_EMAIL_TO.
+ * (Per-user alert subscriptions will replace this.)
+ */
+export async function alertRecipients(db: Db, organizationId: number): Promise<string[]> {
+  const rows = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(and(eq(users.organizationId, organizationId), eq(users.active, true), inArray(users.role, ["owner", "manager"])));
+  return [...new Set([...rows.map((r) => r.email), ...splitEmails(process.env.ALERT_EMAIL_TO)])];
 }
 
 /** The site's public address, for links in emails. */
@@ -54,12 +69,16 @@ export function alertEmail(alert: Pick<Alert, "title" | "detail" | "deviceId">, 
   };
 }
 
-export async function sendEmail(settings: EmailSettings, message: EmailMessage): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function sendEmail(
+  sender: Sender,
+  to: string[],
+  message: EmailMessage,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { Authorization: `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: settings.from, to: settings.to, subject: message.subject, text: message.text }),
+      headers: { Authorization: `Bearer ${sender.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: sender.from, to, subject: message.subject, text: message.text }),
     });
     if (res.ok) return { ok: true };
     return { ok: false, error: `Resend ${res.status}: ${(await res.text()).slice(0, 300)}` };
@@ -71,14 +90,21 @@ export async function sendEmail(settings: EmailSettings, message: EmailMessage):
 /** Emails each new alert and records the result on the alert. Never throws. */
 export async function deliverAlerts(db: Db, newAlerts: Alert[]) {
   if (newAlerts.length === 0) return;
-  const settings = emailSettings();
+  const sender = senderSettings();
   for (const alert of newAlerts) {
     try {
-      if (!settings) {
-        await db.update(alerts).set({ emailStatus: "not-configured" }).where(eq(alerts.id, alert.id));
+      const to = await alertRecipients(db, alert.organizationId);
+      if (!sender || to.length === 0) {
+        await db
+          .update(alerts)
+          .set({ emailStatus: sender ? "no-recipients" : "not-configured" })
+          .where(eq(alerts.id, alert.id));
         continue;
       }
-      const result = await sendEmail(settings, alertEmail(alert, appUrl()));
+      // Recipients don't see each other's addresses: one email per person.
+      const results = await Promise.all(to.map((address) => sendEmail(sender, [address], alertEmail(alert, appUrl()))));
+      const failed = results.find((r) => !r.ok);
+      const result = failed ?? { ok: true as const };
       await db
         .update(alerts)
         .set(result.ok ? { emailStatus: "sent", emailError: null } : { emailStatus: "failed", emailError: result.error })
@@ -87,4 +113,19 @@ export async function deliverAlerts(db: Db, newAlerts: Alert[]) {
       console.error("Alert email failed", alert.id, err);
     }
   }
+}
+
+export function signInEmail(link: string, minutes: number): EmailMessage {
+  return {
+    subject: "Your VS Lab sign-in link",
+    text: [
+      "Click to sign in to VS Lab:",
+      "",
+      link,
+      "",
+      `The link works once, for ${minutes} minutes. If you didn't ask for it, ignore this email.`,
+      "",
+      "— VS Lab",
+    ].join("\n"),
+  };
 }

@@ -55,8 +55,10 @@ The numbers (100 m, 150 m, 5 minutes, 30-minute break) are in `CHECKIN_RULES` in
 
 ## Setting it up (fleet manager)
 
-1. **Add operators:** *Operators* page → name + a 4–8 digit PIN. Each operator needs a different PIN,
-   and the PIN alone identifies them. PINs can't be looked up later, only reset (*Edit*).
+1. **Add operators:** *Operators* page → name, optional employee #, and a 4–8 digit PIN. Each operator
+   in your organization needs a different PIN (other organizations can use the same PINs). Names can
+   repeat; the employee # tells two people with the same name apart. PINs can't be looked up later,
+   only reset (*Edit*).
 2. **Approve operators per machine (optional):** machine page → *Approved operators*. If nobody is
    ticked, any active operator can check in. If some are ticked, others can still check in but are
    flagged as **not approved**.
@@ -76,7 +78,7 @@ The numbers (100 m, 150 m, 5 minutes, 30-minute break) are in `CHECKIN_RULES` in
 
 - Phone locations are stored with each check-in, for the audit trail only.
 - The check-in page is public: anyone with the QR code can open it. It shows only the machine's
-  name and who is checked in. Nothing else is visible without the admin password.
+  name and who is checked in. Nothing else is visible without signing in.
 - PINs are short, so they're a convenience, not strong security. After 5 wrong PINs on a machine
   within 10 minutes, that machine's page stops accepting PINs for 10 minutes.
 - To stop someone checking in, untick *Active* on their operator page. That also checks them out.

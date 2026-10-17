@@ -101,6 +101,7 @@ first firmware change. Ask Claude Code to make it and flash it.
 | Logs in, but no position | Indoors; wait for a GPS fix by a window |
 | Platform shows device but data stops | Check the device's log; check Vercel → Logs for errors |
 | `Unknown device` replies | `DEVICE_AUTO_REGISTER=false` is set and the device isn't registered yet |
+| Device reports, but isn't on the Fleet page | It's new, so it's *unclaimed*: Platform page → assign it to your organization |
 
 ## Security notes for later (before real customer use)
 

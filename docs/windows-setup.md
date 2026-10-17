@@ -51,11 +51,28 @@ npm install
 
 ## 3. Run the platform
 
+First, once: tell the platform who you are. Create a file called `.env.local` in the `platform`
+folder containing one line with your email:
+
+```powershell
+Set-Content .env.local "PLATFORM_ADMIN_EMAILS=you@example.com"
+```
+
+Then add the simulated machines (and a week of history) to your organization:
+
+```powershell
+npm run demo:seed
+```
+
+Start the platform:
+
 ```powershell
 npm run dev
 ```
 
-Open **http://localhost:3000** in your browser. You'll see an empty Fleet page.
+Open **http://localhost:3000** in your browser and enter your email to sign in. On your PC there's no
+email set up, so the **sign-in link is printed in this PowerShell window**: copy it into the browser,
+then press *Sign in to VS Lab*.
 
 Leave that window running. Open a **second** PowerShell window:
 
@@ -65,7 +82,8 @@ npm run simulate
 ```
 
 Three simulated machines appear on the map within a few seconds and move around Toronto-area
-jobsites. Their engines start and stop every few minutes, so you can watch the Engine column
+jobsites. (A brand-new device ID would appear under **Platform** as unclaimed instead; `demo:seed`
+already put the three simulated machines in your organization.) Their engines start and stop every few minutes, so you can watch the Engine column
 change. Click one to see its details, rename it, or change its service level.
 Press **Ctrl+C** in either window to stop it.
 

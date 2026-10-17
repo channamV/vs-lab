@@ -40,7 +40,8 @@ About 10 minutes. Resend's free plan allows 3,000 emails a month (100 a day).
    (starts with `re_`). It's only shown once.
 3. In Vercel → `vs-lab-platform-tpj9` → **Settings → Environment Variables**, add (tick Production and Preview):
    - `RESEND_API_KEY` = the key
-   - `ALERT_EMAIL_TO` = your email address (several addresses: separate with commas)
+   - `ALERT_EMAIL_TO` (optional) = extra addresses that get every organization's alerts. Each
+     organization's owners and managers get its alerts automatically.
 4. **Deployments → ⋯ → Redeploy.**
 5. On the **Alerts** page click **Send test email**. It says "Sent to …" or explains what's wrong.
 

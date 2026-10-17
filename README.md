@@ -24,6 +24,7 @@ sticker on the machine, entering a PIN and completing the pre-start checklist, a
 4. [Product tiers](docs/product-tiers.md) — what we're building and in what order
 5. [Operators and QR check-in](docs/operator-checkin.md) — set up operators, approvals and QR stickers
 6. [Alerts and arm/disarm](docs/alerts.md) — what raises an alert, and setting up email
+7. [Organizations, users and sign-in](docs/organizations-and-users.md) — customers, roles, new devices
 
 ## Quick start
 

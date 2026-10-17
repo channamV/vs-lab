@@ -28,13 +28,24 @@ github.com/stanleyhuangyc/Freematics.
 - `/hub/api/*` is unauthenticated (devices can't log in); everything else is behind `src/proxy.ts`
   **and** a session check in `src/lib/data.ts`. Keep both.
 
-## Public pages and access rules
+## Organizations, sign-in and access rules
 
-- Unauthenticated: `/hub/api/*` (devices), `/login`, and `/checkin/<machine>` (operator QR check-in,
+- **Multi-tenant.** Every customer is an `organization`. Devices (`organization_id` null = unclaimed),
+  operators, check-ins, alerts and users belong to one. Every page read in `src/lib/data.ts` and every admin
+  action filters by the signed-in user's `organizationId`; per-machine reads go through `requireDevice()`.
+  Never query tenant data without that filter. Logic modules take `organizationId` as a parameter.
+- **Sign-in** is an emailed one-time link (`src/lib/auth.ts`, tested): only token hashes are stored; the
+  link opens `/login/verify`, where a button (POST) signs in, because email scanners pre-open links.
+  Sessions are DB rows; the cookie holds a random token. Roles: owner / manager / viewer.
+  Platform admins = `PLATFORM_ADMIN_EMAILS` (env); they can switch the organization they view.
+  `ADMIN_PASSWORD` is a transition fallback that signs in as the first platform admin; remove it later.
+- `src/proxy.ts` only checks a session cookie is present; `src/lib/session.ts` validates it against the
+  database. Every admin server action must call `requireAuth("manager" | "owner")` (or
+  `requirePlatformAdmin()`) itself: server actions can be posted to any route, including public ones.
+- Unauthenticated: `/hub/api/*` (devices), `/login*`, and `/checkin/<machine>` (operator QR check-in,
   `src/app/checkin/`). The check-in page reads only through `src/lib/checkin-page.ts` (machine name +
-  current operator); its actions accept just a machine ID, PIN and checklist answers.
-- Every admin server action must call `requireAdmin()` (`src/lib/admin.ts`) itself. Server actions
-  can be posted to any route, including the public ones, so the proxy alone doesn't protect them.
+  current operator); its actions accept just a machine ID, PIN and checklist answers. PINs are unique per
+  organization; the machine identifies the organization. Unclaimed machines can't be checked in to.
 - Admin pages live in `src/app/(admin)/` (with the nav bar); check-in pages have their own layout.
 
 ## Commands (run from `platform/`)
@@ -66,6 +77,7 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   using an API you're unsure of. `middleware` is now `proxy`. Request-time data must sit under
   `<Suspense>`; data functions call `connection()` (via `requireSession`).
 - All DB reads for pages go through `src/lib/data.ts`. Device writes go through `src/lib/telemetry/ingest.ts`.
+- Organizations, users, device assignment: `src/lib/organizations.ts` (tested).
 - Operators, approvals, check-in/out, PIN rate limit and phone-location check: `src/lib/operators.ts`
   (takes the db, tested; thresholds in `CHECKIN_RULES`). Flag wording: `src/lib/checkin-flags.ts`.
   The pre-start checklist questions: `src/lib/checklist.ts`.
@@ -75,7 +87,7 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   the engine-stop time. A restart within the allowance re-links to the new session. Operators never have to check out. `syncCheckins()` saves this on each device report and before check-in/out;
   pages apply the same rules on read (`automaticEnd`, `isCheckinCurrent`) so they're right between reports.
 - Alerts: rules in `src/lib/alerts.ts` (takes the db, tested; `ALERT_RULES`), email via Resend's HTTP API in
-  `src/lib/notify.ts`. Rules run in `after()` (`src/lib/alert-jobs.ts`) from the device routes and the
+  `src/lib/notify.ts` (recipients: the organization's owners + managers, plus `ALERT_EMAIL_TO`). Rules run in `after()` (`src/lib/alert-jobs.ts`) from the device routes and the
   check-in action, so they never delay or break a device's HTTP 200. Dedupe is by unique index
   (one per engine session / per check-in).
 - Forms using `useActionState`: React clears fields after every submit, so on an error return the

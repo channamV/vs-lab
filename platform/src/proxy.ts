@@ -1,12 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
 
 /**
- * Sends signed-out visitors to /login. Excluded by the matcher: device endpoints (/hub/api),
- * the operator check-in pages (/checkin/<machine>, opened from the QR sticker) and static files.
+ * First gate: sends visitors without a sign-in cookie to /login. The cookie itself is checked against
+ * the database by every page and action (src/lib/session.ts), so a fake cookie gets nothing.
+ * Excluded by the matcher: device endpoints (/hub/api), the operator check-in pages
+ * (/checkin/<machine>, opened from the QR sticker), sign-in pages and static files.
  */
-export async function proxy(request: NextRequest) {
-  if (await isValidSession(request.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
+export function proxy(request: NextRequest) {
+  if (request.cookies.get(SESSION_COOKIE)?.value) return NextResponse.next();
   const url = new URL("/login", request.url);
   url.searchParams.set("next", request.nextUrl.pathname);
   return NextResponse.redirect(url);

@@ -2,7 +2,7 @@
  * Fills in the past week of engine history for the simulated machines (SIM00001…),
  * so the engine-hours chart has something to show. Only touches SIM* devices.
  *
- * Also adds three demo operators (PINs 1111, 2222, 3333) and a check-in with the pre-start
+ * The SIM machines go into the first organization ("Veristart Lab"). Also adds three demo operators (PINs 1111, 2222, 3333) and a check-in with the pre-start
  * checklist before each engine start.
  *
  *   npm run demo:seed                  # 3 machines
@@ -11,9 +11,9 @@
  * Works against whichever database the platform uses (DATABASE_URL, or the embedded one).
  */
 import { parseArgs } from "node:util";
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt } from "drizzle-orm";
 import { createDb, defaultDbOptions, migrateDb } from "../src/lib/db";
-import { checkins, devices, engineSessions, operators, type ChecklistAnswer } from "../src/lib/db/schema";
+import { checkins, devices, engineSessions, operators, organizations, type ChecklistAnswer } from "../src/lib/db/schema";
 import { CHECKLIST } from "../src/lib/checklist";
 import { hashPin } from "../src/lib/operators";
 import { appTimeZone, startOfLocalDay } from "../src/lib/telemetry/engine";
@@ -33,18 +33,27 @@ async function main() {
   const tz = appTimeZone();
   const todayStart = startOfLocalDay(now, tz);
 
-  // Demo operators: reuse them if they already exist (same PIN).
+  // Simulated machines belong to the first organization (created if needed).
+  let [org] = await db.select().from(organizations).orderBy(asc(organizations.id)).limit(1);
+  if (!org) [org] = await db.insert(organizations).values({ name: "Veristart Lab" }).returning();
+  const organizationId = org.id;
+
+  // Demo operators: reuse them if they already exist (same PIN in this organization).
   const demoOperators = [];
   for (const [name, pin] of [["Demo · Jane Smith", "1111"], ["Demo · Raj Patel", "2222"], ["Demo · Luc Tremblay", "3333"]]) {
-    await db.insert(operators).values({ name, pinHash: hashPin(pin) }).onConflictDoNothing();
-    const [op] = await db.select().from(operators).where(eq(operators.pinHash, hashPin(pin)));
+    await db.insert(operators).values({ organizationId, name, pinHash: hashPin(pin) }).onConflictDoNothing();
+    const [op] = await db
+      .select()
+      .from(operators)
+      .where(and(eq(operators.organizationId, organizationId), eq(operators.pinHash, hashPin(pin))));
     demoOperators.push(op);
   }
   const demoIds = demoOperators.map((o) => o.id);
 
   for (let n = 1; n <= count; n++) {
     const id = `SIM${String(n).padStart(5, "0")}`;
-    await db.insert(devices).values({ id }).onConflictDoNothing();
+    await db.insert(devices).values({ id, organizationId }).onConflictDoNothing();
+    await db.update(devices).set({ organizationId }).where(and(eq(devices.id, id), isNull(devices.organizationId)));
     // Replace earlier demo history (before today) so re-running doesn't double up.
     await db.delete(engineSessions).where(and(eq(engineSessions.deviceId, id), lt(engineSessions.startedAt, new Date(todayStart))));
     await db
@@ -76,6 +85,7 @@ async function main() {
         // Now and then a checklist item fails, or the phone wasn't at the machine.
         const answers: ChecklistAnswer[] = CHECKLIST.map((item) => ({ ...item, ok: Math.random() > 0.02 }));
         checkinRows.push({
+          organizationId,
           deviceId: id,
           operatorId,
           startedAt: new Date(t - rand(1, 4) * 60_000),

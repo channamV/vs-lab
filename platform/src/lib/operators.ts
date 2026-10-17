@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, gte, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import {
   checkins,
@@ -199,30 +199,77 @@ function checkPin(pin: string) {
   if (!PIN_PATTERN.test(pin)) throw new OperatorError("PIN must be 4 to 8 digits.");
 }
 
-async function assertPinFree(db: Db, pin: string, exceptOperatorId?: number) {
+/** PINs only need to be unique within an organization: the machine's QR code tells us which one. */
+async function assertPinFree(db: Db, organizationId: number, pin: string, exceptOperatorId?: number) {
   const [taken] = await db
     .select({ id: operators.id })
     .from(operators)
-    .where(and(eq(operators.pinHash, hashPin(pin)), exceptOperatorId ? ne(operators.id, exceptOperatorId) : undefined));
+    .where(
+      and(
+        eq(operators.organizationId, organizationId),
+        eq(operators.pinHash, hashPin(pin)),
+        exceptOperatorId ? ne(operators.id, exceptOperatorId) : undefined,
+      ),
+    );
   if (taken) throw new OperatorError("That PIN is already used by another operator. Choose a different one.");
 }
 
-export async function createOperator(db: Db, input: { name: string; pin: string }) {
+/** Employee numbers are optional, and unique within an organization. Names can repeat. */
+async function cleanEmployeeNumber(db: Db, organizationId: number, value: string | undefined, exceptOperatorId?: number) {
+  const employeeNumber = value?.trim() || null;
+  if (!employeeNumber) return null;
+  const [taken] = await db
+    .select({ id: operators.id })
+    .from(operators)
+    .where(
+      and(
+        eq(operators.organizationId, organizationId),
+        eq(operators.employeeNumber, employeeNumber),
+        exceptOperatorId ? ne(operators.id, exceptOperatorId) : undefined,
+      ),
+    );
+  if (taken) throw new OperatorError(`Employee number ${employeeNumber} is already used by another operator.`);
+  return employeeNumber;
+}
+
+export async function createOperator(
+  db: Db,
+  organizationId: number,
+  input: { name: string; pin: string; employeeNumber?: string },
+) {
   const name = input.name.trim();
   if (!name) throw new OperatorError("Enter the operator's name.");
   checkPin(input.pin);
-  await assertPinFree(db, input.pin);
-  const [row] = await db.insert(operators).values({ name, pinHash: hashPin(input.pin) }).returning();
+  await assertPinFree(db, organizationId, input.pin);
+  const employeeNumber = await cleanEmployeeNumber(db, organizationId, input.employeeNumber);
+  const [row] = await db
+    .insert(operators)
+    .values({ organizationId, name, employeeNumber, pinHash: hashPin(input.pin) })
+    .returning();
   return row;
 }
 
-export async function updateOperator(db: Db, id: number, input: { name: string; active: boolean; newPin?: string }) {
+export async function updateOperator(
+  db: Db,
+  organizationId: number,
+  id: number,
+  input: { name: string; active: boolean; newPin?: string; employeeNumber?: string },
+) {
   const name = input.name.trim();
   if (!name) throw new OperatorError("Enter the operator's name.");
-  const changes: Partial<typeof operators.$inferInsert> = { name, active: input.active };
+  const [existing] = await db
+    .select({ id: operators.id })
+    .from(operators)
+    .where(and(eq(operators.id, id), eq(operators.organizationId, organizationId)));
+  if (!existing) throw new OperatorError("Operator not found.");
+  const changes: Partial<typeof operators.$inferInsert> = {
+    name,
+    active: input.active,
+    employeeNumber: await cleanEmployeeNumber(db, organizationId, input.employeeNumber, id),
+  };
   if (input.newPin) {
     checkPin(input.newPin);
-    await assertPinFree(db, input.newPin, id);
+    await assertPinFree(db, organizationId, input.newPin, id);
     changes.pinHash = hashPin(input.newPin);
   }
   await db.update(operators).set(changes).where(eq(operators.id, id));
@@ -236,7 +283,20 @@ export async function updateOperator(db: Db, id: number, input: { name: string; 
 }
 
 /** Replaces the list of operators allowed on a machine. An empty list means any active operator. */
-export async function setMachineOperators(db: Db, deviceId: string, operatorIds: number[]) {
+export async function setMachineOperators(db: Db, organizationId: number, deviceId: string, operatorIds: number[]) {
+  const [device] = await db
+    .select({ id: devices.id })
+    .from(devices)
+    .where(and(eq(devices.id, deviceId), eq(devices.organizationId, organizationId)));
+  if (!device) throw new OperatorError("Machine not found.");
+  // Only this organization's operators.
+  const valid = operatorIds.length
+    ? await db
+        .select({ id: operators.id })
+        .from(operators)
+        .where(and(eq(operators.organizationId, organizationId), inArray(operators.id, operatorIds)))
+    : [];
+  operatorIds = valid.map((o) => o.id);
   await db.transaction(async (tx) => {
     await tx.delete(machineOperators).where(eq(machineOperators.deviceId, deviceId));
     if (operatorIds.length) {
@@ -254,13 +314,15 @@ async function isLockedOut(db: Db, deviceId: string, now: Date) {
   return count >= CHECKIN_RULES.maxPinFailures;
 }
 
-/** Finds the active operator with this PIN. Wrong PINs are recorded for the rate limit. */
-async function operatorForPin(db: Db, deviceId: string, pin: string, now: Date) {
+/** Finds the machine's organization's active operator with this PIN. Wrong PINs are recorded for the rate limit. */
+async function operatorForPin(db: Db, organizationId: number, deviceId: string, pin: string, now: Date) {
   const [operator] = PIN_PATTERN.test(pin)
     ? await db
         .select()
         .from(operators)
-        .where(and(eq(operators.pinHash, hashPin(pin)), eq(operators.active, true)))
+        .where(
+          and(eq(operators.organizationId, organizationId), eq(operators.pinHash, hashPin(pin)), eq(operators.active, true)),
+        )
     : [];
   if (!operator) await db.insert(pinFailures).values({ deviceId, at: now });
   return operator ?? null;
@@ -301,13 +363,15 @@ export async function checkIn(
   now = new Date(),
 ): Promise<CheckInResult> {
   const [device] = await db
-    .select({ id: devices.id, lat: devices.lastLat, lng: devices.lastLng })
+    .select({ id: devices.id, organizationId: devices.organizationId, lat: devices.lastLat, lng: devices.lastLng })
     .from(devices)
     .where(eq(devices.id, input.deviceId));
-  if (!device) return { ok: false, reason: "unknown-machine" };
+  // Unclaimed machines (not assigned to an organization yet) can't be checked in to.
+  if (!device || device.organizationId === null) return { ok: false, reason: "unknown-machine" };
+  const organizationId = device.organizationId;
   if (await isLockedOut(db, device.id, now)) return { ok: false, reason: "locked" };
 
-  const operator = await operatorForPin(db, device.id, input.pin, now);
+  const operator = await operatorForPin(db, organizationId, device.id, input.pin, now);
   if (!operator) return { ok: false, reason: "bad-pin" };
 
   if (CHECKLIST.some((item) => typeof input.answers[item.id] !== "boolean")) return { ok: false, reason: "incomplete" };
@@ -349,6 +413,7 @@ export async function checkIn(
     return tx
       .insert(checkins)
       .values({
+        organizationId,
         deviceId: device.id,
         operatorId: operator.id,
         startedAt: now,
@@ -390,6 +455,11 @@ export async function checkOut(
   input: { deviceId: string; pin: string },
   now = new Date(),
 ): Promise<{ ok: true; operatorName: string } | { ok: false; reason: CheckinFailure }> {
+  const [device] = await db
+    .select({ organizationId: devices.organizationId })
+    .from(devices)
+    .where(eq(devices.id, input.deviceId));
+  if (!device?.organizationId) return { ok: false, reason: "unknown-machine" };
   if (await isLockedOut(db, input.deviceId, now)) return { ok: false, reason: "locked" };
   await syncCheckins(db, input.deviceId, now);
   const [open] = await db
@@ -398,7 +468,7 @@ export async function checkOut(
     .where(and(eq(checkins.deviceId, input.deviceId), isNull(checkins.endedAt)));
   if (!open) return { ok: false, reason: "not-checked-in" };
 
-  const operator = await operatorForPin(db, input.deviceId, input.pin, now);
+  const operator = await operatorForPin(db, device.organizationId, input.deviceId, input.pin, now);
   if (!operator || operator.id !== open.operatorId) {
     if (operator) await db.insert(pinFailures).values({ deviceId: input.deviceId, at: now });
     return { ok: false, reason: "bad-pin" };
@@ -408,9 +478,9 @@ export async function checkOut(
 }
 
 /** A fleet manager ends a check-in from the machine page. */
-export async function endCheckin(db: Db, checkinId: number, now = new Date()) {
+export async function endCheckin(db: Db, organizationId: number, checkinId: number, now = new Date()) {
   await db
     .update(checkins)
     .set({ endedAt: now, endReason: "ended by manager" })
-    .where(and(eq(checkins.id, checkinId), isNull(checkins.endedAt)));
+    .where(and(eq(checkins.id, checkinId), eq(checkins.organizationId, organizationId), isNull(checkins.endedAt)));
 }

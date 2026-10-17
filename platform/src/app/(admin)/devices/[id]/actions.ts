@@ -1,9 +1,9 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { refresh } from "next/cache";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/admin";
+import { requireAuth } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { devices, tierEnum } from "@/lib/db/schema";
 import { endCheckin, setMachineOperators } from "@/lib/operators";
@@ -16,7 +16,7 @@ const UpdateDevice = z.object({
 });
 
 export async function updateDevice(formData: FormData) {
-  await requireAdmin();
+  const auth = await requireAuth("manager");
   const input = UpdateDevice.parse({
     id: formData.get("id"),
     name: formData.get("name") ?? "",
@@ -25,7 +25,7 @@ export async function updateDevice(formData: FormData) {
   await getDb()
     .update(devices)
     .set({ name: input.name || null, tier: input.tier })
-    .where(eq(devices.id, input.id));
+    .where(and(eq(devices.id, input.id), eq(devices.organizationId, auth.organizationId)));
   refresh();
 }
 
@@ -35,16 +35,16 @@ const AllowedOperators = z.object({
 });
 
 export async function setAllowedOperators(formData: FormData) {
-  await requireAdmin();
+  const auth = await requireAuth("manager");
   const input = AllowedOperators.parse({ id: formData.get("id"), operatorIds: formData.getAll("operator") });
-  await setMachineOperators(getDb(), input.id, input.operatorIds);
+  await setMachineOperators(getDb(), auth.organizationId, input.id, input.operatorIds);
   refresh();
 }
 
 export async function endCheckinAction(formData: FormData) {
-  await requireAdmin();
+  const auth = await requireAuth("manager");
   const checkinId = z.coerce.number().int().positive().parse(formData.get("checkinId"));
-  await endCheckin(getDb(), checkinId);
+  await endCheckin(getDb(), auth.organizationId, checkinId);
   refresh();
 }
 
@@ -55,7 +55,7 @@ const Arming = z.object({
 
 /** Arm, or disarm for a while (e.g. during a service visit). Timed disarms re-arm themselves. */
 export async function setArming(formData: FormData) {
-  await requireAdmin();
+  const auth = await requireAuth("manager");
   const { id, mode } = Arming.parse({ id: formData.get("id"), mode: formData.get("mode") });
   const now = Date.now();
   const until = {
@@ -69,6 +69,6 @@ export async function setArming(formData: FormData) {
   await getDb()
     .update(devices)
     .set({ disarmed: mode !== "arm", disarmedUntil: until })
-    .where(eq(devices.id, id));
+    .where(and(eq(devices.id, id), eq(devices.organizationId, auth.organizationId)));
   refresh();
 }

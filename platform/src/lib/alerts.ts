@@ -49,7 +49,7 @@ async function raise(db: Db, values: typeof alerts.$inferInsert): Promise<Alert[
  */
 export async function checkUnauthorizedUse(db: Db, deviceId: string, now = new Date()): Promise<Alert[]> {
   const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
-  if (!device || !isMonitored(device) || !device.engineOn || !isArmed(device, now.getTime())) return [];
+  if (!device?.organizationId || !isMonitored(device) || !device.engineOn || !isArmed(device, now.getTime())) return [];
 
   const [session] = await db
     .select()
@@ -80,6 +80,7 @@ export async function checkUnauthorizedUse(db: Db, deviceId: string, now = new D
 
   const minutes = Math.round((now.getTime() - session.startedAt.getTime()) / 60_000);
   return raise(db, {
+    organizationId: device.organizationId,
     deviceId,
     type: "unauthorized-use",
     createdAt: now,
@@ -100,7 +101,7 @@ export async function raiseCheckinAlerts(db: Db, checkinId: number, now = new Da
   if (!row || !isMonitored(row.device)) return [];
   const { checkin: c, device, operatorName: who } = row;
   const name = machineName(device);
-  const base = { deviceId: device.id, checkinId: c.id, createdAt: now };
+  const base = { organizationId: c.organizationId, deviceId: device.id, checkinId: c.id, createdAt: now };
   const raised: Alert[] = [];
 
   if (!c.checklistOk) {
@@ -140,9 +141,9 @@ export async function raiseCheckinAlerts(db: Db, checkinId: number, now = new Da
   return raised;
 }
 
-export async function acknowledgeAlert(db: Db, alertId: number, note: string, now = new Date()) {
+export async function acknowledgeAlert(db: Db, organizationId: number, alertId: number, note: string, now = new Date()) {
   await db
     .update(alerts)
     .set({ acknowledgedAt: now, ackNote: note.trim() || null })
-    .where(and(eq(alerts.id, alertId), isNull(alerts.acknowledgedAt)));
+    .where(and(eq(alerts.id, alertId), eq(alerts.organizationId, organizationId), isNull(alerts.acknowledgedAt)));
 }

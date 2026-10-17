@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { alerts, devices, engineSessions } from "@/lib/db/schema";
+import { alerts, devices, engineSessions, organizations, users } from "@/lib/db/schema";
 import { CHECKLIST } from "@/lib/checklist";
 import { CHECKIN_RULES, checkIn, checkOut, createOperator, setMachineOperators, syncCheckins } from "@/lib/operators";
 import { acknowledgeAlert, ALERT_RULES, checkUnauthorizedUse, isArmed, raiseCheckinAlerts } from "./alerts";
 import { alertEmail, deliverAlerts } from "./notify";
 
 let db: Db;
+let ORG: number;
 const allOk = Object.fromEntries(CHECKLIST.map((item) => [item.id, true]));
 const t0 = new Date("2026-10-15T12:00:00Z");
 const at = (min: number) => new Date(t0.getTime() + min * 60_000);
@@ -17,9 +18,12 @@ beforeEach(async () => {
   db = createDb();
   await migrateDb(db, false);
   // A monitored machine whose engine started at t0
-  await db.insert(devices).values({ id: "DEV1", name: "Excavator 14", tier: "monitor", engineOn: true, lastLat: 43.65, lastLng: -79.38 });
+  [{ id: ORG }] = await db.insert(organizations).values({ name: "Org A" }).returning();
+  await db
+    .insert(devices)
+    .values({ id: "DEV1", organizationId: ORG, name: "Excavator 14", tier: "monitor", engineOn: true, lastLat: 43.65, lastLng: -79.38 });
   await db.insert(engineSessions).values({ deviceId: "DEV1", startedAt: t0, lastSeenAt: t0 });
-  await createOperator(db, { name: "Jane", pin: "1111" });
+  await createOperator(db, ORG, { name: "Jane", pin: "1111" });
 });
 
 afterEach(() => {
@@ -99,8 +103,8 @@ describe("isArmed", () => {
 
 describe("check-in alerts", () => {
   it("raises one alert per problem, once", async () => {
-    const other = await createOperator(db, { name: "Bob", pin: "2222" });
-    await setMachineOperators(db, "DEV1", [other.id]);
+    const other = await createOperator(db, ORG, { name: "Bob", pin: "2222" });
+    await setMachineOperators(db, ORG, "DEV1", [other.id]);
     const result = await checkIn(db, {
       deviceId: "DEV1",
       pin: "1111",
@@ -131,7 +135,7 @@ describe("check-in alerts", () => {
 describe("acknowledgeAlert", () => {
   it("records when and why", async () => {
     const [alert] = await checkUnauthorizedUse(db, "DEV1", at(grace + 1));
-    await acknowledgeAlert(db, alert.id, " Mechanic testing hydraulics ", at(30));
+    await acknowledgeAlert(db, ORG, alert.id, " Mechanic testing hydraulics ", at(30));
     const [row] = await db.select().from(alerts).where(eq(alerts.id, alert.id));
     expect(row).toMatchObject({ acknowledgedAt: at(30), ackNote: "Mechanic testing hydraulics" });
   });
@@ -152,25 +156,38 @@ describe("alert emails", () => {
     expect((await db.select().from(alerts))[0].emailStatus).toBe("not-configured");
   });
 
-  it("sends through Resend and records failures", async () => {
+  it("emails the organization's owners and managers (one email each) and records failures", async () => {
     vi.stubEnv("RESEND_API_KEY", "re_test");
-    vi.stubEnv("ALERT_EMAIL_TO", "craig@example.com, ops@example.com");
+    vi.stubEnv("ALERT_EMAIL_TO", "");
+    await db.insert(users).values([
+      { organizationId: ORG, email: "owner@a.com", role: "owner" },
+      { organizationId: ORG, email: "viewer@a.com", role: "viewer" },
+      { organizationId: ORG, email: "gone@a.com", role: "manager", active: false },
+    ]);
+    const [other] = await db.insert(organizations).values({ name: "Org B" }).returning();
+    await db.insert(users).values({ organizationId: other.id, email: "manager@b.com", role: "manager" });
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
+
     const raised = await checkUnauthorizedUse(db, "DEV1", at(grace + 1));
     await deliverAlerts(db, raised);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("https://api.resend.com/emails");
-    expect(JSON.parse(init.body)).toMatchObject({ to: ["craig@example.com", "ops@example.com"], subject: "⚠ Unauthorized use: Excavator 14" });
+    const sentTo = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body).to);
+    expect(sentTo).toEqual([["owner@a.com"]]); // not the viewer, the deactivated user, or Org B
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).subject).toBe("⚠ Unauthorized use: Excavator 14");
     expect((await db.select().from(alerts))[0].emailStatus).toBe("sent");
 
     fetchMock.mockResolvedValue(new Response("invalid key", { status: 401 }));
     const [another] = await db
       .insert(alerts)
-      .values({ deviceId: "DEV1", type: "not-approved", title: "t", createdAt: at(1) })
+      .values({ organizationId: ORG, deviceId: "DEV1", type: "not-approved", title: "t", createdAt: at(1) })
       .returning();
     await deliverAlerts(db, [another]);
     const [failed] = await db.select().from(alerts).where(eq(alerts.id, another.id));
     expect(failed).toMatchObject({ emailStatus: "failed", emailError: "Resend 401: invalid key" });
+  });
+
+  it("doesn't raise alerts for unclaimed machines", async () => {
+    await db.update(devices).set({ organizationId: null });
+    expect(await checkUnauthorizedUse(db, "DEV1", at(grace + 1))).toHaveLength(0);
   });
 });

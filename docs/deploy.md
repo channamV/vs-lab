@@ -21,10 +21,13 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
 3. **Database:** in the Vercel project → *Storage* → *Create Database* → **Neon** → accept the defaults.
    Vercel adds `DATABASE_URL` to the project automatically.
 4. **Environment variables:** project → *Settings → Environment Variables*:
-   - `ADMIN_PASSWORD` = a long password. **Required.** Without it the build stops with *"No admin password"*, and the site stays locked.
-   - `DEVICE_AUTO_REGISTER` = `true` for now (set to `false` once your devices are registered)
+   - `PLATFORM_ADMIN_EMAILS` = your email address. **Required.** You sign in with it and set up
+     organizations. Without it the build stops with *"No platform admin"*.
+   - `RESEND_API_KEY` = from resend.com. **Needed to sign in:** sign-in links are emailed. See [alerts.md](alerts.md).
+   - `ALERT_EMAIL_FROM` = e.g. `VS Lab <alerts@veristart.ai>` (a domain verified in Resend)
+   - `DEVICE_AUTO_REGISTER` = `true` for now: new devices are stored as *unclaimed* until you assign them
    - `APP_TIMEZONE` (optional) = the time zone for daily engine hours, e.g. `America/Toronto` (the default)
-   - `RESEND_API_KEY` and `ALERT_EMAIL_TO` (optional) = alert emails, see [alerts.md](alerts.md)
+   - `ALERT_EMAIL_TO` (optional) = addresses that get every organization's alerts
 5. **Deploy:** *Deployments* → *Redeploy*. When it finishes, open the address Vercel shows
    (e.g. `vs-lab-xyz.vercel.app`) and sign in.
 6. **Test with the simulator from your PC:**
@@ -43,9 +46,9 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
 2. **Database connected.** Project → *Settings → Environment Variables* → `DATABASE_URL` is listed,
    for **Production and Preview**. If a deployment says *"No database connection"*, the database isn't
    connected to that project. Fix it under *Storage*, then redeploy.
-3. **Password set.** `ADMIN_PASSWORD` is listed. Opening the site should show the **Sign in** page,
-   not the Fleet page. If a deployment says *"No admin password"*, or the sign-in page says
-   *"Sign-in isn't set up yet"*, add `ADMIN_PASSWORD` and redeploy.
+3. **Sign-in set up.** `PLATFORM_ADMIN_EMAILS` and `RESEND_API_KEY` are listed. Opening the site shows
+   the **Sign in** page. Enter your email, click the emailed link, press *Sign in to VS Lab*.
+   See [organizations-and-users.md](organizations-and-users.md).
 4. **App works.** Sign in. An empty Fleet page saying *"No devices have reported yet"* means everything
    is connected. Then run the simulator command above, and machines appear.
 

@@ -24,9 +24,81 @@ import {
  */
 export const tierEnum = pgEnum("tier", ["gps", "monitor", "control"]);
 
+/**
+ * A customer account (the tenant). Everything a customer sees belongs to exactly one organization:
+ * machines, operators, check-ins, alerts and users. Nothing is shared between organizations.
+ */
+export const organizations = pgTable("organizations", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * owner: everything, including users. manager: machines, operators, arm/disarm, alerts. viewer: read-only.
+ * Platform admins (Veristart staff) are listed in PLATFORM_ADMIN_EMAILS, not stored here.
+ */
+export const roleEnum = pgEnum("role", ["owner", "manager", "viewer"]);
+
+/** People who sign in to the portal. One organization per user; they sign in with an emailed link. */
+export const users = pgTable(
+  "users",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Stored lower-case. */
+    email: text("email").notNull(),
+    name: text("name"),
+    role: roleEnum("role").notNull().default("manager"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("users_email_idx").on(t.email)],
+);
+
+/** One-time sign-in links. Only a hash of the token is stored; the token itself is only in the email. */
+export const loginTokens = pgTable(
+  "login_tokens",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("login_tokens_hash_idx").on(t.tokenHash), index("login_tokens_email_idx").on(t.email, t.createdAt)],
+);
+
+/** Signed-in browsers. The cookie holds a random token; only its hash is stored. */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    tokenHash: text("token_hash").notNull(),
+    userId: bigint("user_id", { mode: "number" })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /** Platform admins only: the organization they're currently looking at (their own if null). */
+    viewOrganizationId: bigint("view_organization_id", { mode: "number" }).references(() => organizations.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [uniqueIndex("sessions_token_idx").on(t.tokenHash)],
+);
+
 /** One row per physical device. The device ID is the 8-character ID the Freematics firmware generates. */
 export const devices = pgTable("devices", {
   id: text("id").primaryKey(),
+  /** Null = unclaimed: the device has reported but a platform admin hasn't assigned it to an organization. */
+  organizationId: bigint("organization_id", { mode: "number" }).references(() => organizations.id, {
+    onDelete: "set null",
+  }),
   name: text("name"),
   tier: tierEnum("tier").notNull().default("gps"),
   vin: text("vin"),
@@ -122,14 +194,27 @@ export const engineSessions = pgTable(
  * PINs are short, so they're a convenience, not strong security: the hash only keeps them out of
  * plain sight in the database, and the check-in page rate-limits wrong guesses.
  */
-export const operators = pgTable("operators", {
-  id: bigserial("id", { mode: "number" }).primaryKey(),
-  name: text("name").notNull(),
-  /** See hashPin() in src/lib/operators.ts. Unique, because the PIN alone identifies the operator. */
-  pinHash: text("pin_hash").notNull().unique(),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const operators = pgTable(
+  "operators",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Just a label: names can repeat, even within an organization. The id is what identifies an operator. */
+    name: text("name").notNull(),
+    /** Optional, unique within the organization. Tells two operators with the same name apart. */
+    employeeNumber: text("employee_number"),
+    /** See hashPin() in src/lib/operators.ts. Unique within the organization: the PIN identifies the operator there. */
+    pinHash: text("pin_hash").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("operators_org_pin_idx").on(t.organizationId, t.pinHash),
+    uniqueIndex("operators_org_employee_idx").on(t.organizationId, t.employeeNumber).where(sql`${t.employeeNumber} is not null`),
+  ],
+);
 
 /**
  * Which operators may run which machine. A machine with no rows here accepts any active operator.
@@ -157,6 +242,10 @@ export const checkins = pgTable(
   "checkins",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
+    /** The machine's organization at the time (a record stays with the customer if the device moves). */
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
     deviceId: text("device_id")
       .notNull()
       .references(() => devices.id, { onDelete: "cascade" }),
@@ -223,6 +312,9 @@ export const alerts = pgTable(
   "alerts",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
     deviceId: text("device_id")
       .notNull()
       .references(() => devices.id, { onDelete: "cascade" }),
@@ -249,6 +341,9 @@ export const alerts = pgTable(
   ],
 );
 
+export type Organization = typeof organizations.$inferSelect;
+export type User = typeof users.$inferSelect;
+export type Role = (typeof roleEnum.enumValues)[number];
 export type Device = typeof devices.$inferSelect;
 export type Alert = typeof alerts.$inferSelect;
 export type TelemetryRow = typeof telemetry.$inferSelect;

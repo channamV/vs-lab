@@ -13,8 +13,12 @@ import { isCheckinCurrent } from "@/lib/operators";
 export async function getCheckinMachine(deviceId: string) {
   await connection();
   const db = getDb();
-  const [device] = await db.select({ id: devices.id, name: devices.name }).from(devices).where(eq(devices.id, deviceId));
-  if (!device) return null;
+  const [device] = await db
+    .select({ id: devices.id, name: devices.name, organizationId: devices.organizationId })
+    .from(devices)
+    .where(eq(devices.id, deviceId));
+  // Unclaimed machines (not assigned to an organization yet) aren't set up for check-in.
+  if (!device?.organizationId) return null;
   const [open] = await db
     .select({ checkin: checkins, operatorName: operators.name, linked: engineSessions })
     .from(checkins)
@@ -25,5 +29,5 @@ export async function getCheckinMachine(deviceId: string) {
     open && isCheckinCurrent(open.checkin, open.linked, Date.now())
       ? { operatorName: open.operatorName, startedAt: open.checkin.startedAt, engineRunning: open.linked !== null }
       : null;
-  return { ...device, current };
+  return { id: device.id, name: device.name, current };
 }
