@@ -48,8 +48,26 @@ About 10 minutes. Resend's free plan allows 3,000 emails a month (100 a day).
 up with. To alert others: Resend → **Domains → Add Domain** (e.g. `alerts.yourdomain.com`), add the DNS
 records it shows, then set `ALERT_EMAIL_FROM` = `VS Lab <alerts@alerts.yourdomain.com>` in Vercel and redeploy.
 
+**If alerts land in Junk:** normal at first for a new sending domain.
+- In Outlook, mark the email **Not junk**, or add the sender under *Settings → Mail → Junk email → Safe senders*.
+- Add a DMARC record at your DNS provider (GoDaddy for veristart.ai): type **TXT**, name `_dmarc`,
+  value `v=DMARC1; p=none;`. Mail servers trust domains with one more.
+- For several Microsoft 365 recipients, an admin can allow the domain in Microsoft Defender's
+  *Tenant Allow/Block List*.
+
 Each alert shows its email result: *Emailed*, *Email failed* (hover for the reason) or *Not emailed
 (email not set up)*.
+
+## Testing with the simulator
+
+Set a simulated machine (e.g. SIM00001) to Safety & Access Monitoring, make sure nobody is checked in, then:
+
+```powershell
+npm run simulate -- --host https://vs-lab-platform-tpj9.vercel.app --devices 1 --engine on
+```
+
+`--engine on` keeps the engine running (normally the simulator switches it on and off every few
+minutes). After 5 minutes an "Unauthorized use" alert appears and is emailed. Ctrl+C to stop.
 
 ## Tuning
 

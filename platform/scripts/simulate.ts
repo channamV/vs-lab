@@ -7,8 +7,10 @@
  *   npm run simulate -- --devices 5 --interval 2
  *   npm run simulate -- --host https://your-app.vercel.app
  *   npm run simulate -- --once             # send one report from each machine and stop
+ *   npm run simulate -- --engine on        # engines stay running (e.g. to test unauthorized-use alerts)
  *
- * Each machine cycles its engine on and off (a few minutes each, so you can watch it happen).
+ * Each machine cycles its engine on and off (a few minutes each, so you can watch it happen),
+ * unless --engine on / --engine off holds it in one state.
  * Machine 3 is a 24 V machine, like most heavy equipment, to exercise that detection path.
  */
 import { parseArgs } from "node:util";
@@ -20,8 +22,15 @@ const { values: args } = parseArgs({
     devices: { type: "string", default: "3" },
     interval: { type: "string", default: "5" },
     once: { type: "boolean", default: false },
+    engine: { type: "string", default: "cycle" },
   },
 });
+
+if (!["cycle", "on", "off"].includes(args.engine!)) {
+  console.error("--engine must be cycle, on or off");
+  process.exit(1);
+}
+const engineMode = args.engine as "cycle" | "on" | "off";
 
 const host = args.host!.replace(/\/$/, "");
 const deviceCount = Math.max(1, Number(args.devices));
@@ -61,13 +70,13 @@ const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => ({
   duty: [0.8, 0.3, 0.6][i % 3],
   startedAt: Date.now(),
   rssi: -65 - Math.round(Math.random() * 20),
-  engineOn: i % 2 === 0,
+  engineOn: engineMode === "cycle" ? i % 2 === 0 : engineMode === "on",
   nextSwitchAt: Date.now() + minutes(1, 4),
   system24V: i % 3 === 2,
 }));
 
 function nextSample(d: SimDevice): SampleFields {
-  if (Date.now() >= d.nextSwitchAt) {
+  if (engineMode === "cycle" && Date.now() >= d.nextSwitchAt) {
     d.engineOn = !d.engineOn;
     d.nextSwitchAt = Date.now() + (d.engineOn ? minutes(3, 8) : minutes(1, 3));
     console.log(`${d.id}: engine ${d.engineOn ? "ON" : "OFF"}`);
