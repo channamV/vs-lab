@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { listOperators } from "@/lib/data";
+import { machineLabel } from "@/lib/format";
 import { AddOperatorForm } from "./OperatorForms";
 
 export default function OperatorsPage() {
@@ -62,10 +63,10 @@ async function OperatorList() {
                   <span className="text-slate-500">Machines with no approved list</span>
                 ) : (
                   op.machines.map((m, i) => (
-                    <span key={m.deviceId}>
+                    <span key={m.machineId}>
                       {i > 0 && ", "}
-                      <Link href={`/devices/${encodeURIComponent(m.deviceId)}`} className="text-sky-700 hover:underline dark:text-sky-400">
-                        {m.name ?? m.deviceId}
+                      <Link href={`/machines/${m.machineId}`} className="text-sky-700 hover:underline dark:text-sky-400">
+                        {machineLabel(m)}
                       </Link>
                     </span>
                   ))

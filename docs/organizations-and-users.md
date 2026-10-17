@@ -32,8 +32,8 @@ The email addresses in the Vercel setting `PLATFORM_ADMIN_EMAILS` (comma-separat
 - **Organization switcher** in the top bar: work inside any organization as its owner would.
 - **Platform** page:
   - create organizations;
-  - assign new devices to an organization;
-  - move a machine between organizations.
+  - pair devices with customers' machines, unpair them, and move devices between Veristart's stock and a
+    customer's spares (see [machines-and-devices.md](machines-and-devices.md)).
 - The first time a platform admin signs in, they get an owner account in the first organization
   ("Veristart Lab").
 
@@ -41,15 +41,14 @@ The email addresses in the Vercel setting `PLATFORM_ADMIN_EMAILS` (comma-separat
 1. **Platform** → *Create organization* (e.g. "ABC Civil Ltd.").
 2. Pick it in the top-bar switcher → **View**.
 3. **Users** → add their first **owner** by email. They get a "you've been added" email and sign in.
-4. **Platform** → assign their devices to them.
+4. Add their machines (**Fleet → Add machine**, or let them do it), then **Platform** → pair a device with each.
 
 ## New devices
 
-A device that reports for the first time is **unclaimed**: its data is stored, but no customer sees it,
-and its check-in page says "not set up". A platform admin assigns it on the **Platform** page.
-
-Moving a machine to another organization clears its approved-operator list and checks out whoever is
-on it. Past check-ins and alerts stay with the organization they happened in.
+A device that reports for the first time is in **Veristart stock**: its data is stored, but no customer
+sees it. A platform admin pairs it with a customer's machine on the **Platform** page. Machines belong to
+one organization and don't move between organizations; devices do. Details:
+[machines-and-devices.md](machines-and-devices.md).
 
 ## Operators: no more "two Johns" problem
 

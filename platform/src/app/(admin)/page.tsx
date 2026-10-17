@@ -4,18 +4,23 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { FleetMap, type MapMarker } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EngineBadge } from "@/components/EngineBadge";
-import { connectionStatus, currentCheckins, engineHoursToday, engineStatus, listDevices, openAlerts, requestTime } from "@/lib/data";
+import { connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, requestTime } from "@/lib/data";
 import { isArmed, isMonitored } from "@/lib/alerts";
 import { appTimeZone } from "@/lib/telemetry/engine";
-import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
+import { clockTime, fmt, formatHours, machineLabel, TIER_LABELS, timeAgo } from "@/lib/format";
 import { checkinFlags } from "@/lib/checkin-flags";
 
 export default function FleetPage() {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Fleet</h1>
-        <p className="text-sm text-slate-500">Where your equipment is and when it last reported.</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Fleet</h1>
+          <p className="text-sm text-slate-500">Where your equipment is and when it last reported.</p>
+        </div>
+        <Suspense>
+          <AddMachineLink />
+        </Suspense>
       </div>
       <Suspense fallback={<p className="text-sm text-slate-500">Loading fleet…</p>}>
         <FleetOverview />
@@ -24,9 +29,20 @@ export default function FleetPage() {
   );
 }
 
+/** Managers and owners add machines; viewers only look. */
+async function AddMachineLink() {
+  const auth = await currentUser();
+  if (!auth || auth.role === "viewer") return null;
+  return (
+    <Link href="/machines/new" className="rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800">
+      Add machine
+    </Link>
+  );
+}
+
 async function FleetOverview() {
-  const [devices, now, hoursToday, checkedIn, alerts] = await Promise.all([
-    listDevices(),
+  const [machines, now, hoursToday, checkedIn, alerts] = await Promise.all([
+    listMachines(),
     requestTime(),
     engineHoursToday(),
     currentCheckins(),
@@ -34,24 +50,24 @@ async function FleetOverview() {
   ]);
   const tz = appTimeZone();
 
-  if (devices.length === 0) {
+  if (machines.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center dark:border-slate-700">
         <AutoRefresh />
-        <p className="font-medium">No devices have reported yet.</p>
+        <p className="font-medium">No machines yet.</p>
         <p className="mt-1 text-sm text-slate-500">
-          Run <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">npm run simulate</code> to send test data,
-          or point a Freematics device at this server. New devices appear here automatically.
+          Add your equipment with <span className="font-medium">Add machine</span>. Veristart then fits a tracking device
+          to each one and pairs it, and the machine starts reporting here.
         </p>
       </div>
     );
   }
 
-  const markers: MapMarker[] = devices
+  const markers: MapMarker[] = machines
     .filter((d) => d.lastLat !== null && d.lastLng !== null)
     .map((d) => ({
       id: d.id,
-      label: d.name ?? d.id,
+      label: machineLabel(d),
       lat: d.lastLat!,
       lng: d.lastLng!,
       status: connectionStatus(d, now),
@@ -92,16 +108,20 @@ async function FleetOverview() {
             </tr>
           </thead>
           <tbody>
-            {devices.map((d) => (
+            {machines.map((d) => (
               <tr key={d.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
                 <td className="px-4 py-2">
-                  <Link href={`/devices/${encodeURIComponent(d.id)}`} className="font-medium text-sky-700 hover:underline dark:text-sky-400">
-                    {d.name ?? "Unnamed machine"}
+                  <Link href={`/machines/${d.id}`} className="font-medium text-sky-700 hover:underline dark:text-sky-400">
+                    {d.unitNumber ? `Unit ${d.unitNumber}` : d.name}
                   </Link>
-                  <div className="font-mono text-xs text-slate-500">{d.id}</div>
+                  {d.unitNumber && <div className="text-xs text-slate-500">{d.name}</div>}
                 </td>
                 <td className="px-4 py-2">
-                  <StatusBadge status={connectionStatus(d, now)} />
+                  {d.deviceId || d.lastSeenAt ? (
+                    <StatusBadge status={connectionStatus(d, now)} />
+                  ) : (
+                    <span className="text-xs text-slate-500">No device yet</span>
+                  )}
                 </td>
                 <td className="px-4 py-2">
                   <EngineBadge status={engineStatus(d, now)} />

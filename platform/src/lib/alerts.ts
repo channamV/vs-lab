@@ -1,9 +1,9 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { alerts, checkins, devices, engineSessions, operators, type Alert, type Device } from "@/lib/db/schema";
+import { alerts, checkins, engineSessions, machines, operators, type Alert, type Machine } from "@/lib/db/schema";
 import { isCheckinCurrent } from "@/lib/operators";
 import { appTimeZone } from "@/lib/telemetry/engine";
-import { clockTime, formatDistance } from "@/lib/format";
+import { clockTime, formatDistance, machineLabel } from "@/lib/format";
 
 /**
  * Alerts for Safety & Access Monitoring (Tier 2, step 3). Plain functions that take the database,
@@ -25,16 +25,14 @@ export const ALERT_LABELS = {
 export type AlertType = keyof typeof ALERT_LABELS;
 
 /** Alerts apply to Safety & Access Monitoring machines (and, later, Safety & Access Control). */
-export function isMonitored(device: Pick<Device, "tier">): boolean {
-  return device.tier === "monitor" || device.tier === "control";
+export function isMonitored(machine: Pick<Machine, "tier">): boolean {
+  return machine.tier === "monitor" || machine.tier === "control";
 }
 
 /** Armed unless disarmed; a timed disarm re-arms itself when the time passes. */
-export function isArmed(device: Pick<Device, "disarmed" | "disarmedUntil">, now = Date.now()): boolean {
-  return !device.disarmed || (device.disarmedUntil !== null && device.disarmedUntil.getTime() <= now);
+export function isArmed(machine: Pick<Machine, "disarmed" | "disarmedUntil">, now = Date.now()): boolean {
+  return !machine.disarmed || (machine.disarmedUntil !== null && machine.disarmedUntil.getTime() <= now);
 }
-
-const machineName = (d: Pick<Device, "id" | "name">) => d.name ?? d.id;
 
 /** Inserts an alert unless the same one was already raised. Returns the new alert, or nothing. */
 async function raise(db: Db, values: typeof alerts.$inferInsert): Promise<Alert[]> {
@@ -47,14 +45,14 @@ async function raise(db: Db, values: typeof alerts.$inferInsert): Promise<Alert[
  * per engine-on period. Called after each device report (after syncCheckins), so it fires within a
  * report or two of the grace period ending.
  */
-export async function checkUnauthorizedUse(db: Db, deviceId: string, now = new Date()): Promise<Alert[]> {
-  const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
-  if (!device?.organizationId || !isMonitored(device) || !device.engineOn || !isArmed(device, now.getTime())) return [];
+export async function checkUnauthorizedUse(db: Db, machineId: number, now = new Date()): Promise<Alert[]> {
+  const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
+  if (!machine || !isMonitored(machine) || !machine.engineOn || !isArmed(machine, now.getTime())) return [];
 
   const [session] = await db
     .select()
     .from(engineSessions)
-    .where(and(eq(engineSessions.deviceId, deviceId), isNull(engineSessions.endedAt)));
+    .where(and(eq(engineSessions.machineId, machineId), isNull(engineSessions.endedAt)));
   const graceMs = ALERT_RULES.unauthorizedGraceMinutes * 60_000;
   if (!session || now.getTime() - session.startedAt.getTime() < graceMs) return [];
 
@@ -64,7 +62,7 @@ export async function checkUnauthorizedUse(db: Db, deviceId: string, now = new D
   const open = await db
     .select()
     .from(checkins)
-    .where(and(eq(checkins.deviceId, deviceId), isNull(checkins.endedAt)));
+    .where(and(eq(checkins.machineId, machineId), isNull(checkins.endedAt)));
   const covered = open.some((c) =>
     c.engineSessionId ? c.engineSessionId === session.id && isCheckinCurrent(c, session, t) : isCheckinCurrent(c, null, t),
   );
@@ -73,19 +71,19 @@ export async function checkUnauthorizedUse(db: Db, deviceId: string, now = new D
   const [latest] = await db
     .select({ endedAt: checkins.endedAt })
     .from(checkins)
-    .where(eq(checkins.deviceId, deviceId))
+    .where(eq(checkins.machineId, machineId))
     .orderBy(desc(checkins.endedAt))
     .limit(1);
   if (latest?.endedAt && t - latest.endedAt.getTime() < graceMs) return [];
 
   const minutes = Math.round((now.getTime() - session.startedAt.getTime()) / 60_000);
   return raise(db, {
-    organizationId: device.organizationId,
-    deviceId,
+    organizationId: machine.organizationId,
+    machineId,
     type: "unauthorized-use",
     createdAt: now,
     engineSessionId: session.id,
-    title: `Unauthorized use: ${machineName(device)}`,
+    title: `Unauthorized use: ${machineLabel(machine)}`,
     detail: `Engine started at ${clockTime(session.startedAt, appTimeZone(), now.getTime())} and has been running for ${minutes} min with nobody checked in.`,
   });
 }
@@ -93,15 +91,15 @@ export async function checkUnauthorizedUse(db: Db, deviceId: string, now = new D
 /** Alerts for problems found at check-in: checklist items not OK, operator not approved, not at the machine. */
 export async function raiseCheckinAlerts(db: Db, checkinId: number, now = new Date()): Promise<Alert[]> {
   const [row] = await db
-    .select({ checkin: checkins, device: devices, operatorName: operators.name })
+    .select({ checkin: checkins, machine: machines, operatorName: operators.name })
     .from(checkins)
-    .innerJoin(devices, eq(devices.id, checkins.deviceId))
+    .innerJoin(machines, eq(machines.id, checkins.machineId))
     .innerJoin(operators, eq(operators.id, checkins.operatorId))
     .where(eq(checkins.id, checkinId));
-  if (!row || !isMonitored(row.device)) return [];
-  const { checkin: c, device, operatorName: who } = row;
-  const name = machineName(device);
-  const base = { organizationId: c.organizationId, deviceId: device.id, checkinId: c.id, createdAt: now };
+  if (!row || !isMonitored(row.machine)) return [];
+  const { checkin: c, machine, operatorName: who } = row;
+  const name = machineLabel(machine);
+  const base = { organizationId: c.organizationId, machineId: machine.id, checkinId: c.id, createdAt: now };
   const raised: Alert[] = [];
 
   if (!c.checklistOk) {

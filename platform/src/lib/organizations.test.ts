@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { checkins, devices, machineOperators, organizations, users } from "@/lib/db/schema";
+import { checkins, machineOperators, machines, organizations, users } from "@/lib/db/schema";
 import { CHECKLIST } from "@/lib/checklist";
 import { checkIn, createOperator, OperatorError, setMachineOperators, updateOperator } from "@/lib/operators";
-import { AccountError, addUser, assignDevice, updateUser } from "./organizations";
+import { AccountError, addUser, updateUser } from "./organizations";
 
 let db: Db;
 let orgA: number;
 let orgB: number;
+let machineA: number;
+let machineB: number;
 const allOk = Object.fromEntries(CHECKLIST.map((item) => [item.id, true]));
 
 beforeEach(async () => {
@@ -16,11 +18,13 @@ beforeEach(async () => {
   await migrateDb(db, false);
   [{ id: orgA }] = await db.insert(organizations).values({ name: "ABC Civil" }).returning();
   [{ id: orgB }] = await db.insert(organizations).values({ name: "XYZ Paving" }).returning();
-  await db.insert(devices).values([
-    { id: "A-EXC", organizationId: orgA },
-    { id: "B-EXC", organizationId: orgB },
-    { id: "NEW01" }, // unclaimed
-  ]);
+  [{ id: machineA }, { id: machineB }] = await db
+    .insert(machines)
+    .values([
+      { organizationId: orgA, code: "A-EXC", name: "Excavator" },
+      { organizationId: orgB, code: "B-EXC", name: "Excavator" },
+    ])
+    .returning();
 });
 
 describe("operators in different organizations", () => {
@@ -29,13 +33,13 @@ describe("operators in different organizations", () => {
     const johnB = await createOperator(db, orgB, { name: "John Smith", pin: "1234" });
     expect(johnA.id).not.toBe(johnB.id);
 
-    const onA = await checkIn(db, { deviceId: "A-EXC", pin: "1234", answers: allOk });
-    const onB = await checkIn(db, { deviceId: "B-EXC", pin: "1234", answers: allOk });
+    const onA = await checkIn(db, { machineCode: "A-EXC", pin: "1234", answers: allOk });
+    const onB = await checkIn(db, { machineCode: "B-EXC", pin: "1234", answers: allOk });
     expect(onA.ok && onB.ok).toBe(true);
     const rows = await db.select().from(checkins).orderBy(checkins.id);
-    expect(rows.map((r) => [r.deviceId, r.operatorId, r.organizationId])).toEqual([
-      ["A-EXC", johnA.id, orgA],
-      ["B-EXC", johnB.id, orgB],
+    expect(rows.map((r) => [r.machineId, r.operatorId, r.organizationId])).toEqual([
+      [machineA, johnA.id, orgA],
+      [machineB, johnB.id, orgB],
     ]);
   });
 
@@ -54,16 +58,11 @@ describe("operators in different organizations", () => {
 
   it("won't let one organization check in, edit or approve another's operators", async () => {
     const bOnly = await createOperator(db, orgB, { name: "Bob", pin: "5555" });
-    expect(await checkIn(db, { deviceId: "A-EXC", pin: "5555", answers: allOk })).toEqual({ ok: false, reason: "bad-pin" });
+    expect(await checkIn(db, { machineCode: "A-EXC", pin: "5555", answers: allOk })).toEqual({ ok: false, reason: "bad-pin" });
     await expect(updateOperator(db, orgA, bOnly.id, { name: "Hacked", active: true })).rejects.toThrow(/not found/);
-    await setMachineOperators(db, orgA, "A-EXC", [bOnly.id]);
+    await setMachineOperators(db, orgA, machineA, [bOnly.id]);
     expect(await db.select().from(machineOperators)).toHaveLength(0);
-    await expect(setMachineOperators(db, orgA, "B-EXC", [])).rejects.toThrow(/not found/);
-  });
-
-  it("doesn't accept check-ins on unclaimed machines", async () => {
-    await createOperator(db, orgA, { name: "Jane", pin: "1234" });
-    expect(await checkIn(db, { deviceId: "NEW01", pin: "1234", answers: allOk })).toEqual({ ok: false, reason: "unknown-machine" });
+    await expect(setMachineOperators(db, orgA, machineB, [])).rejects.toThrow(/not found/);
   });
 });
 
@@ -82,23 +81,5 @@ describe("users", () => {
     expect((await db.select().from(users).where(eq(users.id, owner.id)))[0].role).toBe("manager");
     // Another organization can't touch this user
     await expect(updateUser(db, orgB, owner.id, { role: "viewer", active: false })).rejects.toThrow(/not found/);
-  });
-});
-
-describe("assigning machines", () => {
-  it("claims an unclaimed machine, and moving one clears what belonged to the old organization", async () => {
-    await assignDevice(db, "NEW01", orgA);
-    expect((await db.select().from(devices).where(eq(devices.id, "NEW01")))[0].organizationId).toBe(orgA);
-
-    const jane = await createOperator(db, orgA, { name: "Jane", pin: "1234" });
-    await setMachineOperators(db, orgA, "A-EXC", [jane.id]);
-    await checkIn(db, { deviceId: "A-EXC", pin: "1234", answers: allOk });
-    await assignDevice(db, "A-EXC", orgB);
-
-    expect(await db.select().from(machineOperators)).toHaveLength(0);
-    const [old] = await db.select().from(checkins);
-    expect(old).toMatchObject({ endReason: "machine moved", organizationId: orgA }); // history stays with ABC
-    await assignDevice(db, "A-EXC", null);
-    expect((await db.select().from(devices).where(eq(devices.id, "A-EXC")))[0].organizationId).toBeNull();
   });
 });

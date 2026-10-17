@@ -1,9 +1,10 @@
 /**
- * Fills in the past week of engine history for the simulated machines (SIM00001…),
- * so the engine-hours chart has something to show. Only touches SIM* devices.
+ * Fills in the past week of engine history for the machines the simulated devices (SIM00001…) are on,
+ * so the engine-hours chart has something to show. Only touches SIM* devices and their machines.
  *
- * The SIM machines go into the first organization ("Veristart Lab"). Also adds three demo operators (PINs 1111, 2222, 3333) and a check-in with the pre-start
- * checklist before each engine start.
+ * Each SIM device that isn't on a machine yet gets a demo machine in the first organization
+ * ("Veristart Lab") and is paired with it. Also adds three demo operators (PINs 1111, 2222, 3333)
+ * and a check-in with the pre-start checklist before each engine start.
  *
  *   npm run demo:seed                  # 3 machines
  *   npm run demo:seed -- --devices 5
@@ -11,9 +12,11 @@
  * Works against whichever database the platform uses (DATABASE_URL, or the embedded one).
  */
 import { parseArgs } from "node:util";
-import { and, asc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, eq, inArray, lt } from "drizzle-orm";
 import { createDb, defaultDbOptions, migrateDb } from "../src/lib/db";
 import { checkins, devices, engineSessions, operators, organizations, type ChecklistAnswer } from "../src/lib/db/schema";
+import { createMachine, pairDevice } from "../src/lib/machines";
+import { pairedMachineId } from "../src/lib/telemetry/ingest";
 import { CHECKLIST } from "../src/lib/checklist";
 import { hashPin } from "../src/lib/operators";
 import { appTimeZone, startOfLocalDay } from "../src/lib/telemetry/engine";
@@ -22,6 +25,13 @@ const { values: args } = parseArgs({ options: { devices: { type: "string", defau
 const count = Math.max(1, Number(args.devices));
 
 const HOUR = 3_600_000;
+const DEMO_MACHINES = [
+  ["Excavator", "Caterpillar", "320"],
+  ["Wheel Loader", "John Deere", "644K"],
+  ["Skid Steer", "Bobcat", "S770"],
+  ["Backhoe", "Case", "580N"],
+  ["Dozer", "Komatsu", "D61"],
+];
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
 async function main() {
@@ -52,13 +62,30 @@ async function main() {
 
   for (let n = 1; n <= count; n++) {
     const id = `SIM${String(n).padStart(5, "0")}`;
-    await db.insert(devices).values({ id, organizationId }).onConflictDoNothing();
-    await db.update(devices).set({ organizationId }).where(and(eq(devices.id, id), isNull(devices.organizationId)));
+    await db.insert(devices).values({ id }).onConflictDoNothing();
+    let machineId = await pairedMachineId(db, id);
+    if (!machineId) {
+      const [type, make, model] = DEMO_MACHINES[(n - 1) % DEMO_MACHINES.length];
+      try {
+        ({ id: machineId } = await createMachine(db, organizationId, {
+          name: `${make} ${model} ${type}`,
+          unitNumber: String(100 + n),
+          machineType: type,
+          make,
+          model,
+          year: 2016 + (n % 8),
+        }));
+      } catch {
+        // Unit number taken by an earlier run whose device was unpaired: number it after the others.
+        ({ id: machineId } = await createMachine(db, organizationId, { name: `${make} ${model} ${type}`, machineType: type, make, model }));
+      }
+      await pairDevice(db, id, machineId, new Date(startOfLocalDay(now, tz, 7)));
+    }
     // Replace earlier demo history (before today) so re-running doesn't double up.
-    await db.delete(engineSessions).where(and(eq(engineSessions.deviceId, id), lt(engineSessions.startedAt, new Date(todayStart))));
+    await db.delete(engineSessions).where(and(eq(engineSessions.machineId, machineId), lt(engineSessions.startedAt, new Date(todayStart))));
     await db
       .delete(checkins)
-      .where(and(eq(checkins.deviceId, id), inArray(checkins.operatorId, demoIds), lt(checkins.startedAt, new Date(todayStart))));
+      .where(and(eq(checkins.machineId, machineId), inArray(checkins.operatorId, demoIds), lt(checkins.startedAt, new Date(todayStart))));
     const checkinRows = [];
 
     let sessionCount = 0;
@@ -77,7 +104,7 @@ async function main() {
         const end = Math.min(t + len, endOfDay);
         const [session] = await db
           .insert(engineSessions)
-          .values({ deviceId: id, startedAt: new Date(t), endedAt: new Date(end), lastSeenAt: new Date(end), source: "voltage" })
+          .values({ machineId, startedAt: new Date(t), endedAt: new Date(end), lastSeenAt: new Date(end), source: "voltage" })
           .returning();
         sessionCount++;
 
@@ -86,7 +113,7 @@ async function main() {
         const answers: ChecklistAnswer[] = CHECKLIST.map((item) => ({ ...item, ok: Math.random() > 0.02 }));
         checkinRows.push({
           organizationId,
-          deviceId: id,
+          machineId,
           operatorId,
           startedAt: new Date(t - rand(1, 4) * 60_000),
           endedAt: new Date(end),

@@ -28,8 +28,8 @@ async function Checkin({ params, searchParams }: Pick<PageProps<"/checkin/[id]">
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold">{machine.name ?? "Unnamed machine"}</h1>
-        <p className="font-mono text-sm text-slate-500">{machine.id}</p>
+        <h1 className="text-2xl font-semibold">{machine.unitNumber ? `Unit ${machine.unitNumber}` : machine.name}</h1>
+        {machine.unitNumber && <p className="text-slate-600 dark:text-slate-400">{machine.name}</p>}
       </div>
 
       {checkedOut && !machine.current && (
@@ -47,7 +47,7 @@ async function Checkin({ params, searchParams }: Pick<PageProps<"/checkin/[id]">
           <details>
             <summary className="cursor-pointer text-sky-700 dark:text-sky-400">That&apos;s me: check out</summary>
             <div className="mt-3">
-              <CheckOutForm deviceId={machine.id} />
+              <CheckOutForm machineCode={machine.code} />
             </div>
           </details>
         </section>
@@ -55,7 +55,7 @@ async function Checkin({ params, searchParams }: Pick<PageProps<"/checkin/[id]">
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">{machine.current ? "Starting a shift? Check in" : "Check in"}</h2>
-        <CheckInForm deviceId={machine.id} />
+        <CheckInForm machineCode={machine.code} />
       </section>
     </div>
   );

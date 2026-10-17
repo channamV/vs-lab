@@ -9,7 +9,7 @@ import { CHECKLIST } from "@/lib/checklist";
 import { CHECKIN_RULES, checkIn, checkOut, type CheckinFailure, type LocationCheck, type PhoneLocation } from "@/lib/operators";
 
 /**
- * PUBLIC actions: operators use them without signing in. They only accept a machine ID, a PIN and
+ * PUBLIC actions: operators use them without signing in. They only accept a machine's QR code, a PIN and
  * checklist answers, and rely on the PIN check and rate limit in src/lib/operators.ts.
  */
 
@@ -36,7 +36,7 @@ const MESSAGES: Record<CheckinFailure, string> = {
   "not-checked-in": "Nobody is checked in on this machine.",
 };
 
-const Base = z.object({ deviceId: z.string().min(1).max(32), pin: z.string().trim().max(16) });
+const Base = z.object({ machineCode: z.string().min(1).max(32), pin: z.string().trim().max(16) });
 
 /** The phone's position, filled in by the page just before submitting (empty if the operator declined). */
 const Location = z.object({
@@ -58,7 +58,7 @@ function phoneLocation(formData: FormData): PhoneLocation | null {
 const nextAttempt = (prev: CheckinFormState) => (prev.status === "error" ? prev.attempt + 1 : 1);
 
 export async function checkInAction(prev: CheckinFormState, formData: FormData): Promise<CheckinFormState> {
-  const { deviceId, pin } = Base.parse({ deviceId: formData.get("deviceId"), pin: formData.get("pin") ?? "" });
+  const { machineCode, pin } = Base.parse({ machineCode: formData.get("machineCode"), pin: formData.get("pin") ?? "" });
   const answers = Object.fromEntries(
     CHECKLIST.map((item) => {
       const value = formData.get(`item:${item.id}`);
@@ -67,7 +67,7 @@ export async function checkInAction(prev: CheckinFormState, formData: FormData):
   );
   const notes = String(formData.get("notes") ?? "").slice(0, 1000);
 
-  const result = await checkIn(getDb(), { deviceId, pin, answers, notes, phoneLocation: phoneLocation(formData) });
+  const result = await checkIn(getDb(), { machineCode, pin, answers, notes, phoneLocation: phoneLocation(formData) });
   if (!result.ok) {
     const submitted = Object.fromEntries(CHECKLIST.map((item) => [item.id, String(formData.get(`item:${item.id}`) ?? "")]));
     return { status: "error", message: MESSAGES[result.reason], attempt: nextAttempt(prev), values: { answers: submitted, notes } };
@@ -87,9 +87,9 @@ export async function checkInAction(prev: CheckinFormState, formData: FormData):
 }
 
 export async function checkOutAction(prev: CheckinFormState, formData: FormData): Promise<CheckinFormState> {
-  const { deviceId, pin } = Base.parse({ deviceId: formData.get("deviceId"), pin: formData.get("pin") ?? "" });
-  const result = await checkOut(getDb(), { deviceId, pin });
+  const { machineCode, pin } = Base.parse({ machineCode: formData.get("machineCode"), pin: formData.get("pin") ?? "" });
+  const result = await checkOut(getDb(), { machineCode, pin });
   if (!result.ok) return { status: "error", message: MESSAGES[result.reason], attempt: nextAttempt(prev) };
   // Reload the page with a confirmation (the check-out box disappears once nobody is checked in).
-  redirect(`/checkin/${encodeURIComponent(deviceId)}?checkedOut=1`);
+  redirect(`/checkin/${encodeURIComponent(machineCode)}?checkedOut=1`);
 }

@@ -3,8 +3,8 @@ import { and, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import {
   checkins,
-  devices,
   engineSessions,
+  machines,
   machineOperators,
   operators,
   pinFailures,
@@ -125,16 +125,16 @@ export function isCheckinCurrent(c: OpenCheckin, linked: SessionSpan | null, now
  * window, and ends check-ins whose engine stopped or never started. Called on each device report and
  * before check-in / check-out, so the database matches what the pages show.
  */
-export async function syncCheckins(db: Db, deviceId: string, now = new Date()) {
+export async function syncCheckins(db: Db, machineId: number, now = new Date()) {
   const open = await db
     .select()
     .from(checkins)
-    .where(and(eq(checkins.deviceId, deviceId), isNull(checkins.endedAt)));
+    .where(and(eq(checkins.machineId, machineId), isNull(checkins.endedAt)));
   if (open.length === 0) return;
   const [running] = await db
     .select()
     .from(engineSessions)
-    .where(and(eq(engineSessions.deviceId, deviceId), isNull(engineSessions.endedAt)));
+    .where(and(eq(engineSessions.machineId, machineId), isNull(engineSessions.endedAt)));
   const t = now.getTime();
 
   const live = running && isLive(running, t) ? running : null;
@@ -283,12 +283,12 @@ export async function updateOperator(
 }
 
 /** Replaces the list of operators allowed on a machine. An empty list means any active operator. */
-export async function setMachineOperators(db: Db, organizationId: number, deviceId: string, operatorIds: number[]) {
-  const [device] = await db
-    .select({ id: devices.id })
-    .from(devices)
-    .where(and(eq(devices.id, deviceId), eq(devices.organizationId, organizationId)));
-  if (!device) throw new OperatorError("Machine not found.");
+export async function setMachineOperators(db: Db, organizationId: number, machineId: number, operatorIds: number[]) {
+  const [machine] = await db
+    .select({ id: machines.id })
+    .from(machines)
+    .where(and(eq(machines.id, machineId), eq(machines.organizationId, organizationId)));
+  if (!machine) throw new OperatorError("Machine not found.");
   // Only this organization's operators.
   const valid = operatorIds.length
     ? await db
@@ -298,24 +298,24 @@ export async function setMachineOperators(db: Db, organizationId: number, device
     : [];
   operatorIds = valid.map((o) => o.id);
   await db.transaction(async (tx) => {
-    await tx.delete(machineOperators).where(eq(machineOperators.deviceId, deviceId));
+    await tx.delete(machineOperators).where(eq(machineOperators.machineId, machineId));
     if (operatorIds.length) {
-      await tx.insert(machineOperators).values([...new Set(operatorIds)].map((operatorId) => ({ deviceId, operatorId })));
+      await tx.insert(machineOperators).values([...new Set(operatorIds)].map((operatorId) => ({ machineId, operatorId })));
     }
   });
 }
 
-async function isLockedOut(db: Db, deviceId: string, now: Date) {
+async function isLockedOut(db: Db, machineId: number, now: Date) {
   const since = new Date(now.getTime() - CHECKIN_RULES.lockoutMinutes * 60_000);
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(pinFailures)
-    .where(and(eq(pinFailures.deviceId, deviceId), gte(pinFailures.at, since)));
+    .where(and(eq(pinFailures.machineId, machineId), gte(pinFailures.at, since)));
   return count >= CHECKIN_RULES.maxPinFailures;
 }
 
 /** Finds the machine's organization's active operator with this PIN. Wrong PINs are recorded for the rate limit. */
-async function operatorForPin(db: Db, organizationId: number, deviceId: string, pin: string, now: Date) {
+async function operatorForPin(db: Db, organizationId: number, machineId: number, pin: string, now: Date) {
   const [operator] = PIN_PATTERN.test(pin)
     ? await db
         .select()
@@ -324,7 +324,7 @@ async function operatorForPin(db: Db, organizationId: number, deviceId: string, 
           and(eq(operators.organizationId, organizationId), eq(operators.pinHash, hashPin(pin)), eq(operators.active, true)),
         )
     : [];
-  if (!operator) await db.insert(pinFailures).values({ deviceId, at: now });
+  if (!operator) await db.insert(pinFailures).values({ machineId, at: now });
   return operator ?? null;
 }
 
@@ -354,7 +354,8 @@ export type CheckInResult =
 export async function checkIn(
   db: Db,
   input: {
-    deviceId: string;
+    /** The machine's code, from its QR sticker. */
+    machineCode: string;
     pin: string;
     answers: Record<string, boolean | undefined>;
     notes?: string;
@@ -362,16 +363,15 @@ export async function checkIn(
   },
   now = new Date(),
 ): Promise<CheckInResult> {
-  const [device] = await db
-    .select({ id: devices.id, organizationId: devices.organizationId, lat: devices.lastLat, lng: devices.lastLng })
-    .from(devices)
-    .where(eq(devices.id, input.deviceId));
-  // Unclaimed machines (not assigned to an organization yet) can't be checked in to.
-  if (!device || device.organizationId === null) return { ok: false, reason: "unknown-machine" };
-  const organizationId = device.organizationId;
-  if (await isLockedOut(db, device.id, now)) return { ok: false, reason: "locked" };
+  const [machine] = await db
+    .select({ id: machines.id, organizationId: machines.organizationId, lat: machines.lastLat, lng: machines.lastLng })
+    .from(machines)
+    .where(eq(machines.code, input.machineCode));
+  if (!machine) return { ok: false, reason: "unknown-machine" };
+  const organizationId = machine.organizationId;
+  if (await isLockedOut(db, machine.id, now)) return { ok: false, reason: "locked" };
 
-  const operator = await operatorForPin(db, organizationId, device.id, input.pin, now);
+  const operator = await operatorForPin(db, organizationId, machine.id, input.pin, now);
   if (!operator) return { ok: false, reason: "bad-pin" };
 
   if (CHECKLIST.some((item) => typeof input.answers[item.id] !== "boolean")) return { ok: false, reason: "incomplete" };
@@ -381,23 +381,23 @@ export async function checkIn(
   const allowed = await db
     .select({ operatorId: machineOperators.operatorId })
     .from(machineOperators)
-    .where(eq(machineOperators.deviceId, device.id));
+    .where(eq(machineOperators.machineId, machine.id));
   const authorized = allowed.length === 0 || allowed.some((a) => a.operatorId === operator.id);
   const phone = input.phoneLocation ?? null;
-  const location = checkLocation(phone, device);
+  const location = checkLocation(phone, machine);
 
   // Engine already running? Link to it now: a takeover if another operator had it.
-  await syncCheckins(db, device.id, now);
+  await syncCheckins(db, machine.id, now);
   const [running] = await db
     .select()
     .from(engineSessions)
-    .where(and(eq(engineSessions.deviceId, device.id), isNull(engineSessions.endedAt)));
+    .where(and(eq(engineSessions.machineId, machine.id), isNull(engineSessions.endedAt)));
   const live = running && isLive(running, now.getTime()) ? running : null;
   const [previous] = live
     ? await db
         .select({ engineSessionId: checkins.engineSessionId })
         .from(checkins)
-        .where(and(eq(checkins.deviceId, device.id), isNull(checkins.endedAt)))
+        .where(and(eq(checkins.machineId, machine.id), isNull(checkins.endedAt)))
     : [];
   const engineLink: EngineLink | null = live ? (previous?.engineSessionId === live.id ? "takeover" : "already-running") : null;
 
@@ -405,7 +405,7 @@ export async function checkIn(
     await tx
       .update(checkins)
       .set({ endedAt: now, endReason: "replaced" })
-      .where(and(eq(checkins.deviceId, device.id), isNull(checkins.endedAt)));
+      .where(and(eq(checkins.machineId, machine.id), isNull(checkins.endedAt)));
     await tx
       .update(checkins)
       .set({ endedAt: now, endReason: "moved" })
@@ -414,7 +414,7 @@ export async function checkIn(
       .insert(checkins)
       .values({
         organizationId,
-        deviceId: device.id,
+        machineId: machine.id,
         operatorId: operator.id,
         startedAt: now,
         authorized,
@@ -452,25 +452,25 @@ export async function checkIn(
  */
 export async function checkOut(
   db: Db,
-  input: { deviceId: string; pin: string },
+  input: { machineCode: string; pin: string },
   now = new Date(),
 ): Promise<{ ok: true; operatorName: string } | { ok: false; reason: CheckinFailure }> {
-  const [device] = await db
-    .select({ organizationId: devices.organizationId })
-    .from(devices)
-    .where(eq(devices.id, input.deviceId));
-  if (!device?.organizationId) return { ok: false, reason: "unknown-machine" };
-  if (await isLockedOut(db, input.deviceId, now)) return { ok: false, reason: "locked" };
-  await syncCheckins(db, input.deviceId, now);
+  const [machine] = await db
+    .select({ id: machines.id, organizationId: machines.organizationId })
+    .from(machines)
+    .where(eq(machines.code, input.machineCode));
+  if (!machine) return { ok: false, reason: "unknown-machine" };
+  if (await isLockedOut(db, machine.id, now)) return { ok: false, reason: "locked" };
+  await syncCheckins(db, machine.id, now);
   const [open] = await db
     .select({ id: checkins.id, operatorId: checkins.operatorId })
     .from(checkins)
-    .where(and(eq(checkins.deviceId, input.deviceId), isNull(checkins.endedAt)));
+    .where(and(eq(checkins.machineId, machine.id), isNull(checkins.endedAt)));
   if (!open) return { ok: false, reason: "not-checked-in" };
 
-  const operator = await operatorForPin(db, device.organizationId, input.deviceId, input.pin, now);
+  const operator = await operatorForPin(db, machine.organizationId, machine.id, input.pin, now);
   if (!operator || operator.id !== open.operatorId) {
-    if (operator) await db.insert(pinFailures).values({ deviceId: input.deviceId, at: now });
+    if (operator) await db.insert(pinFailures).values({ machineId: machine.id, at: now });
     return { ok: false, reason: "bad-pin" };
   }
   await db.update(checkins).set({ endedAt: now, endReason: "checkout" }).where(eq(checkins.id, open.id));

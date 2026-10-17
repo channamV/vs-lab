@@ -3,10 +3,14 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
 import { Suspense } from "react";
-import { getDevice } from "@/lib/data";
+import { getMachine } from "@/lib/data";
+import { machineLabel } from "@/lib/format";
 
-/** Printable QR sticker for a machine. Operators scan it to open the check-in page. */
-export default function QrPage({ params }: PageProps<"/devices/[id]/qr">) {
+/**
+ * Printable QR sticker for a machine. Operators scan it to open the check-in page. It points at the
+ * machine's code, not the device, so it keeps working when the device is replaced.
+ */
+export default function QrPage({ params }: PageProps<"/machines/[id]/qr">) {
   return (
     <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
       <QrSticker params={params} />
@@ -14,22 +18,22 @@ export default function QrPage({ params }: PageProps<"/devices/[id]/qr">) {
   );
 }
 
-async function QrSticker({ params }: { params: PageProps<"/devices/[id]/qr">["params"] }) {
-  const id = decodeURIComponent((await params).id);
-  const device = await getDevice(id);
-  if (!device) notFound();
+async function QrSticker({ params }: { params: PageProps<"/machines/[id]/qr">["params"] }) {
+  const id = Number((await params).id);
+  const machine = Number.isSafeInteger(id) && id > 0 ? await getMachine(id) : null;
+  if (!machine) notFound();
 
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
-  const url = `${proto}://${host}/checkin/${encodeURIComponent(device.id)}`;
+  const url = `${proto}://${host}/checkin/${encodeURIComponent(machine.code)}`;
   const svg = await QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" });
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-4 print:hidden">
-        <Link href={`/devices/${encodeURIComponent(device.id)}`} className="text-sm text-sky-700 hover:underline dark:text-sky-400">
-          ← {device.name ?? device.id}
+        <Link href={`/machines/${machine.id}`} className="text-sm text-sky-700 hover:underline dark:text-sky-400">
+          ← {machineLabel(machine)}
         </Link>
         <p className="text-sm text-slate-500">
           Print this page (Ctrl+P) and stick it where the operator sees it before getting in: on the door or by the steps.
@@ -39,9 +43,10 @@ async function QrSticker({ params }: { params: PageProps<"/devices/[id]/qr">["pa
       <div className="mx-auto w-72 space-y-3 rounded-lg border-2 border-slate-900 bg-white p-5 text-center text-slate-900">
         <p className="text-lg font-bold">Operator check-in</p>
         <div className="mx-auto w-56" dangerouslySetInnerHTML={{ __html: svg }} />
-        <p className="font-semibold">{device.name ?? "Unnamed machine"}</p>
+        {machine.unitNumber && <p className="text-2xl font-bold">Unit {machine.unitNumber}</p>}
+        <p className="font-semibold">{machine.name}</p>
         <p className="text-sm">Scan with your phone camera before starting.</p>
-        <p className="font-mono text-xs">{device.id}</p>
+        <p className="font-mono text-xs">{machine.code}</p>
       </div>
       <p className="text-center text-xs break-all text-slate-500 print:hidden">{url}</p>
     </div>

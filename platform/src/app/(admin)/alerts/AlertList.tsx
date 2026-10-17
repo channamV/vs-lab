@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { ALERT_LABELS, type AlertType } from "@/lib/alerts";
-import { clockTime } from "@/lib/format";
+import { clockTime, machineLabel } from "@/lib/format";
 import { acknowledgeAction } from "./actions";
 
 type AlertRow = {
   id: number;
-  deviceId: string;
-  machineName: string | null;
+  machineId: number;
+  machineName: string;
+  unitNumber: string | null;
   type: string;
   createdAt: Date;
   title: string;
@@ -40,8 +41,8 @@ export function AlertList({ alerts, timeZone, now, showMachine = true }: { alert
               {ALERT_LABELS[a.type as AlertType] ?? a.type}
             </span>
             {showMachine && (
-              <Link href={`/devices/${encodeURIComponent(a.deviceId)}`} className="font-medium text-sky-700 hover:underline dark:text-sky-400">
-                {a.machineName ?? a.deviceId}
+              <Link href={`/machines/${a.machineId}`} className="font-medium text-sky-700 hover:underline dark:text-sky-400">
+                {machineLabel({ name: a.machineName, unitNumber: a.unitNumber })}
               </Link>
             )}
             <span className="text-slate-500">{clockTime(a.createdAt, timeZone, now)}</span>

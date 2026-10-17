@@ -75,7 +75,7 @@ LOGIN(your-host:443)...                          ← device announces itself
 [HTTP] OK 1                                      ← your platform accepted it
 ```
 
-The device appears on your Fleet page under its 8-character device ID. GPS needs a view of the sky.
+The device appears on the **Platform** page (Veristart stock) under its 8-character device ID. Pair it with a machine there (add the machine first: **Fleet → Add machine**) and its data shows on that machine's page. See [machines-and-devices.md](machines-and-devices.md). GPS needs a view of the sky.
 Put the device by a window or outside for the first fix.
 
 ## 5. Then test over cellular
@@ -101,7 +101,7 @@ first firmware change. Ask Claude Code to make it and flash it.
 | Logs in, but no position | Indoors; wait for a GPS fix by a window |
 | Platform shows device but data stops | Check the device's log; check Vercel → Logs for errors |
 | `Unknown device` replies | `DEVICE_AUTO_REGISTER=false` is set and the device isn't registered yet |
-| Device reports, but isn't on the Fleet page | It's new, so it's *unclaimed*: Platform page → assign it to your organization |
+| Device reports, but nothing shows on the Fleet page | It isn't paired yet: Platform page → pair it with a machine |
 
 ## Security notes for later (before real customer use)
 

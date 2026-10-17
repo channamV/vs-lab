@@ -82,9 +82,9 @@ npm run simulate
 ```
 
 Three simulated machines appear on the map within a few seconds and move around Toronto-area
-jobsites. (A brand-new device ID would appear under **Platform** as unclaimed instead; `demo:seed`
-already put the three simulated machines in your organization.) Their engines start and stop every few minutes, so you can watch the Engine column
-change. Click one to see its details, rename it, or change its service level.
+jobsites. (A brand-new device ID would appear under **Platform** in Veristart stock instead; `demo:seed`
+already created three demo machines in your organization and paired the simulated devices with them.) Their engines start and stop every few minutes, so you can watch the Engine column
+change. Click one to see its details, edit its unit #, name, make/model or service level.
 Press **Ctrl+C** in either window to stop it.
 
 To see a week of engine-hours history straight away (otherwise it builds up day by day), run once:

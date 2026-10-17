@@ -44,7 +44,7 @@ function getPhoneLocation(): Promise<GeolocationPosition | null> {
   });
 }
 
-export function CheckInForm({ deviceId }: { deviceId: string }) {
+export function CheckInForm({ machineCode }: { machineCode: string }) {
   const [state, action, pending] = useActionState(checkInAction, idle);
   const [locating, setLocating] = useState(false);
 
@@ -114,7 +114,7 @@ export function CheckInForm({ deviceId }: { deviceId: string }) {
   return (
     // key: rebuild the form after an error so it shows the operator's previous answers again
     <form key={state.status === "error" ? state.attempt : 0} onSubmit={onSubmit} className="space-y-4">
-      <input type="hidden" name="deviceId" value={deviceId} />
+      <input type="hidden" name="machineCode" value={machineCode} />
       <label className="block space-y-1">
         <span className="font-medium">1. Your PIN</span>
         <PinInput />
@@ -175,11 +175,11 @@ export function CheckInForm({ deviceId }: { deviceId: string }) {
   );
 }
 
-export function CheckOutForm({ deviceId }: { deviceId: string }) {
+export function CheckOutForm({ machineCode }: { machineCode: string }) {
   const [state, action, pending] = useActionState(checkOutAction, idle);
   return (
     <form action={action} className="space-y-2">
-      <input type="hidden" name="deviceId" value={deviceId} />
+      <input type="hidden" name="machineCode" value={machineCode} />
       <PinInput />
       <ErrorMessage state={state} />
       <button disabled={pending} className="w-full rounded border border-slate-400 px-4 py-2.5 font-medium disabled:opacity-60">

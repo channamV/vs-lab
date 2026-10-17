@@ -6,15 +6,16 @@ import { getDb } from "@/lib/db";
 import {
   alerts,
   checkins,
+  deviceAssignments,
   deviceEvents,
   devices,
   engineSessions,
   machineOperators,
+  machines,
   operators,
   organizations,
   telemetry,
   users,
-  type Device,
 } from "@/lib/db/schema";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -32,20 +33,23 @@ async function requireSession(): Promise<AuthContext> {
 }
 
 /** The machine, if it belongs to the signed-in user's organization (looked up once per request). */
-const deviceInOrg = cache(async (id: string, organizationId: number) => {
-  const [device] = await getDb()
+const machineInOrg = cache(async (id: number, organizationId: number) => {
+  const [machine] = await getDb()
     .select()
-    .from(devices)
-    .where(and(eq(devices.id, id), eq(devices.organizationId, organizationId)));
-  return device ?? null;
+    .from(machines)
+    .where(and(eq(machines.id, id), eq(machines.organizationId, organizationId)));
+  return machine ?? null;
 });
 
 /** For per-machine data: the signed-in user, after checking the machine is in their organization. */
-async function requireDevice(id: string): Promise<AuthContext> {
+async function requireMachine(id: number): Promise<AuthContext> {
   const auth = await requireSession();
-  if (!(await deviceInOrg(id, auth.organizationId))) throw new Error("Machine not found");
+  if (!(await machineInOrg(id, auth.organizationId))) throw new Error("Machine not found");
   return auth;
 }
+
+/** Open pairings: which device is on which machine right now. */
+const currentDevice = and(eq(deviceAssignments.machineId, machines.id), isNull(deviceAssignments.endedAt));
 
 /** The signed-in user (for the nav bar), or null on the sign-in pages. */
 export async function currentUser() {
@@ -55,8 +59,9 @@ export async function currentUser() {
 
 export type ConnectionStatus = "online" | "recent" | "offline";
 
-export function connectionStatus(device: Pick<Device, "lastSeenAt">, now = Date.now()): ConnectionStatus {
-  const ageMin = (now - device.lastSeenAt.getTime()) / 60_000;
+export function connectionStatus(item: { lastSeenAt: Date | null }, now = Date.now()): ConnectionStatus {
+  if (!item.lastSeenAt) return "offline";
+  const ageMin = (now - item.lastSeenAt.getTime()) / 60_000;
   if (ageMin < 5) return "online";
   if (ageMin < 60) return "recent";
   return "offline";
@@ -75,24 +80,24 @@ export type EngineStatus = "running" | "off" | "stale" | "unknown";
  * so we can't confirm it's still running. (Off-and-quiet stays "off": the stock firmware
  * stops reporting when a machine is parked, which is expected.)
  */
-export function engineStatus(device: Pick<Device, "engineOn" | "lastSeenAt">, now: number): EngineStatus {
-  if (device.engineOn === null) return "unknown";
-  if (!device.engineOn) return "off";
-  const quietMin = (now - device.lastSeenAt.getTime()) / 60_000;
+export function engineStatus(machine: { engineOn: boolean | null; lastSeenAt: Date | null }, now: number): EngineStatus {
+  if (machine.engineOn === null || !machine.lastSeenAt) return "unknown";
+  if (!machine.engineOn) return "off";
+  const quietMin = (now - machine.lastSeenAt.getTime()) / 60_000;
   return quietMin > ENGINE_THRESHOLDS.staleMinutes ? "stale" : "running";
 }
 
 /** Sessions that overlap the window starting at `since` (open ones always included), for one machine. */
-function sessionsSince(since: Date, deviceId: string) {
+function sessionsSince(since: Date, machineId: number) {
   const overlap = or(isNull(engineSessions.endedAt), gte(engineSessions.endedAt, since));
   return getDb()
     .select()
     .from(engineSessions)
-    .where(and(eq(engineSessions.deviceId, deviceId), overlap));
+    .where(and(eq(engineSessions.machineId, machineId), overlap));
 }
 
-/** Engine hours so far today (local time), keyed by device ID, for the organization's machines. */
-export async function engineHoursToday(): Promise<Map<string, number>> {
+/** Engine hours so far today (local time), keyed by machine ID, for the organization's machines. */
+export async function engineHoursToday(): Promise<Map<number, number>> {
   const auth = await requireSession();
   const now = Date.now();
   const tz = appTimeZone();
@@ -100,80 +105,122 @@ export async function engineHoursToday(): Promise<Map<string, number>> {
   const sessions = await getDb()
     .select({ session: engineSessions })
     .from(engineSessions)
-    .innerJoin(devices, eq(devices.id, engineSessions.deviceId))
+    .innerJoin(machines, eq(machines.id, engineSessions.machineId))
     .where(
       and(
-        eq(devices.organizationId, auth.organizationId),
+        eq(machines.organizationId, auth.organizationId),
         or(isNull(engineSessions.endedAt), gte(engineSessions.endedAt, since)),
       ),
     )
     .then((rows) => rows.map((r) => r.session));
-  const byDevice = Map.groupBy(sessions, (s) => s.deviceId);
-  return new Map([...byDevice].map(([id, list]) => [id, hoursByDay(list, now, 1, tz)[0].hours]));
+  const byMachine = Map.groupBy(sessions, (s) => s.machineId);
+  return new Map([...byMachine].map(([id, list]) => [id, hoursByDay(list, now, 1, tz)[0].hours]));
 }
 
 /** Engine hours for each of the last `days` days for one machine. */
-export async function engineHoursByDay(id: string, days = 7) {
-  await requireDevice(id);
+export async function engineHoursByDay(id: number, days = 7) {
+  await requireMachine(id);
   const now = Date.now();
   const tz = appTimeZone();
   const sessions = await sessionsSince(new Date(startOfLocalDay(now, tz, days - 1)), id);
   return hoursByDay(sessions, now, days, tz);
 }
 
-export async function recentEngineSessions(id: string, limit = 10) {
-  await requireDevice(id);
+export async function recentEngineSessions(id: number, limit = 10) {
+  await requireMachine(id);
   return getDb()
     .select()
     .from(engineSessions)
-    .where(eq(engineSessions.deviceId, id))
+    .where(eq(engineSessions.machineId, id))
     .orderBy(desc(engineSessions.startedAt))
     .limit(limit);
 }
 
-export async function listDevices() {
+/** The organization's machines, with the device currently on each (null if none). */
+export async function listMachines() {
   const auth = await requireSession();
-  return getDb()
-    .select()
-    .from(devices)
-    .where(eq(devices.organizationId, auth.organizationId))
-    .orderBy(desc(devices.lastSeenAt));
+  const rows = await getDb()
+    .select({ machine: machines, deviceId: deviceAssignments.deviceId })
+    .from(machines)
+    .leftJoin(deviceAssignments, currentDevice)
+    .where(eq(machines.organizationId, auth.organizationId));
+  // Unit number first (numerically where possible), as fleet managers refer to machines by unit.
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  return rows
+    .map((r) => ({ ...r.machine, deviceId: r.deviceId }))
+    .sort((a, b) =>
+      a.unitNumber && b.unitNumber
+        ? collator.compare(a.unitNumber, b.unitNumber)
+        : a.unitNumber
+          ? -1
+          : b.unitNumber
+            ? 1
+            : collator.compare(a.name, b.name),
+    );
 }
 
 /** The machine, or null if it doesn't exist or belongs to another organization. */
-export async function getDevice(id: string) {
+export async function getMachine(id: number) {
   const auth = await requireSession();
-  return deviceInOrg(id, auth.organizationId);
+  return machineInOrg(id, auth.organizationId);
 }
 
-export async function getTrack(id: string, hours = 24, limit = 2000) {
-  await requireDevice(id);
+/** Old links used the device ID, which became the machine's QR code: find the machine by code. */
+export async function machineIdForCode(code: string) {
+  const auth = await requireSession();
+  const [row] = await getDb()
+    .select({ id: machines.id })
+    .from(machines)
+    .where(and(eq(machines.code, code), eq(machines.organizationId, auth.organizationId)));
+  return row?.id ?? null;
+}
+
+/** The devices that have been on a machine, newest first (the open one is the current device). */
+export async function machineDevices(id: number) {
+  await requireMachine(id);
+  return getDb()
+    .select({
+      deviceId: deviceAssignments.deviceId,
+      startedAt: deviceAssignments.startedAt,
+      endedAt: deviceAssignments.endedAt,
+      lastSeenAt: devices.lastSeenAt,
+      lastBatteryV: devices.lastBatteryV,
+      lastRssi: devices.lastRssi,
+    })
+    .from(deviceAssignments)
+    .innerJoin(devices, eq(devices.id, deviceAssignments.deviceId))
+    .where(eq(deviceAssignments.machineId, id))
+    .orderBy(desc(deviceAssignments.startedAt));
+}
+
+export async function getTrack(id: number, hours = 24, limit = 2000) {
+  await requireMachine(id);
   const since = new Date(Date.now() - hours * 3_600_000);
   const rows = await getDb()
     .select({ lat: telemetry.lat, lng: telemetry.lng, at: telemetry.receivedAt })
     .from(telemetry)
-    .where(and(eq(telemetry.deviceId, id), gte(telemetry.receivedAt, since), isNotNull(telemetry.lat)))
+    .where(and(eq(telemetry.machineId, id), gte(telemetry.receivedAt, since), isNotNull(telemetry.lat)))
     .orderBy(desc(telemetry.receivedAt))
     .limit(limit);
   return rows.reverse().map((r) => ({ lat: r.lat!, lng: r.lng!, at: r.at }));
 }
 
-export async function getRecentTelemetry(id: string, limit = 1) {
-  await requireDevice(id);
+export async function getRecentTelemetry(id: number, limit = 1) {
+  await requireMachine(id);
   return getDb()
     .select()
     .from(telemetry)
-    .where(eq(telemetry.deviceId, id))
+    .where(eq(telemetry.machineId, id))
     .orderBy(desc(telemetry.receivedAt), desc(telemetry.id))
     .limit(limit);
 }
 
-export async function getRecentEvents(id: string, limit = 20) {
-  await requireDevice(id);
+export async function getRecentEvents(id: number, limit = 20) {
+  await requireMachine(id);
   return getDb()
     .select()
     .from(deviceEvents)
-    .where(eq(deviceEvents.deviceId, id))
+    .where(eq(deviceEvents.machineId, id))
     .orderBy(desc(deviceEvents.at))
     .limit(limit);
 }
@@ -190,10 +237,10 @@ export async function listOperators() {
       .where(eq(operators.organizationId, auth.organizationId))
       .orderBy(desc(operators.active), asc(operators.name)),
     db
-      .select({ operatorId: machineOperators.operatorId, deviceId: devices.id, name: devices.name })
+      .select({ operatorId: machineOperators.operatorId, machineId: machines.id, name: machines.name, unitNumber: machines.unitNumber })
       .from(machineOperators)
-      .innerJoin(devices, eq(devices.id, machineOperators.deviceId))
-      .where(eq(devices.organizationId, auth.organizationId)),
+      .innerJoin(machines, eq(machines.id, machineOperators.machineId))
+      .where(eq(machines.organizationId, auth.organizationId)),
   ]);
   const machinesFor = Map.groupBy(assignments, (a) => a.operatorId);
   return ops.map((op) => ({ ...op, machines: machinesFor.get(op.id) ?? [] }));
@@ -209,18 +256,18 @@ export async function getOperator(id: number) {
 }
 
 /** IDs of the operators allowed on a machine (empty = any active operator). */
-export async function allowedOperatorIds(deviceId: string) {
-  await requireDevice(deviceId);
+export async function allowedOperatorIds(machineId: number) {
+  await requireMachine(machineId);
   const rows = await getDb()
     .select({ id: machineOperators.operatorId })
     .from(machineOperators)
-    .where(eq(machineOperators.deviceId, deviceId));
+    .where(eq(machineOperators.machineId, machineId));
   return rows.map((r) => r.id);
 }
 
 const checkinWithOperator = {
   id: checkins.id,
-  deviceId: checkins.deviceId,
+  machineId: checkins.machineId,
   operatorId: checkins.operatorId,
   operatorName: operators.name,
   startedAt: checkins.startedAt,
@@ -268,7 +315,7 @@ async function withEngine<T extends CheckinRow>(
   });
 }
 
-/** The operator currently checked in on each machine, keyed by device ID. */
+/** The operator currently checked in on each machine, keyed by machine ID. */
 export async function currentCheckins() {
   const auth = await requireSession();
   const rows = await getDb()
@@ -276,16 +323,16 @@ export async function currentCheckins() {
     .from(checkins)
     .innerJoin(operators, eq(operators.id, checkins.operatorId))
     .where(and(eq(checkins.organizationId, auth.organizationId), isNull(checkins.endedAt)));
-  return new Map((await withEngine(rows)).filter((r) => r.current).map((r) => [r.deviceId, r]));
+  return new Map((await withEngine(rows)).filter((r) => r.current).map((r) => [r.machineId, r]));
 }
 
-export async function recentCheckins(deviceId: string, limit = 10) {
-  const auth = await requireDevice(deviceId);
+export async function recentCheckins(machineId: number, limit = 10) {
+  const auth = await requireMachine(machineId);
   const rows = await getDb()
     .select(checkinWithOperator)
     .from(checkins)
     .innerJoin(operators, eq(operators.id, checkins.operatorId))
-    .where(and(eq(checkins.deviceId, deviceId), eq(checkins.organizationId, auth.organizationId)))
+    .where(and(eq(checkins.machineId, machineId), eq(checkins.organizationId, auth.organizationId)))
     .orderBy(desc(checkins.startedAt))
     .limit(limit);
   return withEngine(rows);
@@ -295,8 +342,9 @@ export async function recentCheckins(deviceId: string, limit = 10) {
 
 const alertWithMachine = {
   id: alerts.id,
-  deviceId: alerts.deviceId,
-  machineName: devices.name,
+  machineId: alerts.machineId,
+  machineName: machines.name,
+  unitNumber: machines.unitNumber,
   type: alerts.type,
   createdAt: alerts.createdAt,
   title: alerts.title,
@@ -308,33 +356,33 @@ const alertWithMachine = {
 };
 
 /** Open (unacknowledged) alerts, newest first. */
-export async function openAlerts(deviceId?: string) {
+export async function openAlerts(machineId?: number) {
   const auth = await requireSession();
   return getDb()
     .select(alertWithMachine)
     .from(alerts)
-    .innerJoin(devices, eq(devices.id, alerts.deviceId))
+    .innerJoin(machines, eq(machines.id, alerts.machineId))
     .where(
       and(
         eq(alerts.organizationId, auth.organizationId),
         isNull(alerts.acknowledgedAt),
-        deviceId ? eq(alerts.deviceId, deviceId) : undefined,
+        machineId ? eq(alerts.machineId, machineId) : undefined,
       ),
     )
     .orderBy(desc(alerts.createdAt));
 }
 
-export async function acknowledgedAlerts(limit = 30, deviceId?: string) {
+export async function acknowledgedAlerts(limit = 30, machineId?: number) {
   const auth = await requireSession();
   return getDb()
     .select(alertWithMachine)
     .from(alerts)
-    .innerJoin(devices, eq(devices.id, alerts.deviceId))
+    .innerJoin(machines, eq(machines.id, alerts.machineId))
     .where(
       and(
         eq(alerts.organizationId, auth.organizationId),
         isNotNull(alerts.acknowledgedAt),
-        deviceId ? eq(alerts.deviceId, deviceId) : undefined,
+        machineId ? eq(alerts.machineId, machineId) : undefined,
       ),
     )
     .orderBy(desc(alerts.createdAt))
@@ -374,34 +422,97 @@ export async function listOrganizations() {
   const [orgs, counts, userCounts] = await Promise.all([
     db.select().from(organizations).orderBy(asc(organizations.name)),
     db
-      .select({ organizationId: devices.organizationId, n: sql<number>`count(*)::int` })
-      .from(devices)
-      .groupBy(devices.organizationId),
+      .select({ organizationId: machines.organizationId, n: sql<number>`count(*)::int` })
+      .from(machines)
+      .groupBy(machines.organizationId),
     db
       .select({ organizationId: users.organizationId, n: sql<number>`count(*)::int` })
       .from(users)
       .groupBy(users.organizationId),
   ]);
-  const machines = new Map(counts.map((c) => [c.organizationId, c.n]));
+  const machineCounts = new Map(counts.map((c) => [c.organizationId, c.n]));
   const people = new Map(userCounts.map((c) => [c.organizationId, c.n]));
-  return orgs.map((o) => ({ ...o, machines: machines.get(o.id) ?? 0, users: people.get(o.id) ?? 0 }));
+  return orgs.map((o) => ({ ...o, machines: machineCounts.get(o.id) ?? 0, users: people.get(o.id) ?? 0 }));
 }
 
-/** Devices that have reported but aren't assigned to an organization yet. */
-export async function unclaimedDevices() {
+/**
+ * Every device, with whose stock it's in and the machine it's on (if any), for pairing. Devices
+ * not in anyone's stock (new or returned) come first, then by most recently heard from.
+ */
+export async function allDevices() {
   await connection();
   await requirePlatformAdmin();
-  return getDb().select().from(devices).where(isNull(devices.organizationId)).orderBy(desc(devices.lastSeenAt));
+  const rows = await getDb()
+    .select({
+      device: devices,
+      stockOrganization: organizations.name,
+      machineId: machines.id,
+      machineName: machines.name,
+      unitNumber: machines.unitNumber,
+    })
+    .from(devices)
+    .leftJoin(organizations, eq(organizations.id, devices.organizationId))
+    .leftJoin(deviceAssignments, and(eq(deviceAssignments.deviceId, devices.id), isNull(deviceAssignments.endedAt)))
+    .leftJoin(machines, eq(machines.id, deviceAssignments.machineId))
+    .orderBy(sql`${devices.organizationId} is not null`, desc(devices.lastSeenAt));
+  return rows.map((r) => ({ ...r.device, stockOrganization: r.stockOrganization, machine: r.machineId ? { id: r.machineId, name: r.machineName!, unitNumber: r.unitNumber } : null }));
 }
 
-/** All machines with their organization, for moving a machine between organizations. */
-export async function allDevicesWithOrganization() {
+/** Staff: devices that could go on one of this organization's machines (unpaired, in Veristart's or their stock). */
+export async function pairableDevices(organizationId: number) {
   await connection();
   await requirePlatformAdmin();
   return getDb()
-    .select({ id: devices.id, name: devices.name, lastSeenAt: devices.lastSeenAt, organizationId: devices.organizationId })
+    .select({ id: devices.id, organizationId: devices.organizationId, lastSeenAt: devices.lastSeenAt })
     .from(devices)
-    .orderBy(asc(devices.id));
+    .leftJoin(deviceAssignments, and(eq(deviceAssignments.deviceId, devices.id), isNull(deviceAssignments.endedAt)))
+    .where(and(isNull(deviceAssignments.id), or(isNull(devices.organizationId), eq(devices.organizationId, organizationId))))
+    .orderBy(desc(devices.lastSeenAt));
+}
+
+/** Machines with no device on them, across all organizations, for pairing. */
+export async function machinesWithoutDevice() {
+  await connection();
+  await requirePlatformAdmin();
+  return getDb()
+    .select({ id: machines.id, name: machines.name, unitNumber: machines.unitNumber, organizationId: machines.organizationId, organizationName: organizations.name })
+    .from(machines)
+    .innerJoin(organizations, eq(organizations.id, machines.organizationId))
+    .leftJoin(deviceAssignments, currentDevice)
+    .where(isNull(deviceAssignments.id))
+    .orderBy(asc(organizations.name), asc(machines.name));
+}
+
+/** Staff: one device's diagnostics, whatever machine or organization it's with. */
+export async function getDeviceForStaff(id: string) {
+  await connection();
+  await requirePlatformAdmin();
+  const db = getDb();
+  const [row] = await db
+    .select({ device: devices, stockOrganization: organizations.name })
+    .from(devices)
+    .leftJoin(organizations, eq(organizations.id, devices.organizationId))
+    .where(eq(devices.id, id));
+  if (!row) return null;
+  const [pairings, events, [latest]] = await Promise.all([
+    db
+      .select({
+        machineId: machines.id,
+        machineName: machines.name,
+        unitNumber: machines.unitNumber,
+        organizationName: organizations.name,
+        startedAt: deviceAssignments.startedAt,
+        endedAt: deviceAssignments.endedAt,
+      })
+      .from(deviceAssignments)
+      .innerJoin(machines, eq(machines.id, deviceAssignments.machineId))
+      .innerJoin(organizations, eq(organizations.id, machines.organizationId))
+      .where(eq(deviceAssignments.deviceId, id))
+      .orderBy(desc(deviceAssignments.startedAt)),
+    db.select().from(deviceEvents).where(eq(deviceEvents.deviceId, id)).orderBy(desc(deviceEvents.at)).limit(20),
+    db.select().from(telemetry).where(eq(telemetry.deviceId, id)).orderBy(desc(telemetry.receivedAt), desc(telemetry.id)).limit(1),
+  ]);
+  return { ...row.device, stockOrganization: row.stockOrganization, pairings, events, latest: latest ?? null };
 }
 
 /** Platform admins: organization names for the switcher in the nav bar. */

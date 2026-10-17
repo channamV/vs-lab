@@ -6,6 +6,11 @@ export const TIER_LABELS: Record<Tier, string> = {
   control: "Safety & Access Control",
 };
 
+/** How a machine is named on screen and in emails: unit number first, as fleet managers refer to it. */
+export function machineLabel(m: { name: string; unitNumber: string | null }): string {
+  return m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name;
+}
+
 export function timeAgo(date: Date | null, now = Date.now()): string {
   if (!date) return "never";
   const s = Math.max(0, Math.round((now - date.getTime()) / 1000));

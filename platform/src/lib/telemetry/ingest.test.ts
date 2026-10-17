@@ -1,14 +1,27 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { deviceEvents, devices, engineSessions, telemetry } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { deviceEvents, devices, engineSessions, machines, organizations, telemetry } from "@/lib/db/schema";
+import { createMachine, pairDevice, unpairDevice } from "@/lib/machines";
 import { ingestSamples, recordEvent, UnknownDeviceError } from "./ingest";
 
 let db: Db;
+let machineId: number;
 
 beforeEach(async () => {
   db = createDb(); // in-memory database
   await migrateDb(db, false);
+  const [org] = await db.insert(organizations).values({ name: "ABC Civil" }).returning();
+  ({ id: machineId } = await createMachine(db, org.id, { name: "Excavator", unitNumber: "14" }));
 });
+
+/** Registers a device and puts it on the test machine. */
+async function paired(deviceId: string, now?: Date) {
+  await db.insert(devices).values({ id: deviceId }).onConflictDoNothing();
+  await pairDevice(db, deviceId, machineId, now);
+}
+
+const getMachine = async () => (await db.select().from(machines).where(eq(machines.id, machineId)))[0];
 
 describe("ingestSamples", () => {
   it("registers a new device and stores its position", async () => {
@@ -18,7 +31,7 @@ describe("ingestSamples", () => {
     expect(count).toBe(1);
 
     const [device] = await db.select().from(devices);
-    expect(device).toMatchObject({ id: "DEV00001", tier: "gps", lastLat: 43.65, lastLng: -79.38, lastRssi: -70 });
+    expect(device).toMatchObject({ id: "DEV00001", organizationId: null, lastLat: 43.65, lastLng: -79.38, lastRssi: -70 });
     expect(device.lastBatteryV).toBeCloseTo(12.9);
     expect(device.lastFixAt).not.toBeNull();
   });
@@ -47,6 +60,56 @@ describe("ingestSamples", () => {
   });
 });
 
+describe("machines and devices", () => {
+  it("leaves data from an unpaired device without a machine (bench test, in stock)", async () => {
+    await ingestSamples(db, "DEV1", [{ deviceMs: 1, lat: 43.65, lng: -79.38, batteryCentivolts: 1400 }]);
+    const [row] = await db.select().from(telemetry);
+    expect(row.machineId).toBeNull();
+    expect(await db.select().from(engineSessions)).toHaveLength(0);
+    expect((await getMachine()).lastSeenAt).toBeNull();
+  });
+
+  it("stamps a paired device's data with the machine and updates the machine's snapshot", async () => {
+    await paired("DEV1");
+    await ingestSamples(db, "DEV1", [{ deviceMs: 1, lat: 43.65, lng: -79.38, rssi: -70 }]);
+    await recordEvent(db, "DEV1", { type: "ping", rssi: -60 });
+    expect((await db.select().from(telemetry))[0].machineId).toBe(machineId);
+    expect((await db.select().from(deviceEvents))[0].machineId).toBe(machineId);
+    expect(await getMachine()).toMatchObject({ lastLat: 43.65, lastLng: -79.38, lastRssi: -60 });
+  });
+
+  it("keeps the machine's history when its device is replaced", async () => {
+    const at = (min: number) => new Date(Date.parse("2026-10-15T12:00:00Z") + min * 60_000);
+    await paired("OLD", at(0));
+    await ingestSamples(db, "OLD", [{ batteryCentivolts: 1400, lat: 43.6, lng: -79.4 }], { now: at(1) });
+    await ingestSamples(db, "OLD", [{ batteryCentivolts: 1400 }], { now: at(3) });
+    // The old device fails while the engine is running: staff unpair it and fit a new one.
+    await unpairDevice(db, "OLD", at(30));
+    let sessions = await db.select().from(engineSessions);
+    expect(sessions).toEqual([expect.objectContaining({ machineId, startedAt: at(1), endedAt: at(3) })]);
+    expect((await getMachine()).engineOn).toBeNull();
+
+    // The old device keeps reporting from the workbench: none of it reaches the machine.
+    await ingestSamples(db, "OLD", [{ batteryCentivolts: 1400, lat: 45, lng: -75 }], { now: at(40) });
+    expect((await getMachine()).lastLat).toBe(43.6);
+
+    await paired("NEW", at(50));
+    await ingestSamples(db, "NEW", [{ batteryCentivolts: 1400 }], { now: at(60) });
+    sessions = await db.select().from(engineSessions).orderBy(engineSessions.startedAt);
+    expect(sessions.map((s) => [s.machineId, s.startedAt, s.endedAt])).toEqual([
+      [machineId, at(1), at(3)],
+      [machineId, at(60), null],
+    ]);
+    const rows = await db.select().from(telemetry).orderBy(telemetry.id);
+    expect(rows.map((r) => [r.deviceId, r.machineId])).toEqual([
+      ["OLD", machineId],
+      ["OLD", machineId],
+      ["OLD", null],
+      ["NEW", machineId],
+    ]);
+  });
+});
+
 describe("recordEvent", () => {
   it("logs a login with signal strength and VIN", async () => {
     await recordEvent(db, "DEV00001", { type: "login", rssi: -65, vin: "1FTFW1ET5DFC10312" });
@@ -62,23 +125,26 @@ describe("engine sessions", () => {
   const on = { batteryCentivolts: 1400 };
   const off = { batteryCentivolts: 1250 };
 
+  beforeEach(() => paired("DEV1"));
+
   it("opens a session when the engine starts and closes it when it stops", async () => {
     await ingestSamples(db, "DEV1", [off], { now: at(0) });
     await ingestSamples(db, "DEV1", [on], { now: at(1) });
     await ingestSamples(db, "DEV1", [on], { now: at(5) });
 
-    let [device] = await db.select().from(devices);
-    expect(device.engineOn).toBe(true);
-    expect(device.engineChangedAt).toEqual(at(1));
+    let machine = await getMachine();
+    expect(machine.engineOn).toBe(true);
+    expect(machine.engineChangedAt).toEqual(at(1));
+    expect((await db.select().from(devices))[0].engineOn).toBe(true);
 
     await ingestSamples(db, "DEV1", [off], { now: at(9) });
     const sessions = await db.select().from(engineSessions);
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({ startedAt: at(1), endedAt: at(9), source: "voltage" });
 
-    [device] = await db.select().from(devices);
-    expect(device.engineOn).toBe(false);
-    expect(device.engineChangedAt).toEqual(at(9));
+    machine = await getMachine();
+    expect(machine.engineOn).toBe(false);
+    expect(machine.engineChangedAt).toEqual(at(9));
   });
 
   it("closes a session at the last report when the device went silent", async () => {
@@ -91,8 +157,7 @@ describe("engine sessions", () => {
     expect(sessions).toHaveLength(2);
     expect(sessions[0]).toMatchObject({ startedAt: at(0), endedAt: at(4) });
     expect(sessions[1]).toMatchObject({ startedAt: at(124), endedAt: null });
-    const [device] = await db.select().from(devices);
-    expect(device.engineChangedAt).toEqual(at(124));
+    expect((await getMachine()).engineChangedAt).toEqual(at(124));
   });
 
   it("stores the engine state on each reading and leaves state alone when unknown", async () => {
@@ -100,7 +165,6 @@ describe("engine sessions", () => {
     await ingestSamples(db, "DEV1", [{ lat: 43.6, lng: -79.4 }], { now: at(1) });
     const rows = await db.select().from(telemetry).orderBy(telemetry.id);
     expect(rows.map((r) => r.engineOn)).toEqual([true, null]);
-    const [device] = await db.select().from(devices);
-    expect(device.engineOn).toBe(true);
+    expect((await getMachine()).engineOn).toBe(true);
   });
 });

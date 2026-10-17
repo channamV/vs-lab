@@ -92,15 +92,94 @@ export const sessions = pgTable(
   (t) => [uniqueIndex("sessions_token_idx").on(t.tokenHash)],
 );
 
-/** One row per physical device. The device ID is the 8-character ID the Freematics firmware generates. */
+/**
+ * A customer's piece of equipment (the backhoe), independent of the tracking device on it. The machine
+ * owns its data: position history, engine hours, check-ins and alerts stay with it when its device is
+ * replaced. Devices are paired with machines by Veristart staff (see deviceAssignments).
+ */
+export const machines = pgTable(
+  "machines",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Random code in the QR sticker URL (/checkin/<code>). Stays the same when the device is replaced. */
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    /** The customer's unit / fleet number, e.g. "14". Unique within the organization. */
+    unitNumber: text("unit_number"),
+    /** e.g. Excavator, Backhoe, Loader */
+    machineType: text("machine_type"),
+    make: text("make"),
+    model: text("model"),
+    year: integer("year"),
+    /** Serial number or VIN. */
+    serialNumber: text("serial_number"),
+    tier: tierEnum("tier").notNull().default("gps"),
+    /**
+     * Safety & Access Monitoring machines are armed unless disarmed (e.g. during a service visit).
+     * disarmedUntil set → re-arms automatically at that time; null → disarmed until someone re-arms.
+     */
+    disarmed: boolean("disarmed").notNull().default(false),
+    disarmedUntil: timestamp("disarmed_until", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Latest state, from whichever device is paired. Null until a device has reported for this machine.
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    lastFixAt: timestamp("last_fix_at", { withTimezone: true }),
+    lastLat: doublePrecision("last_lat"),
+    lastLng: doublePrecision("last_lng"),
+    lastSpeedKph: real("last_speed_kph"),
+    lastBatteryV: real("last_battery_v"),
+    lastRssi: integer("last_rssi"),
+    /** Latest engine state (null = unknown). See src/lib/telemetry/engine.ts. */
+    engineOn: boolean("engine_on"),
+    engineChangedAt: timestamp("engine_changed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("machines_code_idx").on(t.code),
+    uniqueIndex("machines_org_unit_idx").on(t.organizationId, t.unitNumber).where(sql`${t.unitNumber} is not null`),
+  ],
+);
+
+/**
+ * Which device was on which machine, and when. An open row (no endedAt) is the current pairing:
+ * at most one per device and one per machine. Data a device sends while paired belongs to the machine.
+ */
+export const deviceAssignments = pgTable(
+  "device_assignments",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("device_assignments_open_device_idx").on(t.deviceId).where(sql`${t.endedAt} is null`),
+    uniqueIndex("device_assignments_open_machine_idx").on(t.machineId).where(sql`${t.endedAt} is null`),
+    index("device_assignments_machine_idx").on(t.machineId, t.startedAt),
+  ],
+);
+
+/**
+ * One row per physical tracking device (hardware). The device ID is the ID the Freematics firmware
+ * generates. A device supplies data for whichever machine it's paired with; the data belongs to the machine.
+ */
 export const devices = pgTable("devices", {
   id: text("id").primaryKey(),
-  /** Null = unclaimed: the device has reported but a platform admin hasn't assigned it to an organization. */
+  /**
+   * Whose stock the device is in: a customer's (available to pair with their machines, or already paired)
+   * or null = Veristart's (new, in stock, or returned).
+   */
   organizationId: bigint("organization_id", { mode: "number" }).references(() => organizations.id, {
     onDelete: "set null",
   }),
-  name: text("name"),
-  tier: tierEnum("tier").notNull().default("gps"),
+  /** VIN read over OBD, if the vehicle provides one. */
   vin: text("vin"),
   firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
@@ -110,15 +189,9 @@ export const devices = pgTable("devices", {
   lastSpeedKph: real("last_speed_kph"),
   lastBatteryV: real("last_battery_v"),
   lastRssi: integer("last_rssi"),
-  /** Latest engine state (null = unknown). See src/lib/telemetry/engine.ts. */
+  /** Latest engine reading from this device (diagnostics; the machine keeps its own engine state). */
   engineOn: boolean("engine_on"),
   engineChangedAt: timestamp("engine_changed_at", { withTimezone: true }),
-  /**
-   * Safety & Access Monitoring machines are armed unless disarmed (e.g. during a service visit).
-   * disarmedUntil set → re-arms automatically at that time; null → disarmed until someone re-arms.
-   */
-  disarmed: boolean("disarmed").notNull().default(false),
-  disarmedUntil: timestamp("disarmed_until", { withTimezone: true }),
 });
 
 /** One row per data sample sent by a device. */
@@ -129,6 +202,8 @@ export const telemetry = pgTable(
     deviceId: text("device_id")
       .notNull()
       .references(() => devices.id, { onDelete: "cascade" }),
+    /** The machine the device was paired with when this arrived. Null = unpaired (bench test, in stock). */
+    machineId: bigint("machine_id", { mode: "number" }).references(() => machines.id, { onDelete: "set null" }),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
     /** Device uptime in ms when the sample was taken (not a wall-clock time). */
     deviceMs: bigint("device_ms", { mode: "number" }),
@@ -146,7 +221,10 @@ export const telemetry = pgTable(
     /** Every field in the sample, keyed by name, including OBD and motion data. */
     fields: jsonb("fields").$type<Record<string, number | number[]>>().notNull(),
   },
-  (t) => [index("telemetry_device_time_idx").on(t.deviceId, t.receivedAt)],
+  (t) => [
+    index("telemetry_device_time_idx").on(t.deviceId, t.receivedAt),
+    index("telemetry_machine_time_idx").on(t.machineId, t.receivedAt),
+  ],
 );
 
 /** Connection events: login, logout, ping, etc. */
@@ -157,25 +235,31 @@ export const deviceEvents = pgTable(
     deviceId: text("device_id")
       .notNull()
       .references(() => devices.id, { onDelete: "cascade" }),
+    /** The machine the device was paired with at the time (null = unpaired). */
+    machineId: bigint("machine_id", { mode: "number" }).references(() => machines.id, { onDelete: "set null" }),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
     type: text("type").notNull(),
     rssi: integer("rssi"),
     detail: text("detail"),
   },
-  (t) => [index("device_events_device_time_idx").on(t.deviceId, t.at)],
+  (t) => [
+    index("device_events_device_time_idx").on(t.deviceId, t.at),
+    index("device_events_machine_time_idx").on(t.machineId, t.at),
+  ],
 );
 
 /**
- * One row per engine-on period. An open session has no endedAt.
- * At most one open session per device (enforced by the partial unique index).
+ * One row per engine-on period of a machine. An open session has no endedAt.
+ * At most one open session per machine (enforced by the partial unique index). A device swap doesn't
+ * break a machine's history: the new device continues the machine's sessions.
  */
 export const engineSessions = pgTable(
   "engine_sessions",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    deviceId: text("device_id")
+    machineId: bigint("machine_id", { mode: "number" })
       .notNull()
-      .references(() => devices.id, { onDelete: "cascade" }),
+      .references(() => machines.id, { onDelete: "cascade" }),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     /** Last report while running; used to close sessions when a device goes silent. */
@@ -184,8 +268,8 @@ export const engineSessions = pgTable(
     source: text("source"),
   },
   (t) => [
-    index("engine_sessions_device_start_idx").on(t.deviceId, t.startedAt),
-    uniqueIndex("engine_sessions_one_open_idx").on(t.deviceId).where(sql`${t.endedAt} is null`),
+    index("engine_sessions_machine_start_idx").on(t.machineId, t.startedAt),
+    uniqueIndex("engine_sessions_one_open_machine_idx").on(t.machineId).where(sql`${t.endedAt} is null`),
   ],
 );
 
@@ -222,14 +306,14 @@ export const operators = pgTable(
 export const machineOperators = pgTable(
   "machine_operators",
   {
-    deviceId: text("device_id")
+    machineId: bigint("machine_id", { mode: "number" })
       .notNull()
-      .references(() => devices.id, { onDelete: "cascade" }),
+      .references(() => machines.id, { onDelete: "cascade" }),
     operatorId: bigint("operator_id", { mode: "number" })
       .notNull()
       .references(() => operators.id, { onDelete: "cascade" }),
   },
-  (t) => [primaryKey({ columns: [t.deviceId, t.operatorId] })],
+  (t) => [primaryKey({ columns: [t.machineId, t.operatorId] })],
 );
 
 export type ChecklistAnswer = { id: string; question: string; ok: boolean };
@@ -246,9 +330,9 @@ export const checkins = pgTable(
     organizationId: bigint("organization_id", { mode: "number" })
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    deviceId: text("device_id")
+    machineId: bigint("machine_id", { mode: "number" })
       .notNull()
-      .references(() => devices.id, { onDelete: "cascade" }),
+      .references(() => machines.id, { onDelete: "cascade" }),
     operatorId: bigint("operator_id", { mode: "number" })
       .notNull()
       .references(() => operators.id, { onDelete: "cascade" }),
@@ -286,9 +370,9 @@ export const checkins = pgTable(
     method: text("method").notNull().default("web"),
   },
   (t) => [
-    index("checkins_device_start_idx").on(t.deviceId, t.startedAt),
+    index("checkins_machine_start_idx").on(t.machineId, t.startedAt),
     index("checkins_operator_start_idx").on(t.operatorId, t.startedAt),
-    uniqueIndex("checkins_one_open_idx").on(t.deviceId).where(sql`${t.endedAt} is null`),
+    uniqueIndex("checkins_one_open_machine_idx").on(t.machineId).where(sql`${t.endedAt} is null`),
     index("checkins_engine_session_idx").on(t.engineSessionId),
   ],
 );
@@ -298,10 +382,10 @@ export const pinFailures = pgTable(
   "pin_failures",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    deviceId: text("device_id").notNull(),
+    machineId: bigint("machine_id", { mode: "number" }).notNull(),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("pin_failures_device_time_idx").on(t.deviceId, t.at)],
+  (t) => [index("pin_failures_machine_time_idx").on(t.machineId, t.at)],
 );
 
 /**
@@ -315,9 +399,9 @@ export const alerts = pgTable(
     organizationId: bigint("organization_id", { mode: "number" })
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    deviceId: text("device_id")
+    machineId: bigint("machine_id", { mode: "number" })
       .notNull()
-      .references(() => devices.id, { onDelete: "cascade" }),
+      .references(() => machines.id, { onDelete: "cascade" }),
     /** unauthorized-use, checklist-failed, not-approved, not-at-machine */
     type: text("type").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -335,7 +419,7 @@ export const alerts = pgTable(
   },
   (t) => [
     index("alerts_created_idx").on(t.createdAt),
-    index("alerts_device_created_idx").on(t.deviceId, t.createdAt),
+    index("alerts_machine_created_idx").on(t.machineId, t.createdAt),
     uniqueIndex("alerts_one_per_engine_session_idx").on(t.type, t.engineSessionId),
     uniqueIndex("alerts_one_per_checkin_idx").on(t.type, t.checkinId),
   ],
@@ -345,6 +429,8 @@ export type Organization = typeof organizations.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Device = typeof devices.$inferSelect;
+export type Machine = typeof machines.$inferSelect;
+export type DeviceAssignment = typeof deviceAssignments.$inferSelect;
 export type Alert = typeof alerts.$inferSelect;
 export type TelemetryRow = typeof telemetry.$inferSelect;
 export type DeviceEvent = typeof deviceEvents.$inferSelect;

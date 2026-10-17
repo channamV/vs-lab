@@ -91,4 +91,4 @@ check-ins keep the questions as they were asked at the time.
 ## Trying it with test data
 
 `npm run demo:seed` adds three demo operators with PINs **1111**, **2222** and **3333**, plus a week
-of check-ins for the simulated machines. Open `/checkin/SIM00001` to try the operator's side.
+of check-ins for the simulated machines. Open `/checkin/SIM00001` to try the operator's side (machines migrated from the old setup kept their device ID as the QR code; new machines get a random code, shown under the QR sticker).

@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { viewOrganization } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { AccountError, assignDevice, createOrganization } from "@/lib/organizations";
+import { AccountError, createOrganization } from "@/lib/organizations";
+import { MachineError, setDeviceStock } from "@/lib/machines";
 import { requirePlatformAdmin } from "@/lib/session";
 
 /** Platform admins (Veristart staff) only. */
@@ -31,10 +32,17 @@ export async function createOrganizationAction(prev: PlatformFormState, formData
   return { error: null, version: prev.version + 1 };
 }
 
-export async function assignDeviceAction(formData: FormData) {
+/** Move an unpaired device into a customer's spare stock, or back to Veristart's (empty value). */
+export async function setDeviceStockAction(prev: PlatformFormState, formData: FormData): Promise<PlatformFormState> {
   await requirePlatformAdmin();
   const deviceId = z.string().min(1).max(32).parse(formData.get("deviceId"));
   const raw = String(formData.get("organizationId") ?? "");
-  await assignDevice(getDb(), deviceId, raw ? z.coerce.number().int().positive().parse(raw) : null);
+  try {
+    await setDeviceStock(getDb(), deviceId, raw ? z.coerce.number().int().positive().parse(raw) : null);
+  } catch (err) {
+    if (err instanceof MachineError) return { error: err.message, version: prev.version + 1 };
+    throw err;
+  }
   refresh();
+  return { error: null, version: prev.version + 1 };
 }

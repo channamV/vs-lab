@@ -25,7 +25,7 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
      organizations. Without it the build stops with *"No platform admin"*.
    - `RESEND_API_KEY` = from resend.com. **Needed to sign in:** sign-in links are emailed. See [alerts.md](alerts.md).
    - `ALERT_EMAIL_FROM` = e.g. `VS Lab <alerts@veristart.ai>` (a domain verified in Resend)
-   - `DEVICE_AUTO_REGISTER` = `true` for now: new devices are stored as *unclaimed* until you assign them
+   - `DEVICE_AUTO_REGISTER` = `true` for now: new devices appear in *Veristart stock* on the Platform page until staff pair them with a machine
    - `APP_TIMEZONE` (optional) = the time zone for daily engine hours, e.g. `America/Toronto` (the default)
    - `ALERT_EMAIL_TO` (optional) = addresses that get every organization's alerts
 5. **Deploy:** *Deployments* → *Redeploy*. When it finishes, open the address Vercel shows

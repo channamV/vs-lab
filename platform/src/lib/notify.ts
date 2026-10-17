@@ -50,8 +50,8 @@ export function appUrl(): string | null {
 
 export type EmailMessage = { subject: string; text: string };
 
-export function alertEmail(alert: Pick<Alert, "title" | "detail" | "deviceId">, baseUrl: string | null): EmailMessage {
-  const link = baseUrl ? `${baseUrl}/devices/${encodeURIComponent(alert.deviceId)}` : null;
+export function alertEmail(alert: Pick<Alert, "title" | "detail" | "machineId">, baseUrl: string | null): EmailMessage {
+  const link = baseUrl ? `${baseUrl}/machines/${alert.machineId}` : null;
   return {
     subject: `⚠ ${alert.title}`,
     text: [
@@ -59,7 +59,7 @@ export function alertEmail(alert: Pick<Alert, "title" | "detail" | "deviceId">, 
       "",
       alert.detail ?? "",
       "",
-      link ? `Machine: ${link}` : `Machine ID: ${alert.deviceId}`,
+      link ? `Machine: ${link}` : "",
       baseUrl ? `All alerts: ${baseUrl}/alerts` : "",
       "",
       "— VS Lab",

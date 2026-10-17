@@ -5,32 +5,12 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { requireAuth } from "@/lib/session";
 import { getDb } from "@/lib/db";
-import { devices, tierEnum } from "@/lib/db/schema";
+import { machines } from "@/lib/db/schema";
 import { endCheckin, setMachineOperators } from "@/lib/operators";
 import { appTimeZone, startOfLocalDay } from "@/lib/telemetry/engine";
 
-const UpdateDevice = z.object({
-  id: z.string().min(1).max(32),
-  name: z.string().trim().max(80),
-  tier: z.enum(tierEnum.enumValues),
-});
-
-export async function updateDevice(formData: FormData) {
-  const auth = await requireAuth("manager");
-  const input = UpdateDevice.parse({
-    id: formData.get("id"),
-    name: formData.get("name") ?? "",
-    tier: formData.get("tier"),
-  });
-  await getDb()
-    .update(devices)
-    .set({ name: input.name || null, tier: input.tier })
-    .where(and(eq(devices.id, input.id), eq(devices.organizationId, auth.organizationId)));
-  refresh();
-}
-
 const AllowedOperators = z.object({
-  id: z.string().min(1).max(32),
+  id: z.coerce.number().int().positive(),
   operatorIds: z.array(z.coerce.number().int().positive()),
 });
 
@@ -49,7 +29,7 @@ export async function endCheckinAction(formData: FormData) {
 }
 
 const Arming = z.object({
-  id: z.string().min(1).max(32),
+  id: z.coerce.number().int().positive(),
   mode: z.enum(["arm", "1h", "4h", "morning", "indefinite"]),
 });
 
@@ -67,8 +47,8 @@ export async function setArming(formData: FormData) {
     morning: new Date(startOfLocalDay(now, appTimeZone(), -1) + 6 * 3_600_000),
   }[mode];
   await getDb()
-    .update(devices)
+    .update(machines)
     .set({ disarmed: mode !== "arm", disarmedUntil: until })
-    .where(and(eq(devices.id, id), eq(devices.organizationId, auth.organizationId)));
+    .where(and(eq(machines.id, id), eq(machines.organizationId, auth.organizationId)));
   refresh();
 }

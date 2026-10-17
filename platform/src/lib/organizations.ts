@@ -1,10 +1,10 @@
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { checkins, devices, machineOperators, organizations, users, type Role } from "@/lib/db/schema";
+import { organizations, users, type Role } from "@/lib/db/schema";
 import { normalizeEmail } from "@/lib/auth";
 
 /**
- * Organizations, their users, and which organization each machine belongs to.
+ * Organizations and their users. (Machines and devices: src/lib/machines.ts.)
  * Plain functions that take the database, so they can be tested without a server.
  */
 
@@ -65,27 +65,4 @@ export async function updateUser(
     .update(users)
     .set({ role: input.role, active: input.active, name: input.name?.trim() || null })
     .where(eq(users.id, userId));
-}
-
-/**
- * Platform admins: assign a machine to an organization (null = back to unclaimed). The machine's
- * approved-operator list belongs to the old organization, so it's cleared, and anyone checked in is
- * checked out. Past check-ins and alerts stay with the organization they happened in.
- */
-export async function assignDevice(db: Db, deviceId: string, organizationId: number | null, now = new Date()) {
-  const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
-  if (!device) throw new AccountError("Machine not found.");
-  if (device.organizationId === organizationId) return;
-  if (organizationId !== null) {
-    const [org] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
-    if (!org) throw new AccountError("Organization not found.");
-  }
-  await db.transaction(async (tx) => {
-    await tx.delete(machineOperators).where(eq(machineOperators.deviceId, deviceId));
-    await tx
-      .update(checkins)
-      .set({ endedAt: now, endReason: "machine moved" })
-      .where(and(eq(checkins.deviceId, deviceId), isNull(checkins.endedAt)));
-    await tx.update(devices).set({ organizationId }).where(eq(devices.id, deviceId));
-  });
 }

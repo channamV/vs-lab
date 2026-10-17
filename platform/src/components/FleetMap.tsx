@@ -7,7 +7,8 @@ import { useEffect, useRef } from "react";
 import type { ConnectionStatus } from "@/lib/data";
 
 export interface MapMarker {
-  id: string;
+  /** Machine ID: clicking the marker opens the machine. */
+  id: number;
   label: string;
   lat: number;
   lng: number;
@@ -73,7 +74,7 @@ export function FleetMap({
         })
           .bindTooltip(m.label)
           .on("click", () => {
-            router.push(`/devices/${encodeURIComponent(m.id)}`);
+            router.push(`/machines/${m.id}`);
           })
           .addTo(layer);
         bounds.push([m.lat, m.lng]);

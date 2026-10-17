@@ -30,9 +30,16 @@ github.com/stanleyhuangyc/Freematics.
 
 ## Organizations, sign-in and access rules
 
-- **Multi-tenant.** Every customer is an `organization`. Devices (`organization_id` null = unclaimed),
-  operators, check-ins, alerts and users belong to one. Every page read in `src/lib/data.ts` and every admin
-  action filters by the signed-in user's `organizationId`; per-machine reads go through `requireDevice()`.
+- **Machines vs devices** (Craig's decision, 2026-10-17; `docs/machines-and-devices.md`). A `machine` is the
+  customer's equipment and owns all data (telemetry/events carry `machine_id`; engine sessions, check-ins,
+  alerts, approvals, PIN failures are per machine). A `device` is hardware that supplies data while paired
+  (`device_assignments`, one open pairing per device and per machine). Ingest resolves the pairing;
+  unpaired devices store telemetry only. `devices.organization_id` = whose stock (null = Veristart's).
+  Only platform admins pair/unpair/move stock (`src/lib/machines.ts`, tested). Machines get a random `code`
+  for the QR URL; migrated machines kept the old device ID as code.
+- **Multi-tenant.** Every customer is an `organization`. Machines, operators, check-ins, alerts and users
+  belong to one. Every page read in `src/lib/data.ts` and every admin
+  action filters by the signed-in user's `organizationId`; per-machine reads go through `requireMachine()`.
   Never query tenant data without that filter. Logic modules take `organizationId` as a parameter.
 - **Sign-in** is an emailed one-time link (`src/lib/auth.ts`, tested): only token hashes are stored; the
   link opens `/login/verify`, where a button (POST) signs in, because email scanners pre-open links.
@@ -42,10 +49,10 @@ github.com/stanleyhuangyc/Freematics.
 - `src/proxy.ts` only checks a session cookie is present; `src/lib/session.ts` validates it against the
   database. Every admin server action must call `requireAuth("manager" | "owner")` (or
   `requirePlatformAdmin()`) itself: server actions can be posted to any route, including public ones.
-- Unauthenticated: `/hub/api/*` (devices), `/login*`, and `/checkin/<machine>` (operator QR check-in,
-  `src/app/checkin/`). The check-in page reads only through `src/lib/checkin-page.ts` (machine name +
-  current operator); its actions accept just a machine ID, PIN and checklist answers. PINs are unique per
-  organization; the machine identifies the organization. Unclaimed machines can't be checked in to.
+- Unauthenticated: `/hub/api/*` (devices), `/login*`, and `/checkin/<machine code>` (operator QR check-in,
+  `src/app/checkin/`). The check-in page reads only through `src/lib/checkin-page.ts` (machine name, unit # +
+  current operator); its actions accept just a machine code, PIN and checklist answers. PINs are unique per
+  organization; the machine identifies the organization.
 - Admin pages live in `src/app/(admin)/` (with the nav bar); check-in pages have their own layout.
 
 ## Commands (run from `platform/`)
@@ -53,7 +60,7 @@ github.com/stanleyhuangyc/Freematics.
 ```
 npm run dev          # migrate DB + start at http://localhost:3000
 npm run simulate     # fake devices sending real Telelogger-format data (engines cycle on/off)
-npm run demo:seed    # a week of engine-session history for the SIM* devices
+npm run demo:seed    # demo machines paired with the SIM* devices + a week of engine/check-in history
 npm run check        # lint + typecheck + tests — run before every commit
 npm run build        # production build
 npm run db:generate  # after editing src/lib/db/schema.ts → creates SQL in drizzle/
@@ -77,7 +84,7 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   using an API you're unsure of. `middleware` is now `proxy`. Request-time data must sit under
   `<Suspense>`; data functions call `connection()` (via `requireSession`).
 - All DB reads for pages go through `src/lib/data.ts`. Device writes go through `src/lib/telemetry/ingest.ts`.
-- Organizations, users, device assignment: `src/lib/organizations.ts` (tested).
+- Organizations, users: `src/lib/organizations.ts`. Machines, pairing, device stock: `src/lib/machines.ts` (both tested).
 - Operators, approvals, check-in/out, PIN rate limit and phone-location check: `src/lib/operators.ts`
   (takes the db, tested; thresholds in `CHECKIN_RULES`). Flag wording: `src/lib/checkin-flags.ts`.
   The pre-start checklist questions: `src/lib/checklist.ts`.
