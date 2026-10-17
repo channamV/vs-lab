@@ -181,11 +181,21 @@ export const checkins = pgTable(
     distanceM: real("distance_m"),
     /** near, far, no-phone-location or no-machine-location. Null for check-ins made before this check existed. */
     locationCheck: text("location_check"),
+    /**
+     * The engine-on period this check-in covers. The operator has a few minutes after checking in to
+     * start the engine; the check-in then ends automatically when the engine stops.
+     */
+    engineSessionId: bigint("engine_session_id", { mode: "number" }).references(() => engineSessions.id, {
+      onDelete: "set null",
+    }),
+    /** How it was linked: started (after check-in), already-running (nobody had it) or takeover (from another operator). */
+    engineLink: text("engine_link"),
   },
   (t) => [
     index("checkins_device_start_idx").on(t.deviceId, t.startedAt),
     index("checkins_operator_start_idx").on(t.operatorId, t.startedAt),
     uniqueIndex("checkins_one_open_idx").on(t.deviceId).where(sql`${t.endedAt} is null`),
+    index("checkins_engine_session_idx").on(t.engineSessionId),
   ],
 );
 

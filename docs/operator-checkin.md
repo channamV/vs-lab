@@ -8,10 +8,13 @@ they did the pre-start checklist. Works on any phone (iPhone or Android) with no
 1. Scan the **QR sticker** on the machine with the phone camera. The check-in page opens.
 2. Enter their **PIN**.
 3. Answer the **pre-start checklist**: OK or Not OK for each item, plus optional notes.
-4. Tap **Check in**. The phone asks to share its location: tap **Allow**. They stay checked in until
-   they check out, another operator checks in on that machine, or they check in on a different machine.
-   A check-in left open for more than 12 hours no longer counts.
-5. Start the engine within 30 minutes.
+4. Tap **Check in**. The phone asks to share its location: tap **Allow**.
+5. **Start the engine within 5 minutes.** That engine run now belongs to them.
+6. Nothing to do at the end: when the engine stops, they're **checked out automatically**.
+   Next time they start the machine (after lunch, the next morning), they scan and check in again.
+
+No check-out needed. (Experience with tap-in/tap-out cards: people don't check out.) A check-out
+option is still on the page for anyone who wants it.
 
 A "Not OK" answer doesn't block the check-in. The machine still starts (this is Monitoring, not
 Control), and the answer is recorded and flagged for the fleet manager.
@@ -29,18 +32,21 @@ close together, the operator was at the machine.
 - Operator declined to share location: flagged **location not shared**.
 - Machine has never had a GPS fix: not flagged (not the operator's fault), shown as "Machine has no GPS fix".
 
-**2. Timing rule.** The engine should start within **30 minutes** of check-in.
-- Started within 30 minutes: OK (shows "7 min after").
-- Not started within 30 minutes: flagged **no engine start within 30 min**, or **engine started
-  180 min after check-in** if it started later. This catches checking in once at 6 am to cover the whole day.
-- Engine already running when the operator checked in: flagged **engine running before check-in**.
-  Either the checklist was done after starting, or it's a shift change on an idling machine.
-- Checked out within 30 minutes without starting: fine ("Not used").
+**2. Check-in follows the engine.** One check-in covers one engine run:
+- Engine starts within **5 minutes** of check-in: the run is linked to that operator ("Started 2 min after").
+- Engine doesn't start within 5 minutes: the operator is checked out automatically ("No start").
+- Engine stops, or the device stops reporting: the operator is checked out automatically ("engine stopped").
+- Engine already running at check-in:
+  - another operator had it (shift change on an idling machine): **takeover**, no flag;
+  - nobody had it: flagged **engine running before check-in** (the checklist was done after starting).
+
+An engine run that nobody checked in for raises an **unauthorized use** alert after 5 minutes, on
+armed Safety & Access Monitoring machines (see [alerts.md](alerts.md)).
 
 Neither check blocks anyone: on Safety & Access Monitoring the machine always starts and the platform
 reports. In step 3, these flags can trigger email alerts.
 
-The numbers (100 m, 150 m, 30 minutes) are in `CHECKIN_RULES` in `platform/src/lib/operators.ts`.
+The numbers (100 m, 150 m, 5 minutes) are in `CHECKIN_RULES` in `platform/src/lib/operators.ts`.
 
 ## Setting it up (fleet manager)
 
@@ -56,9 +62,9 @@ The numbers (100 m, 150 m, 30 minutes) are in `CHECKIN_RULES` in `platform/src/l
 ## Where to see the results
 
 - **Fleet page:** *Operator* column shows who is checked in, with flags for checklist issues,
-  not-approved operators, not at machine, location not shared and engine-start timing.
-- **Machine page:** current operator (with *End check-in* if they forgot to check out) and the
-  check-in history, with *At machine* and *Engine start* columns. Click "1 not OK" to see which
+  not-approved operators, not at machine, location not shared, and engine running before check-in.
+- **Machine page:** current operator (with *End check-in* if needed) and the check-in history,
+  with *At machine* and *Engine* columns. Click "1 not OK" to see which
   items failed and the operator's notes.
 
 ## Security notes

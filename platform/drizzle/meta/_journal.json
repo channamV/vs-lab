@@ -36,6 +36,13 @@
       "when": 1792106865285,
       "tag": "0004_alerts_arming",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792262089694,
+      "tag": "0005_checkin_engine_link",
+      "breakpoints": true
     }
   ]
 }

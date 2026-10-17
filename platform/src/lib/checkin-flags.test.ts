@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { checkinFlags, locationLabel, timingLabel } from "./checkin-flags";
+import { checkinFlags, engineLabel, locationLabel } from "./checkin-flags";
 
 const clean = {
   authorized: true,
   checklistOk: true,
   locationCheck: "near",
   distanceM: 12,
-  timing: { kind: "on-time", minutes: 4 } as const,
+  engine: { kind: "started", minutes: 4 } as const,
 };
 
 describe("checkinFlags", () => {
@@ -21,14 +21,13 @@ describe("checkinFlags", () => {
         checklistOk: false,
         locationCheck: "far",
         distanceM: 2300,
-        timing: { kind: "late", minutes: 180 },
+        engine: { kind: "already-running" },
       }),
-    ).toEqual(["not approved", "checklist issues", "not at machine (2.3 km away)", "engine started 180 min after check-in"]);
-    expect(checkinFlags({ ...clean, locationCheck: "no-phone-location", timing: { kind: "late", minutes: null } })).toEqual([
-      "location not shared",
-      "no engine start within 30 min",
-    ]);
-    expect(checkinFlags({ ...clean, timing: { kind: "already-running" } })).toEqual(["engine running before check-in"]);
+    ).toEqual(["not approved", "checklist issues", "not at machine (2.3 km away)", "engine running before check-in"]);
+    expect(checkinFlags({ ...clean, locationCheck: "no-phone-location" })).toEqual(["location not shared"]);
+    // A shift-change takeover and an automatic "no start" check-out aren't problems
+    expect(checkinFlags({ ...clean, engine: { kind: "takeover" } })).toEqual([]);
+    expect(checkinFlags({ ...clean, engine: { kind: "no-start" } })).toEqual([]);
   });
 
   it("doesn't flag the operator when the machine has no GPS fix", () => {
@@ -40,7 +39,7 @@ describe("labels", () => {
   it("formats the history columns", () => {
     expect(locationLabel(clean)).toEqual({ text: "Yes (12 m)", warn: false });
     expect(locationLabel({ locationCheck: null, distanceM: null })).toEqual({ text: "—", warn: false });
-    expect(timingLabel({ kind: "late", minutes: null })).toEqual({ text: "No start", warn: true });
-    expect(timingLabel({ kind: "on-time", minutes: 4 })).toEqual({ text: "4 min after", warn: false });
+    expect(engineLabel({ kind: "already-running" })).toEqual({ text: "Already running", warn: true });
+    expect(engineLabel({ kind: "started", minutes: 4 })).toEqual({ text: "Started 4 min after", warn: false });
   });
 });

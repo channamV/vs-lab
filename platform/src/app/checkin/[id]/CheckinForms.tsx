@@ -98,7 +98,14 @@ export function CheckInForm({ deviceId }: { deviceId: string }) {
             </ul>
           </div>
         )}
-        <p className="text-sm text-slate-600 dark:text-slate-400">Check out from this page when you finish your shift.</p>
+        <p className="font-medium">
+          {state.engineRunning
+            ? "The engine is running: you're now the operator."
+            : `Start the engine within ${state.startWindowMinutes} minutes.`}
+        </p>
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          You&apos;ll be checked out automatically when the engine stops. Scan again before the next start.
+        </p>
       </div>
     );
   }

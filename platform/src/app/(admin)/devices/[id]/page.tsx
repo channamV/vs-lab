@@ -26,7 +26,7 @@ import { appTimeZone, effectiveEnd } from "@/lib/telemetry/engine";
 import { tierEnum } from "@/lib/db/schema";
 import { PID_NAMES } from "@/lib/freematics/protocol";
 import { clockTime, fmt, formatHours, TIER_LABELS, timeAgo } from "@/lib/format";
-import { checkinFlags, locationLabel, timingLabel } from "@/lib/checkin-flags";
+import { checkinFlags, engineLabel, locationLabel } from "@/lib/checkin-flags";
 import { endCheckinAction, setAllowedOperators, setArming, updateDevice } from "./actions";
 import { AlertList } from "../../alerts/AlertList";
 import { ALERT_RULES, isArmed, isMonitored } from "@/lib/alerts";
@@ -257,7 +257,7 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
                   <th className="py-1">Operator</th>
                   <th className="py-1">Until</th>
                   <th className="py-1">At machine</th>
-                  <th className="py-1">Engine start</th>
+                  <th className="py-1">Engine</th>
                   <th className="py-1">Checklist</th>
                 </tr>
               </thead>
@@ -265,7 +265,7 @@ async function DeviceDetail({ params }: { params: PageProps<"/devices/[id]">["pa
                 {history.map((c) => {
                   const failed = c.answers.filter((a) => !a.ok);
                   const where = locationLabel(c);
-                  const timing = timingLabel(c.timing);
+                  const timing = engineLabel(c.engine);
                   return (
                     <tr key={c.id} className="align-top">
                       <td className="py-1.5">{clockTime(c.startedAt, tz, now)}</td>

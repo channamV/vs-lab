@@ -42,9 +42,10 @@ async function raise(db: Db, values: typeof alerts.$inferInsert): Promise<Alert[
 }
 
 /**
- * Unauthorized use: an armed machine's engine has been running for the grace period with nobody
- * checked in (and nobody checked out within the grace period). Raised once per engine-on period.
- * Called after each device report, so it fires within a report or two of the grace period ending.
+ * Unauthorized use: an armed machine's engine has been running for the grace period and nobody has
+ * checked in for this engine-on period (and nobody checked out within the grace period). Raised once
+ * per engine-on period. Called after each device report (after syncCheckins), so it fires within a
+ * report or two of the grace period ending.
  */
 export async function checkUnauthorizedUse(db: Db, deviceId: string, now = new Date()): Promise<Alert[]> {
   const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
@@ -57,14 +58,25 @@ export async function checkUnauthorizedUse(db: Db, deviceId: string, now = new D
   const graceMs = ALERT_RULES.unauthorizedGraceMinutes * 60_000;
   if (!session || now.getTime() - session.startedAt.getTime() < graceMs) return [];
 
-  const [latest] = await db
+  // Anyone checked in? A check-in counts for this engine-on period if it's linked to it, or if it's
+  // waiting for the engine to start (syncCheckins links it on the next report).
+  const t = now.getTime();
+  const open = await db
     .select()
     .from(checkins)
+    .where(and(eq(checkins.deviceId, deviceId), isNull(checkins.endedAt)));
+  const covered = open.some((c) =>
+    c.engineSessionId ? c.engineSessionId === session.id && isCheckinCurrent(c, session, t) : isCheckinCurrent(c, null, t),
+  );
+  if (covered) return [];
+  // Someone checked out moments ago: give the next operator the grace period to check in.
+  const [latest] = await db
+    .select({ endedAt: checkins.endedAt })
+    .from(checkins)
     .where(eq(checkins.deviceId, deviceId))
-    .orderBy(desc(checkins.startedAt))
+    .orderBy(desc(checkins.endedAt))
     .limit(1);
-  if (latest && isCheckinCurrent(latest, now.getTime())) return [];
-  if (latest?.endedAt && now.getTime() - latest.endedAt.getTime() < graceMs) return [];
+  if (latest?.endedAt && t - latest.endedAt.getTime() < graceMs) return [];
 
   const minutes = Math.round((now.getTime() - session.startedAt.getTime()) / 60_000);
   return raise(db, {

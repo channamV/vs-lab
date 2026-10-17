@@ -1,9 +1,9 @@
 import "server-only";
-import { and, eq, gte, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { connection } from "next/server";
 import { getDb } from "@/lib/db";
-import { checkins, devices, operators } from "@/lib/db/schema";
-import { CHECKIN_RULES } from "@/lib/operators";
+import { checkins, devices, engineSessions, operators } from "@/lib/db/schema";
+import { isCheckinCurrent } from "@/lib/operators";
 
 /**
  * Data for the PUBLIC check-in page (/checkin/<machine>), which operators open by scanning the
@@ -15,11 +15,15 @@ export async function getCheckinMachine(deviceId: string) {
   const db = getDb();
   const [device] = await db.select({ id: devices.id, name: devices.name }).from(devices).where(eq(devices.id, deviceId));
   if (!device) return null;
-  const since = new Date(Date.now() - CHECKIN_RULES.maxHours * 3_600_000);
-  const [current] = await db
-    .select({ operatorName: operators.name, startedAt: checkins.startedAt })
+  const [open] = await db
+    .select({ checkin: checkins, operatorName: operators.name, linked: engineSessions })
     .from(checkins)
     .innerJoin(operators, eq(operators.id, checkins.operatorId))
-    .where(and(eq(checkins.deviceId, deviceId), isNull(checkins.endedAt), gte(checkins.startedAt, since)));
-  return { ...device, current: current ?? null };
+    .leftJoin(engineSessions, eq(engineSessions.id, checkins.engineSessionId))
+    .where(and(eq(checkins.deviceId, deviceId), isNull(checkins.endedAt)));
+  const current =
+    open && isCheckinCurrent(open.checkin, open.linked, Date.now())
+      ? { operatorName: open.operatorName, startedAt: open.checkin.startedAt, engineRunning: open.linked !== null }
+      : null;
+  return { ...device, current };
 }

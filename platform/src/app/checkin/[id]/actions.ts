@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { afterCheckin } from "@/lib/alert-jobs";
 import { CHECKLIST } from "@/lib/checklist";
-import { checkIn, checkOut, type CheckinFailure, type LocationCheck, type PhoneLocation } from "@/lib/operators";
+import { CHECKIN_RULES, checkIn, checkOut, type CheckinFailure, type LocationCheck, type PhoneLocation } from "@/lib/operators";
 
 /**
  * PUBLIC actions: operators use them without signing in. They only accept a machine ID, a PIN and
@@ -24,6 +24,8 @@ export type CheckinFormState =
       failedItems: string[];
       location: LocationCheck;
       distanceM: number | null;
+      engineRunning: boolean;
+      startWindowMinutes: number;
     };
 
 const MESSAGES: Record<CheckinFailure, string> = {
@@ -79,6 +81,8 @@ export async function checkInAction(prev: CheckinFormState, formData: FormData):
     failedItems: result.failedItems,
     location: result.location,
     distanceM: result.distanceM,
+    engineRunning: result.engineRunning,
+    startWindowMinutes: CHECKIN_RULES.engineStartWindowMinutes,
   };
 }
 

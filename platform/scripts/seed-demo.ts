@@ -3,7 +3,7 @@
  * so the engine-hours chart has something to show. Only touches SIM* devices.
  *
  * Also adds three demo operators (PINs 1111, 2222, 3333) and a check-in with the pre-start
- * checklist at the start of each working day.
+ * checklist before each engine start.
  *
  *   npm run demo:seed                  # 3 machines
  *   npm run demo:seed -- --devices 5
@@ -52,7 +52,7 @@ async function main() {
       .where(and(eq(checkins.deviceId, id), inArray(checkins.operatorId, demoIds), lt(checkins.startedAt, new Date(todayStart))));
     const checkinRows = [];
 
-    const rows = [];
+    let sessionCount = 0;
     for (let daysAgo = 6; daysAgo >= 1; daysAgo--) {
       const dayStart = startOfLocalDay(now, tz, daysAgo);
       const weekday = new Date(dayStart + 12 * HOUR).toLocaleDateString("en-US", { timeZone: tz, weekday: "short" });
@@ -62,32 +62,39 @@ async function main() {
       let t = dayStart + rand(6.75, 8) * HOUR;
       const endOfDay = dayStart + rand(15, 17) * HOUR;
 
-      // The operator checks in a few minutes before the first start; now and then an item fails.
-      const answers: ChecklistAnswer[] = CHECKLIST.map((item) => ({ ...item, ok: Math.random() > 0.03 }));
-      checkinRows.push({
-        deviceId: id,
-        operatorId: demoOperators[(n - 1 + daysAgo) % demoOperators.length].id,
-        startedAt: new Date(t - rand(3, 12) * 60_000),
-        endedAt: new Date(endOfDay + rand(2, 10) * 60_000),
-        endReason: "checkout",
-        authorized: true,
-        checklistOk: answers.every((a) => a.ok),
-        answers,
-        // Phone location: usually right beside the machine, occasionally checked in from elsewhere.
-        ...(Math.random() < 0.08
-          ? { locationCheck: "far", distanceM: rand(800, 6000) }
-          : { locationCheck: "near", distanceM: rand(4, 45) }),
-      });
+      const operatorId = demoOperators[(n - 1 + daysAgo) % demoOperators.length].id;
       while (t < endOfDay) {
         const len = rand(0.4, 2.2) * HOUR * (0.6 + 0.2 * (n % 3));
         const end = Math.min(t + len, endOfDay);
-        rows.push({ deviceId: id, startedAt: new Date(t), endedAt: new Date(end), lastSeenAt: new Date(end), source: "voltage" });
+        const [session] = await db
+          .insert(engineSessions)
+          .values({ deviceId: id, startedAt: new Date(t), endedAt: new Date(end), lastSeenAt: new Date(end), source: "voltage" })
+          .returning();
+        sessionCount++;
+
+        // The operator checks in 1–4 minutes before each start and is checked out when the engine stops.
+        // Now and then a checklist item fails, or the phone wasn't at the machine.
+        const answers: ChecklistAnswer[] = CHECKLIST.map((item) => ({ ...item, ok: Math.random() > 0.02 }));
+        checkinRows.push({
+          deviceId: id,
+          operatorId,
+          startedAt: new Date(t - rand(1, 4) * 60_000),
+          endedAt: new Date(end),
+          endReason: "engine stopped",
+          engineSessionId: session.id,
+          engineLink: "started",
+          authorized: true,
+          checklistOk: answers.every((a) => a.ok),
+          answers,
+          ...(Math.random() < 0.05
+            ? { locationCheck: "far", distanceM: rand(800, 6000) }
+            : { locationCheck: "near", distanceM: rand(4, 45) }),
+        });
         t = end + rand(0.15, 1) * HOUR;
       }
     }
-    if (rows.length) await db.insert(engineSessions).values(rows);
     if (checkinRows.length) await db.insert(checkins).values(checkinRows);
-    console.log(`${id}: ${rows.length} engine sessions and ${checkinRows.length} check-ins over the past week`);
+    console.log(`${id}: ${sessionCount} engine sessions and ${checkinRows.length} check-ins over the past week`);
   }
   process.exit(0);
 }

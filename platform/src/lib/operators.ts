@@ -1,7 +1,15 @@
 import { createHash } from "node:crypto";
 import { and, eq, gte, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { checkins, devices, machineOperators, operators, pinFailures, type ChecklistAnswer } from "@/lib/db/schema";
+import {
+  checkins,
+  devices,
+  engineSessions,
+  machineOperators,
+  operators,
+  pinFailures,
+  type ChecklistAnswer,
+} from "@/lib/db/schema";
 import { CHECKLIST } from "@/lib/checklist";
 import { effectiveEnd, type SessionSpan } from "@/lib/telemetry/engine";
 
@@ -13,8 +21,6 @@ import { effectiveEnd, type SessionSpan } from "@/lib/telemetry/engine";
 export const PIN_PATTERN = /^\d{4,8}$/;
 
 export const CHECKIN_RULES = {
-  /** A check-in left open longer than this no longer counts as "checked in" (a forgotten check-out). */
-  maxHours: 12,
   /** Wrong PINs allowed per machine within `lockoutMinutes` before the page stops accepting PINs. */
   maxPinFailures: 5,
   lockoutMinutes: 10,
@@ -22,8 +28,11 @@ export const CHECKIN_RULES = {
   maxDistanceM: 100,
   /** ...plus the phone's own accuracy radius, up to this much (phone GPS can be off by tens of metres). */
   maxAccuracyAllowanceM: 150,
-  /** The engine should start within this many minutes of check-in. */
-  engineStartWindowMinutes: 30,
+  /**
+   * After checking in, the operator has this long to start the engine. The check-in is then linked to
+   * that engine-on period and ends automatically when the engine stops. No start → checked out.
+   */
+  engineStartWindowMinutes: 5,
 };
 
 // ---------- Location check: is the phone near the machine? ----------
@@ -56,44 +65,97 @@ export function checkLocation(
   return { check: distanceM <= allowed ? "near" : "far", distanceM };
 }
 
-// ---------- Timing rule: did the engine start soon after check-in? ----------
+// ---------- Check-in lifecycle: one check-in covers one engine-on period ----------
+//
+// Operators don't check out (in practice they never do). Instead:
+//  - check in, then start the engine within the window → the check-in is linked to that engine-on period
+//  - the engine stops (or the device goes silent) → the operator is checked out automatically
+//  - no start within the window → the operator is checked out automatically ("no start")
+//  - engine already running at check-in → linked straight away: a "takeover" if another operator had it,
+//    otherwise "already-running" (flagged: the checklist was done after starting)
 
-export type CheckinTiming =
-  /** Engine started within the window after check-in. */
-  | { kind: "on-time"; minutes: number }
-  /** Engine was already running when the operator checked in (checklist done after starting, or a takeover). */
-  | { kind: "already-running" }
-  /** Still inside the window, engine not started yet. */
-  | { kind: "waiting" }
-  /** No engine start within the window. `minutes` = when it did start, or null if it never did. */
-  | { kind: "late"; minutes: number | null }
-  /** Checked out before the window ended without starting the engine. Nothing suspicious. */
-  | { kind: "not-used" };
+export type EngineLink = "started" | "already-running" | "takeover";
+
+const windowMs = () => CHECKIN_RULES.engineStartWindowMinutes * 60_000;
+
+/** A session that is still running at `now` (not ended, not gone stale, already started). */
+function isLive(s: SessionSpan, now: number): boolean {
+  return !s.endedAt && s.startedAt.getTime() <= now && effectiveEnd(s, now) >= now;
+}
+
+type OpenCheckin = { startedAt: Date; endedAt: Date | null; engineSessionId: number | null };
 
 /**
- * Applies the timing rule to one check-in, given that machine's engine sessions around it.
- * Catches checking in long before actually operating (e.g. once at 6 am to cover the whole day).
+ * When and why an open check-in ends, or null if it still counts at `now`.
+ * `linked` is the engine session the check-in is linked to (null if not linked yet).
  */
-export function checkinTiming(
-  c: { startedAt: Date; endedAt: Date | null },
-  sessions: SessionSpan[],
+export function automaticEnd(c: OpenCheckin, linked: SessionSpan | null, now = Date.now()): { endedAt: Date; endReason: string } | null {
+  if (c.engineSessionId && linked) {
+    return isLive(linked, now) ? null : { endedAt: new Date(effectiveEnd(linked, now)), endReason: "engine stopped" };
+  }
+  const windowEnd = c.startedAt.getTime() + windowMs();
+  return now < windowEnd ? null : { endedAt: new Date(windowEnd), endReason: "no start" };
+}
+
+/** Whether a check-in still counts at `now`: not ended, and not due to end automatically. */
+export function isCheckinCurrent(c: OpenCheckin, linked: SessionSpan | null, now = Date.now()): boolean {
+  return !c.endedAt && automaticEnd(c, linked, now) === null;
+}
+
+/**
+ * Brings a machine's open check-ins up to date: links a waiting check-in to an engine start within the
+ * window, and ends check-ins whose engine stopped or never started. Called on each device report and
+ * before check-in / check-out, so the database matches what the pages show.
+ */
+export async function syncCheckins(db: Db, deviceId: string, now = new Date()) {
+  const open = await db
+    .select()
+    .from(checkins)
+    .where(and(eq(checkins.deviceId, deviceId), isNull(checkins.endedAt)));
+  if (open.length === 0) return;
+  const [running] = await db
+    .select()
+    .from(engineSessions)
+    .where(and(eq(engineSessions.deviceId, deviceId), isNull(engineSessions.endedAt)));
+  const t = now.getTime();
+
+  for (const c of open) {
+    if (!c.engineSessionId && running && isLive(running, t) && running.startedAt.getTime() <= c.startedAt.getTime() + windowMs()) {
+      const engineLink: EngineLink = running.startedAt >= c.startedAt ? "started" : "already-running";
+      await db.update(checkins).set({ engineSessionId: running.id, engineLink }).where(eq(checkins.id, c.id));
+      continue;
+    }
+    const [linked] = c.engineSessionId
+      ? await db.select().from(engineSessions).where(eq(engineSessions.id, c.engineSessionId))
+      : [];
+    const end = automaticEnd(c, linked ?? null, t);
+    if (end) await db.update(checkins).set(end).where(eq(checkins.id, c.id));
+  }
+}
+
+/** What happened with the engine for one check-in, for the history table and flags. */
+export type CheckinEngine =
+  | { kind: "started"; minutes: number }
+  | { kind: "already-running" }
+  | { kind: "takeover" }
+  /** Checked in, engine not started yet (still inside the window). */
+  | { kind: "waiting" }
+  /** Engine didn't start within the window, so the operator was checked out. */
+  | { kind: "no-start" }
+  /** Ended some other way before the engine started (e.g. manual check-out). */
+  | { kind: "not-used" };
+
+export function checkinEngine(
+  c: OpenCheckin & { engineLink: string | null; endReason: string | null },
+  linked: SessionSpan | null,
   now = Date.now(),
-): CheckinTiming {
-  const start = c.startedAt.getTime();
-  const end = c.endedAt?.getTime() ?? now;
-  const windowEnd = start + CHECKIN_RULES.engineStartWindowMinutes * 60_000;
-
-  if (sessions.some((s) => s.startedAt.getTime() < start && effectiveEnd(s, now) > start)) return { kind: "already-running" };
-
-  const firstStart = sessions
-    .map((s) => s.startedAt.getTime())
-    .filter((t) => t >= start && t <= end)
-    .sort((a, b) => a - b)[0];
-  const minutes = firstStart === undefined ? null : Math.round((firstStart - start) / 60_000);
-
-  if (firstStart !== undefined && firstStart <= windowEnd) return { kind: "on-time", minutes: minutes! };
-  if (Math.min(end, now) < windowEnd) return c.endedAt ? { kind: "not-used" } : { kind: "waiting" };
-  return { kind: "late", minutes };
+): CheckinEngine {
+  if (c.engineLink === "already-running" || c.engineLink === "takeover") return { kind: c.engineLink };
+  if (c.engineLink === "started" && linked) {
+    return { kind: "started", minutes: Math.max(0, Math.round((linked.startedAt.getTime() - c.startedAt.getTime()) / 60_000)) };
+  }
+  if (!c.endedAt) return automaticEnd(c, linked, now) ? { kind: "no-start" } : { kind: "waiting" };
+  return c.endReason === "no start" ? { kind: "no-start" } : { kind: "not-used" };
 }
 
 /**
@@ -156,11 +218,6 @@ export async function setMachineOperators(db: Db, deviceId: string, operatorIds:
   });
 }
 
-/** Whether an open check-in still counts at `now` (not older than CHECKIN_RULES.maxHours). */
-export function isCheckinCurrent(c: { startedAt: Date; endedAt: Date | null }, now = Date.now()): boolean {
-  return !c.endedAt && now - c.startedAt.getTime() < CHECKIN_RULES.maxHours * 3_600_000;
-}
-
 async function isLockedOut(db: Db, deviceId: string, now: Date) {
   const since = new Date(now.getTime() - CHECKIN_RULES.lockoutMinutes * 60_000);
   const [{ count }] = await db
@@ -194,6 +251,8 @@ export type CheckInResult =
       failedItems: string[];
       location: LocationCheck;
       distanceM: number | null;
+      /** True if the engine was already running, so the check-in is linked to it straight away. */
+      engineRunning: boolean;
     }
   | { ok: false; reason: CheckinFailure };
 
@@ -201,6 +260,7 @@ export type CheckInResult =
  * An operator checks in to a machine: PIN plus the pre-start checklist.
  * `answers` maps each checklist item id to true (OK) or false (not OK); every item must be answered.
  * Ends any open check-in on this machine (replaced) and the operator's open check-in elsewhere (moved).
+ * The check-in then follows the engine: see syncCheckins().
  */
 export async function checkIn(
   db: Db,
@@ -235,6 +295,21 @@ export async function checkIn(
   const phone = input.phoneLocation ?? null;
   const location = checkLocation(phone, device);
 
+  // Engine already running? Link to it now: a takeover if another operator had it.
+  await syncCheckins(db, device.id, now);
+  const [running] = await db
+    .select()
+    .from(engineSessions)
+    .where(and(eq(engineSessions.deviceId, device.id), isNull(engineSessions.endedAt)));
+  const live = running && isLive(running, now.getTime()) ? running : null;
+  const [previous] = live
+    ? await db
+        .select({ engineSessionId: checkins.engineSessionId })
+        .from(checkins)
+        .where(and(eq(checkins.deviceId, device.id), isNull(checkins.endedAt)))
+    : [];
+  const engineLink: EngineLink | null = live ? (previous?.engineSessionId === live.id ? "takeover" : "already-running") : null;
+
   const inserted = await db.transaction(async (tx) => {
     await tx
       .update(checkins)
@@ -259,6 +334,8 @@ export async function checkIn(
         phoneAccuracyM: phone?.accuracyM ?? null,
         distanceM: location.distanceM,
         locationCheck: location.check,
+        engineSessionId: live?.id ?? null,
+        engineLink,
       })
       .returning({ id: checkins.id });
   });
@@ -272,16 +349,21 @@ export async function checkIn(
     failedItems,
     location: location.check,
     distanceM: location.distanceM,
+    engineRunning: live !== null,
   };
 }
 
-/** Ends the open check-in on a machine. The PIN must belong to the operator who is checked in. */
+/**
+ * Ends the open check-in on a machine. Optional: check-ins end by themselves when the engine stops.
+ * The PIN must belong to the operator who is checked in.
+ */
 export async function checkOut(
   db: Db,
   input: { deviceId: string; pin: string },
   now = new Date(),
 ): Promise<{ ok: true; operatorName: string } | { ok: false; reason: CheckinFailure }> {
   if (await isLockedOut(db, input.deviceId, now)) return { ok: false, reason: "locked" };
+  await syncCheckins(db, input.deviceId, now);
   const [open] = await db
     .select({ id: checkins.id, operatorId: checkins.operatorId })
     .from(checkins)
@@ -297,7 +379,7 @@ export async function checkOut(
   return { ok: true, operatorName: operator.name };
 }
 
-/** A fleet manager ends a check-in from the machine page (e.g. the operator forgot to check out). */
+/** A fleet manager ends a check-in from the machine page. */
 export async function endCheckin(db: Db, checkinId: number, now = new Date()) {
   await db
     .update(checkins)

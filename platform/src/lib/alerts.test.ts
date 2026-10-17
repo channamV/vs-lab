@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
 import { alerts, devices, engineSessions } from "@/lib/db/schema";
 import { CHECKLIST } from "@/lib/checklist";
-import { checkIn, checkOut, createOperator, setMachineOperators } from "@/lib/operators";
+import { checkIn, checkOut, createOperator, setMachineOperators, syncCheckins } from "@/lib/operators";
 import { acknowledgeAlert, ALERT_RULES, checkUnauthorizedUse, isArmed, raiseCheckinAlerts } from "./alerts";
 import { alertEmail, deliverAlerts } from "./notify";
 
@@ -44,10 +44,22 @@ describe("unauthorized use", () => {
   });
 
   it("alerts when the engine keeps running after the operator checks out", async () => {
-    await checkIn(db, { deviceId: "DEV1", pin: "1111", answers: allOk }, at(-30));
-    await checkOut(db, { deviceId: "DEV1", pin: "1111" }, at(20));
+    await checkIn(db, { deviceId: "DEV1", pin: "1111", answers: allOk }, at(-2));
+    await syncCheckins(db, "DEV1", at(1)); // engine started at 0 → linked
+    await db.update(engineSessions).set({ lastSeenAt: at(20) }); // engine still reporting
+    expect(await checkOut(db, { deviceId: "DEV1", pin: "1111" }, at(20))).toMatchObject({ ok: true });
     expect(await checkUnauthorizedUse(db, "DEV1", at(20 + grace - 1))).toHaveLength(0);
     expect(await checkUnauthorizedUse(db, "DEV1", at(20 + grace + 1))).toHaveLength(1);
+  });
+
+  it("alerts on a restart after the operator's engine-on period ended", async () => {
+    await checkIn(db, { deviceId: "DEV1", pin: "1111", answers: allOk }, at(-2));
+    await syncCheckins(db, "DEV1", at(1));
+    // Engine stops at 30 (Jane is checked out automatically), then restarts at 60 with nobody checking in
+    await db.update(engineSessions).set({ endedAt: at(30), lastSeenAt: at(30) });
+    await syncCheckins(db, "DEV1", at(31));
+    await db.insert(engineSessions).values({ deviceId: "DEV1", startedAt: at(60), lastSeenAt: at(60 + grace + 1) });
+    expect(await checkUnauthorizedUse(db, "DEV1", at(60 + grace + 1))).toHaveLength(1);
   });
 
   it("only applies to armed Safety & Access Monitoring machines with the engine running", async () => {

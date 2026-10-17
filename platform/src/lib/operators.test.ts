@@ -1,11 +1,12 @@
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { checkins, devices, operators } from "@/lib/db/schema";
+import { checkins, devices, engineSessions, operators } from "@/lib/db/schema";
 import { CHECKLIST } from "@/lib/checklist";
 import {
   CHECKIN_RULES,
   checkIn,
-  checkinTiming,
+  checkinEngine,
   checkLocation,
   distanceMeters,
   checkOut,
@@ -13,6 +14,7 @@ import {
   isCheckinCurrent,
   OperatorError,
   setMachineOperators,
+  syncCheckins,
   updateOperator,
 } from "./operators";
 
@@ -55,6 +57,7 @@ describe("checkIn", () => {
       failedItems: [],
       location: "no-phone-location",
       distanceM: null,
+      engineRunning: false,
     });
     const [row] = await db.select().from(checkins);
     expect(row).toMatchObject({ deviceId: "DEV00001", endedAt: null, notes: "all good", checklistOk: true });
@@ -144,16 +147,6 @@ describe("checkOut", () => {
   });
 });
 
-describe("isCheckinCurrent", () => {
-  it("treats check-ins older than the shift limit as over", () => {
-    const now = Date.parse("2026-10-15T20:00:00Z");
-    const hoursAgo = (h: number) => new Date(now - h * 3_600_000);
-    expect(isCheckinCurrent({ startedAt: hoursAgo(2), endedAt: null }, now)).toBe(true);
-    expect(isCheckinCurrent({ startedAt: hoursAgo(CHECKIN_RULES.maxHours + 1), endedAt: null }, now)).toBe(false);
-    expect(isCheckinCurrent({ startedAt: hoursAgo(2), endedAt: hoursAgo(1) }, now)).toBe(false);
-  });
-});
-
 describe("location check", () => {
   const machine = { lat: 43.6527, lng: -79.3835 };
   // ~0.0009° latitude ≈ 100 m
@@ -198,34 +191,83 @@ describe("location check", () => {
   });
 });
 
-describe("timing rule", () => {
-  const t0 = Date.parse("2026-10-15T11:00:00Z"); // check-in time
-  const min = (m: number) => new Date(t0 + m * 60_000);
-  const session = (from: number, to: number | null) => ({ startedAt: min(from), endedAt: to === null ? null : min(to), lastSeenAt: min(to ?? from) });
-  const open = { startedAt: min(0), endedAt: null };
+describe("check-in follows the engine", () => {
+  const t0 = new Date("2026-10-15T11:00:00Z"); // check-in time
+  const at = (min: number) => new Date(t0.getTime() + min * 60_000);
   const window = CHECKIN_RULES.engineStartWindowMinutes;
+  const startEngine = async (deviceId: string, min: number) =>
+    (await db.insert(engineSessions).values({ deviceId, startedAt: at(min), lastSeenAt: at(min) }).returning())[0];
+  const engineReport = (id: number, min: number) => db.update(engineSessions).set({ lastSeenAt: at(min) }).where(eq(engineSessions.id, id));
+  const stopEngine = (id: number, min: number) =>
+    db.update(engineSessions).set({ endedAt: at(min), lastSeenAt: at(min) }).where(eq(engineSessions.id, id));
+  const rows = () => db.select().from(checkins).orderBy(checkins.id);
 
-  it("is on time when the engine starts within the window", () => {
-    expect(checkinTiming(open, [session(12, 80)], min(90).getTime())).toEqual({ kind: "on-time", minutes: 12 });
+  beforeEach(async () => {
+    await createOperator(db, { name: "Jane", pin: "1111" });
+    await createOperator(db, { name: "Bob", pin: "2222" });
   });
 
-  it("waits during the window, then flags a late or missing start", () => {
-    expect(checkinTiming(open, [], min(10).getTime())).toEqual({ kind: "waiting" });
-    expect(checkinTiming(open, [], min(window + 5).getTime())).toEqual({ kind: "late", minutes: null });
-    // Checked in at 6 am, engine started 3 hours later
-    expect(checkinTiming(open, [session(180, 240)], min(250).getTime())).toEqual({ kind: "late", minutes: 180 });
+  it("links the engine start within the window, then checks out when the engine stops", async () => {
+    await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk }, at(0));
+    const s = await startEngine("DEV00001", 3);
+    await syncCheckins(db, "DEV00001", at(3));
+    expect((await rows())[0]).toMatchObject({ engineSessionId: s.id, engineLink: "started", endedAt: null });
+
+    // Still checked in while the engine runs, long after the window
+    await engineReport(s.id, 60);
+    await syncCheckins(db, "DEV00001", at(60));
+    expect((await rows())[0].endedAt).toBeNull();
+
+    await stopEngine(s.id, 95);
+    await syncCheckins(db, "DEV00001", at(96));
+    expect((await rows())[0]).toMatchObject({ endedAt: at(95), endReason: "engine stopped" });
   });
 
-  it("notes an engine that was already running at check-in", () => {
-    expect(checkinTiming(open, [session(-20, 60)], min(70).getTime())).toEqual({ kind: "already-running" });
-    // A session that ended before check-in doesn't count
-    expect(checkinTiming(open, [session(-60, -30), session(5, 60)], min(70).getTime())).toEqual({ kind: "on-time", minutes: 5 });
+  it("checks the operator out if the engine doesn't start within the window", async () => {
+    await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk }, at(0));
+    await syncCheckins(db, "DEV00001", at(window - 1));
+    expect((await rows())[0].endedAt).toBeNull();
+    await syncCheckins(db, "DEV00001", at(window + 2));
+    expect((await rows())[0]).toMatchObject({ endedAt: at(window), endReason: "no start" });
+    // A start after that isn't linked to the old check-in
+    await startEngine("DEV00001", window + 3);
+    await syncCheckins(db, "DEV00001", at(window + 3));
+    expect((await rows())[0].engineSessionId).toBeNull();
   });
 
-  it("ignores engine starts after check-out", () => {
-    const ended = { startedAt: min(0), endedAt: min(10) };
-    expect(checkinTiming(ended, [session(20, 60)], min(70).getTime())).toEqual({ kind: "not-used" });
-    const endedLate = { startedAt: min(0), endedAt: min(window + 30) };
-    expect(checkinTiming(endedLate, [session(window + 40, window + 90)], min(200).getTime())).toEqual({ kind: "late", minutes: null });
+  it("ends a check-in when the device goes silent while running", async () => {
+    await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk }, at(0));
+    await startEngine("DEV00001", 1);
+    await syncCheckins(db, "DEV00001", at(1));
+    await syncCheckins(db, "DEV00001", at(30)); // no reports since minute 1 → session gone stale
+    expect((await rows())[0]).toMatchObject({ endedAt: at(1), endReason: "engine stopped" });
+  });
+
+  it("links straight away when the engine is already running", async () => {
+    const s = await startEngine("DEV00001", -10);
+    const result = await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk }, at(0));
+    expect(result).toMatchObject({ ok: true, engineRunning: true });
+    expect((await rows())[0]).toMatchObject({ engineSessionId: s.id, engineLink: "already-running" });
+  });
+
+  it("treats a check-in on another operator's running engine as a takeover", async () => {
+    await checkIn(db, { deviceId: "DEV00001", pin: "1111", answers: allOk }, at(0));
+    const s = await startEngine("DEV00001", 2);
+    await syncCheckins(db, "DEV00001", at(2));
+    await engineReport(s.id, 240);
+    await checkIn(db, { deviceId: "DEV00001", pin: "2222", answers: allOk }, at(240)); // shift change, engine idling
+    const [jane, bob] = await rows();
+    expect(jane).toMatchObject({ endReason: "replaced", endedAt: at(240) });
+    expect(bob).toMatchObject({ engineSessionId: s.id, engineLink: "takeover", endedAt: null });
+  });
+
+  it("describes the engine for each check-in", () => {
+    const base = { startedAt: at(0), endedAt: null, engineSessionId: null, engineLink: null, endReason: null };
+    const session = { startedAt: at(4), endedAt: null, lastSeenAt: at(10) };
+    expect(checkinEngine({ ...base, engineSessionId: 1, engineLink: "started" }, session, at(10).getTime())).toEqual({ kind: "started", minutes: 4 });
+    expect(checkinEngine(base, null, at(2).getTime())).toEqual({ kind: "waiting" });
+    expect(checkinEngine(base, null, at(window + 1).getTime())).toEqual({ kind: "no-start" });
+    expect(checkinEngine({ ...base, engineLink: "takeover", engineSessionId: 1 }, session)).toEqual({ kind: "takeover" });
+    expect(checkinEngine({ ...base, endedAt: at(2), endReason: "checkout" }, null)).toEqual({ kind: "not-used" });
   });
 });
