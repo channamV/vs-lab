@@ -41,7 +41,7 @@ export const EVENT_TYPES = {
   },
   checklist_repair: {
     label: "Checklist — Repair Needed",
-    description: "An operator answered Not OK to a pre-start checklist item.",
+    description: "A new minor or major defect on a pre-start checklist (a repeat of an issue that's already open doesn't count again).",
   },
   operator_not_approved: {
     label: "Operator Not Approved",
@@ -55,6 +55,7 @@ export const EVENT_TYPES = {
   equipment_updated: { label: "Equipment Updated", description: "A machine's details were changed." },
   operator_assigned: { label: "Operator Assigned", description: "An operator was added to a machine's approved list." },
   operator_revoked: { label: "Operator Revoked", description: "An operator was removed from a machine's approved list." },
+  equipment_locked: { label: "Equipment Locked", description: "An operator locked a machine out for repair after reporting a major defect." },
 } as const;
 
 export type EventType = keyof typeof EVENT_TYPES;
@@ -66,7 +67,6 @@ export const LATER_EVENT_TYPES = [
   "Equipment Connectivity Status",
   "Equipment Removed",
   "Equipment Unlock / Operator Bypass",
-  "Equipment Locked",
   "Equipment Access Control",
 ];
 

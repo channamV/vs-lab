@@ -26,6 +26,7 @@ sticker on the machine, entering a PIN and completing the pre-start checklist, a
 6. [Alerts and arm/disarm](docs/alerts.md) — what raises an alert, and setting up email
 7. [Organizations, users and sign-in](docs/organizations-and-users.md) — customers, roles, platform admins
 8. [Machines and devices](docs/machines-and-devices.md) — equipment vs tracking hardware, pairing and device swaps
+9. [Pre-start checklists](docs/checklists.md) — templates, answers, defects that stack, lockout for repair
 
 ## Quick start
 

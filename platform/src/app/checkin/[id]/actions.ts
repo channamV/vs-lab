@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { afterCheckin } from "@/lib/alert-jobs";
-import { CHECKLIST } from "@/lib/checklist";
 import { CHECKIN_RULES, checkIn, checkOut, type CheckinFailure, type LocationCheck, type PhoneLocation } from "@/lib/operators";
 
 /**
@@ -15,8 +14,9 @@ import { CHECKIN_RULES, checkIn, checkOut, type CheckinFailure, type LocationChe
 
 export type CheckinFormState =
   | { status: "idle" }
-  /** `values` refills the form after an error, so the operator doesn't redo the checklist. */
-  | { status: "error"; message: string; attempt: number; values?: { answers: Record<string, string>; notes: string } }
+  /** The form keeps its answers itself (React state), so an error doesn't make the operator start over. */
+  | { status: "error"; message: string; attempt: number }
+  | { status: "locked-out"; failedItems: string[] }
   | {
       status: "checked-in";
       operatorName: string;
@@ -32,7 +32,10 @@ const MESSAGES: Record<CheckinFailure, string> = {
   "unknown-machine": "This machine isn't set up for check-in. Tell your supervisor.",
   locked: "Too many wrong PINs on this machine. Wait 10 minutes and try again.",
   "bad-pin": "PIN not recognized.",
-  incomplete: "Answer every checklist item (OK or Not OK).",
+  incomplete: "Answer every checklist item.",
+  "note-required": "Describe the problem for each item marked as a defect.",
+  "not-confirmed": "Tick the confirmation at the end of the checklist.",
+  "machine-locked-out": "This machine is locked out for repair. Don't operate it: a manager has to clear it first.",
   "not-checked-in": "Nobody is checked in on this machine.",
 };
 
@@ -59,20 +62,31 @@ const nextAttempt = (prev: CheckinFormState) => (prev.status === "error" ? prev.
 
 export async function checkInAction(prev: CheckinFormState, formData: FormData): Promise<CheckinFormState> {
   const { machineCode, pin } = Base.parse({ machineCode: formData.get("machineCode"), pin: formData.get("pin") ?? "" });
-  const answers = Object.fromEntries(
-    CHECKLIST.map((item) => {
-      const value = formData.get(`item:${item.id}`);
-      return [item.id, value === "ok" ? true : value === "no" ? false : undefined];
-    }),
-  );
-  const notes = String(formData.get("notes") ?? "").slice(0, 1000);
-
-  const result = await checkIn(getDb(), { machineCode, pin, answers, notes, phoneLocation: phoneLocation(formData) });
+  // Answers and per-question notes arrive as item:<question id> and note:<question id>.
+  const answers: Record<string, string> = {};
+  const answerNotes: Record<string, string> = {};
+  for (const [key, value] of formData.entries()) {
+    if (typeof value !== "string" || value.length > 500) continue;
+    if (key.startsWith("item:")) answers[key.slice(5, 45)] = value.slice(0, 40);
+    if (key.startsWith("note:")) answerNotes[key.slice(5, 45)] = value;
+  }
+  const result = await checkIn(getDb(), {
+    machineCode,
+    pin,
+    answers,
+    answerNotes,
+    notes: String(formData.get("notes") ?? "").slice(0, 1000),
+    confirmed: formData.get("confirmed") === "on",
+    lockout: formData.get("lockout") === "yes",
+    phoneLocation: phoneLocation(formData),
+  });
   if (!result.ok) {
-    const submitted = Object.fromEntries(CHECKLIST.map((item) => [item.id, String(formData.get(`item:${item.id}`) ?? "")]));
-    return { status: "error", message: MESSAGES[result.reason], attempt: nextAttempt(prev), values: { answers: submitted, notes } };
+    const which = result.questions?.length ? ` (${result.questions.slice(0, 3).join("; ")})` : "";
+    return { status: "error", message: MESSAGES[result.reason] + which, attempt: nextAttempt(prev) };
   }
   afterCheckin(result.checkinId);
+  // No page refresh after a lockout: the page would swap the confirmation for the "locked out" notice.
+  if (result.lockedOut) return { status: "locked-out", failedItems: result.failedItems };
   refresh();
   return {
     status: "checked-in",

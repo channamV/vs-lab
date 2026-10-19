@@ -11,6 +11,7 @@ import { assertCheckinInScope, assertMachineInScope } from "@/lib/divisions";
 import { appTimeZone, startOfLocalDay } from "@/lib/telemetry/engine";
 import { recordEvent } from "@/lib/notifications";
 import { afterEvents } from "@/lib/alert-jobs";
+import { clearLockout, resolveIssue, setMachineTemplate } from "@/lib/checklists";
 
 const AllowedOperators = z.object({
   id: z.coerce.number().int().positive(),
@@ -61,5 +62,34 @@ export async function setArming(formData: FormData) {
     .update(machines)
     .set({ disarmed: mode !== "arm", disarmedUntil: until })
     .where(and(eq(machines.id, id), eq(machines.organizationId, auth.organizationId)));
+  refresh();
+}
+
+/** Which pre-start checklist operators get on this machine (empty = the company default). */
+export async function setMachineTemplateAction(formData: FormData) {
+  const auth = await requireAuth("manager");
+  const id = z.coerce.number().int().positive().parse(formData.get("id"));
+  const raw = String(formData.get("templateId") ?? "");
+  await assertMachineInScope(getDb(), auth, id);
+  await setMachineTemplate(getDb(), auth.organizationId, id, raw ? z.coerce.number().int().positive().parse(raw) : null);
+  refresh();
+}
+
+/** Mark a checklist issue as fixed. A new report of the same item then opens a new issue. */
+export async function resolveIssueAction(formData: FormData) {
+  const auth = await requireAuth("manager");
+  const id = z.coerce.number().int().positive().parse(formData.get("id"));
+  const issueId = z.coerce.number().int().positive().parse(formData.get("issueId"));
+  await assertMachineInScope(getDb(), auth, id);
+  await resolveIssue(getDb(), auth.organizationId, issueId, auth.userId, String(formData.get("note") ?? ""));
+  refresh();
+}
+
+/** Return a locked-out machine to service. */
+export async function clearLockoutAction(formData: FormData) {
+  const auth = await requireAuth("manager");
+  const id = z.coerce.number().int().positive().parse(formData.get("id"));
+  await assertMachineInScope(getDb(), auth, id);
+  await clearLockout(getDb(), auth.organizationId, id);
   refresh();
 }

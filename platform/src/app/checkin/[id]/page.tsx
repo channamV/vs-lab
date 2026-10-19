@@ -38,7 +38,13 @@ async function Checkin({ params, searchParams }: Pick<PageProps<"/checkin/[id]">
         </p>
       )}
 
-      {machine.current && (
+      {machine.lockedOut && (
+        <p className="rounded-lg border-2 border-red-400 bg-red-50 p-4 font-medium text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          🔒 Locked out for repair. Do not operate this machine. A manager clears the lockout once it&apos;s repaired.
+        </p>
+      )}
+
+      {machine.current && !machine.lockedOut && (
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <p>
             Checked in: <span className="font-semibold">{machine.current.operatorName}</span>
@@ -53,10 +59,12 @@ async function Checkin({ params, searchParams }: Pick<PageProps<"/checkin/[id]">
         </section>
       )}
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">{machine.current ? "Starting a shift? Check in" : "Check in"}</h2>
-        <CheckInForm machineCode={machine.code} />
-      </section>
+      {!machine.lockedOut && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold">{machine.current ? "Starting a shift? Check in" : "Check in"}</h2>
+          <CheckInForm machineCode={machine.code} checklist={machine.checklist} />
+        </section>
+      )}
     </div>
   );
 }

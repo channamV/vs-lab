@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useActionState, useState, type FormEvent } from "react";
-import { CHECKLIST } from "@/lib/checklist";
+import type { AnswerOption, ChecklistSection } from "@/lib/db/schema";
 import { formatDistance } from "@/lib/format";
 import { checkInAction, checkOutAction, type CheckinFormState } from "./actions";
 
@@ -44,9 +44,20 @@ function getPhoneLocation(): Promise<GeolocationPosition | null> {
   });
 }
 
-export function CheckInForm({ machineCode }: { machineCode: string }) {
+export type PublicChecklist = { sections: ChecklistSection[]; options: AnswerOption[]; confirmationText: string };
+
+/**
+ * PIN, the machine's checklist, notes, then (after a major defect) whether to lock the machine out,
+ * and the confirmation statement. Answers are React state, so nothing is lost if the server says no.
+ */
+export function CheckInForm({ machineCode, checklist }: { machineCode: string; checklist: PublicChecklist }) {
   const [state, action, pending] = useActionState(checkInAction, idle);
   const [locating, setLocating] = useState(false);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [generalNotes, setGeneralNotes] = useState("");
+  const [lockout, setLockout] = useState<"yes" | "no" | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
 
   // Get the phone's location first, then submit it with the form.
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -61,6 +72,21 @@ export function CheckInForm({ machineCode }: { machineCode: string }) {
       formData.set("phoneAccuracy", String(position.coords.accuracy));
     }
     startTransition(() => action(formData));
+  }
+
+  if (state.status === "locked-out") {
+    return (
+      <div className="space-y-2 rounded-lg border-2 border-red-400 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
+        <p className="text-xl font-semibold text-red-800 dark:text-red-300">🔒 Machine locked out for repair</p>
+        <p className="text-red-800 dark:text-red-300">Do not operate it. Your supervisor has been told about:</p>
+        <ul className="list-disc pl-5 text-red-800 dark:text-red-300">
+          {state.failedItems.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <p className="text-sm text-slate-600 dark:text-slate-400">A manager clears the lockout once it&apos;s repaired.</p>
+      </div>
+    );
   }
 
   if (state.status === "checked-in") {
@@ -90,7 +116,7 @@ export function CheckInForm({ machineCode }: { machineCode: string }) {
         )}
         {state.failedItems.length > 0 && (
           <div className="rounded bg-amber-100 px-3 py-2 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200">
-            <p className="font-medium">Reported as not OK (recorded for your supervisor):</p>
+            <p className="font-medium">Defects reported (your supervisor has been told):</p>
             <ul className="mt-1 list-disc pl-5">
               {state.failedItems.map((item) => (
                 <li key={item}>{item}</li>
@@ -110,44 +136,63 @@ export function CheckInForm({ machineCode }: { machineCode: string }) {
     );
   }
 
-  const values = state.status === "error" ? state.values : undefined;
+  const hasMajor = checklist.sections.some((s) =>
+    s.questions.some((q) => checklist.options.find((o) => o.key === answers[q.id])?.severity === "major"),
+  );
+  const lockingOut = hasMajor && lockout === "yes";
   return (
-    // key: rebuild the form after an error so it shows the operator's previous answers again
-    <form key={state.status === "error" ? state.attempt : 0} onSubmit={onSubmit} className="space-y-4">
+    <form onSubmit={onSubmit} className="space-y-4">
       <input type="hidden" name="machineCode" value={machineCode} />
       <label className="block space-y-1">
         <span className="font-medium">1. Your PIN</span>
         <PinInput />
       </label>
 
-      <fieldset className="space-y-2">
+      <fieldset className="space-y-3">
         <legend className="font-medium">2. Pre-start checklist</legend>
-        {CHECKLIST.map((item) => (
-          <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-            <p>{item.question}</p>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-slate-300 py-2 has-checked:border-emerald-600 has-checked:bg-emerald-50 dark:border-slate-700 dark:has-checked:bg-emerald-950">
-                <input
-                  type="radio"
-                  name={`item:${item.id}`}
-                  value="ok"
-                  required
-                  defaultChecked={values?.answers[item.id] === "ok"}
-                  className="accent-emerald-600"
-                />
-                OK
-              </label>
-              <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-slate-300 py-2 has-checked:border-red-600 has-checked:bg-red-50 dark:border-slate-700 dark:has-checked:bg-red-950">
-                <input
-                  type="radio"
-                  name={`item:${item.id}`}
-                  value="no"
-                  defaultChecked={values?.answers[item.id] === "no"}
-                  className="accent-red-600"
-                />
-                Not OK
-              </label>
-            </div>
+        {checklist.sections.map((section) => (
+          <div key={section.id} className="space-y-2">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{section.title}</h3>
+            {section.questions.map((q) => {
+              const chosen = checklist.options.find((o) => o.key === answers[q.id]);
+              const defect = chosen?.severity === "minor" || chosen?.severity === "major";
+              return (
+                <div key={q.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                  <p>{q.text}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {checklist.options.map((o) => (
+                      <label
+                        key={o.key}
+                        className="flex cursor-pointer items-center justify-center gap-2 rounded border-2 border-slate-200 px-1 py-2 text-center text-sm dark:border-slate-700"
+                        style={answers[q.id] === o.key ? { borderColor: o.color, backgroundColor: `${o.color}1a` } : undefined}
+                      >
+                        <input
+                          type="radio"
+                          name={`item:${q.id}`}
+                          value={o.key}
+                          required
+                          checked={answers[q.id] === o.key}
+                          onChange={() => setAnswers((a) => ({ ...a, [q.id]: o.key }))}
+                          style={{ accentColor: o.color }}
+                        />
+                        {o.label}
+                      </label>
+                    ))}
+                  </div>
+                  {defect && (
+                    <input
+                      name={`note:${q.id}`}
+                      value={notes[q.id] ?? ""}
+                      onChange={(e) => setNotes((n) => ({ ...n, [q.id]: e.target.value }))}
+                      required={q.noteRequired}
+                      maxLength={500}
+                      placeholder={q.noteRequired ? "Describe the problem (required)" : "Describe the problem (optional)"}
+                      className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         ))}
       </fieldset>
@@ -156,17 +201,49 @@ export function CheckInForm({ machineCode }: { machineCode: string }) {
         <span className="font-medium">3. Notes (optional)</span>
         <textarea
           name="notes"
-          rows={3}
+          rows={2}
           maxLength={1000}
-          defaultValue={values?.notes}
-          placeholder="Anything your supervisor should know"
+          value={generalNotes}
+          onChange={(e) => setGeneralNotes(e.target.value)}
+          placeholder="Anything else your supervisor should know"
           className="w-full rounded border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
         />
       </label>
 
+      {hasMajor && (
+        <fieldset className="space-y-2 rounded-lg border-2 border-red-300 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950">
+          <legend className="sr-only">Lock out</legend>
+          <p className="font-medium text-red-800 dark:text-red-300">
+            You indicated a major defect. Should we lock out this machine for repair?
+          </p>
+          <label className="flex items-center gap-2">
+            <input type="radio" name="lockout" value="yes" required checked={lockout === "yes"} onChange={() => setLockout("yes")} />
+            Yes, lock it out: nobody should operate it until it&apos;s repaired
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" name="lockout" value="no" checked={lockout === "no"} onChange={() => setLockout("no")} />
+            No, it&apos;s safe to operate
+          </label>
+        </fieldset>
+      )}
+
+      {!lockingOut && (
+        <label className="flex items-start gap-3 rounded-lg border border-slate-300 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+          <input
+            type="checkbox"
+            name="confirmed"
+            required
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+            className="mt-1 h-5 w-5"
+          />
+          <span className="font-medium">{checklist.confirmationText}</span>
+        </label>
+      )}
+
       <ErrorMessage state={state} />
-      <button disabled={pending || locating} className={buttonClass}>
-        {locating ? "Getting your location…" : pending ? "Checking in…" : "Check in"}
+      <button disabled={pending || locating} className={lockingOut ? `${buttonClass} bg-red-700 hover:bg-red-800` : buttonClass}>
+        {locating ? "Getting your location…" : pending ? "Sending…" : lockingOut ? "Lock out machine" : "Check in"}
       </button>
       <p className="text-center text-sm text-slate-500">
         Your phone will ask to share your location. This confirms you&apos;re at the machine.

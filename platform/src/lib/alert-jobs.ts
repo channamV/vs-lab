@@ -2,7 +2,9 @@ import "server-only";
 import { after } from "next/server";
 import { getDb } from "@/lib/db";
 import { checkUnauthorizedUse, raiseCheckinAlerts } from "@/lib/alerts";
-import { deliverAlerts, processEvents } from "@/lib/notifications";
+import { eq } from "drizzle-orm";
+import { checkins } from "@/lib/db/schema";
+import { deliverAlerts, processEvents, recordEvent } from "@/lib/notifications";
 import { syncCheckins } from "@/lib/operators";
 import { pairedMachineId } from "@/lib/telemetry/ingest";
 
@@ -34,6 +36,18 @@ export function afterCheckin(checkinId: number) {
     try {
       const db = getDb();
       await deliverAlerts(db, await raiseCheckinAlerts(db, checkinId));
+      // Locked out for repair: an "Equipment Locked" notification (with the operator who did it).
+      const [c] = await db.select().from(checkins).where(eq(checkins.id, checkinId));
+      if (c?.lockoutRequested) {
+        const id = await recordEvent(db, {
+          organizationId: c.organizationId,
+          machineId: c.machineId,
+          type: "equipment_locked",
+          operatorId: c.operatorId,
+          occurredAt: c.startedAt,
+        });
+        if (id) await processEvents(db, { eventIds: [id] });
+      }
     } catch (err) {
       console.error("Check-in alerts failed", checkinId, err);
     }

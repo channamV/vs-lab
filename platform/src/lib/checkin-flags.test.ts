@@ -23,7 +23,7 @@ describe("checkinFlags", () => {
         distanceM: 2300,
         engine: { kind: "already-running" },
       }),
-    ).toEqual(["not approved", "checklist issues", "not at machine (2.3 km away)", "engine running before check-in"]);
+    ).toEqual(["not approved", "checklist defects", "not at machine (2.3 km away)", "engine running before check-in"]);
     expect(checkinFlags({ ...clean, locationCheck: "no-phone-location" })).toEqual(["location not shared"]);
     // A shift-change takeover and an automatic "no start" check-out aren't problems
     expect(checkinFlags({ ...clean, engine: { kind: "takeover" } })).toEqual([]);

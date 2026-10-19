@@ -159,6 +159,18 @@ export const machines = pgTable(
      */
     disarmed: boolean("disarmed").notNull().default(false),
     disarmedUntil: timestamp("disarmed_until", { withTimezone: true }),
+    /** The pre-start checklist for this machine; null = the organization's default. */
+    checklistTemplateId: bigint("checklist_template_id", { mode: "number" }).references(() => checklistTemplates.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * Locked out for repair: set when an operator reports a major defect and chooses to lock the machine
+     * out. Nobody can check in until a manager clears it. (Physically preventing a start needs the
+     * starter relay of Safety & Access Control.)
+     */
+    lockedOutAt: timestamp("locked_out_at", { withTimezone: true }),
+    lockedOutReason: text("locked_out_reason"),
+    lockedOutCheckinId: bigint("locked_out_checkin_id", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Latest state, from whichever device is paired. Null until a device has reported for this machine.
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
@@ -352,7 +364,70 @@ export const machineOperators = pgTable(
   (t) => [primaryKey({ columns: [t.machineId, t.operatorId] })],
 );
 
-export type ChecklistAnswer = { id: string; question: string; ok: boolean };
+/**
+ * What an answer means, whatever its label: pass (OK), minor or major defect, or not applicable.
+ * Minor and major defects raise "Repair needed"; a major defect offers to lock the machine out.
+ */
+export const SEVERITIES = ["pass", "minor", "major", "na"] as const;
+export type Severity = (typeof SEVERITIES)[number];
+export type AnswerOption = { key: string; label: string; severity: Severity; color: string };
+export type ChecklistSection = { id: string; title: string; questions: { id: string; text: string; noteRequired: boolean }[] };
+
+/**
+ * One answer as recorded on a check-in, with the question and answer as they were at the time.
+ * Check-ins from before customizable checklists only have id, question and ok.
+ */
+export type ChecklistAnswer = {
+  id: string;
+  question: string;
+  ok: boolean;
+  section?: string;
+  answer?: string;
+  severity?: Severity;
+  note?: string;
+};
+
+/** The answers operators choose from (e.g. OK / Minor defect / Major defect / Not applicable). One set per template. */
+export const checklistAnswerSets = pgTable(
+  "checklist_answer_sets",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    options: jsonb("options").$type<AnswerOption[]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("checklist_answer_sets_org_name_idx").on(t.organizationId, t.name)],
+);
+
+/** A pre-start checklist: sections of questions, one answer set, and the final confirmation the operator signs. */
+export const checklistTemplates = pgTable(
+  "checklist_templates",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    answerSetId: bigint("answer_set_id", { mode: "number" })
+      .notNull()
+      .references(() => checklistAnswerSets.id, { onDelete: "restrict" }),
+    sections: jsonb("sections").$type<ChecklistSection[]>().notNull(),
+    /** The statement the operator confirms at the end (wording can be required by regulations). */
+    confirmationText: text("confirmation_text").notNull(),
+    /** The organization's default, used for machines without a template of their own. Exactly one per organization. */
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("checklist_templates_org_name_idx").on(t.organizationId, t.name),
+    uniqueIndex("checklist_templates_one_default_idx").on(t.organizationId).where(sql`${t.isDefault}`),
+  ],
+);
+
 
 /**
  * One row per operator check-in (QR code on the machine → PIN → pre-start checklist).
@@ -382,6 +457,11 @@ export const checkins = pgTable(
     checklistOk: boolean("checklist_ok").notNull(),
     answers: jsonb("answers").$type<ChecklistAnswer[]>().notNull(),
     notes: text("notes"),
+    /** The checklist as asked: template name and the confirmation statement the operator agreed to. */
+    templateName: text("template_name"),
+    confirmationText: text("confirmation_text"),
+    /** The operator chose to lock the machine out for repair (after reporting a major defect). */
+    lockoutRequested: boolean("lockout_requested").notNull().default(false),
     /** Phone position at check-in (if the operator shared it) and its accuracy radius in metres. */
     phoneLat: doublePrecision("phone_lat"),
     phoneLng: doublePrecision("phone_lng"),
@@ -554,7 +634,52 @@ export const notificationDeliveries = pgTable(
   (t) => [uniqueIndex("notification_deliveries_once_idx").on(t.eventId, t.userId, t.channel)],
 );
 
+/**
+ * Defects reported on pre-start checklists, one open row per machine and question. A defect reported
+ * again stacks onto the open issue (count + latest report) instead of creating another; reporting it
+ * as more severe escalates it. Managers resolve issues. (A maintenance module will build on this.)
+ */
+export const checklistIssues = pgTable(
+  "checklist_issues",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    /** The template question's id; with the machine, this is what stacks repeat reports. */
+    questionId: text("question_id").notNull(),
+    question: text("question").notNull(),
+    section: text("section"),
+    /** minor or major (the most severe reported so far). */
+    severity: text("severity").notNull(),
+    /** The latest answer's label and note, e.g. "Minor defect", "buckle sticks". */
+    answerLabel: text("answer_label").notNull(),
+    note: text("note"),
+    reportCount: integer("report_count").notNull().default(1),
+    firstReportedAt: timestamp("first_reported_at", { withTimezone: true }).notNull(),
+    lastReportedAt: timestamp("last_reported_at", { withTimezone: true }).notNull(),
+    firstCheckinId: bigint("first_checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
+    lastCheckinId: bigint("last_checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
+    /** The check-in that last raised a "Repair needed" alert for this issue (when new, or escalated). */
+    alertCheckinId: bigint("alert_checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByUserId: bigint("resolved_by_user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
+    resolutionNote: text("resolution_note"),
+  },
+  (t) => [
+    uniqueIndex("checklist_issues_one_open_idx").on(t.machineId, t.questionId).where(sql`${t.resolvedAt} is null`),
+    index("checklist_issues_machine_idx").on(t.machineId, t.lastReportedAt),
+    index("checklist_issues_alert_checkin_idx").on(t.alertCheckinId),
+  ],
+);
+
 export type Organization = typeof organizations.$inferSelect;
+export type ChecklistTemplate = typeof checklistTemplates.$inferSelect;
+export type ChecklistAnswerSet = typeof checklistAnswerSets.$inferSelect;
+export type ChecklistIssue = typeof checklistIssues.$inferSelect;
 export type NotificationRule = typeof notificationRules.$inferSelect;
 export type NotificationEvent = typeof notificationEvents.$inferSelect;
 export type Division = typeof divisions.$inferSelect;

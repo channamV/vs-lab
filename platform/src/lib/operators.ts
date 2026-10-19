@@ -8,9 +8,8 @@ import {
   machineOperators,
   operators,
   pinFailures,
-  type ChecklistAnswer,
 } from "@/lib/db/schema";
-import { CHECKLIST } from "@/lib/checklist";
+import { checklistForMachine, evaluateAnswers, recordIssues } from "@/lib/checklists";
 import { effectiveEnd, type SessionSpan } from "@/lib/telemetry/engine";
 
 /**
@@ -312,7 +311,8 @@ export async function setMachineOperators(db: Db, organizationId: number, machin
   return { added: operatorIds.filter((id) => !before.includes(id)), removed: before.filter((id) => !operatorIds.includes(id)) };
 }
 
-async function isLockedOut(db: Db, machineId: number, now: Date) {
+/** Too many wrong PINs on this machine recently (not the same as a machine locked out for repair). */
+async function pinLockedOut(db: Db, machineId: number, now: Date) {
   const since = new Date(now.getTime() - CHECKIN_RULES.lockoutMinutes * 60_000);
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -335,7 +335,15 @@ async function operatorForPin(db: Db, organizationId: number, machineId: number,
   return operator ?? null;
 }
 
-export type CheckinFailure = "unknown-machine" | "locked" | "bad-pin" | "incomplete" | "not-checked-in";
+export type CheckinFailure =
+  | "unknown-machine"
+  | "locked"
+  | "bad-pin"
+  | "incomplete"
+  | "note-required"
+  | "not-confirmed"
+  | "machine-locked-out"
+  | "not-checked-in";
 
 export type CheckInResult =
   | {
@@ -344,17 +352,23 @@ export type CheckInResult =
       operatorName: string;
       authorized: boolean;
       checklistOk: boolean;
+      /** Defects reported, e.g. "Seatbelt … (Minor defect)". */
       failedItems: string[];
+      /** The operator locked the machine out for repair. */
+      lockedOut: boolean;
       location: LocationCheck;
       distanceM: number | null;
       /** True if the engine was already running, so the check-in is linked to it straight away. */
       engineRunning: boolean;
     }
-  | { ok: false; reason: CheckinFailure };
+  | { ok: false; reason: CheckinFailure; questions?: string[] };
 
 /**
- * An operator checks in to a machine: PIN plus the pre-start checklist.
- * `answers` maps each checklist item id to true (OK) or false (not OK); every item must be answered.
+ * An operator checks in to a machine: PIN plus the machine's pre-start checklist (its own template, or
+ * the organization's default). `answers` maps each question id to an answer key from the template's
+ * answer set; every question must be answered, and the operator must confirm the template's statement,
+ * unless they lock the machine out for repair (allowed after a major defect). Defects become issues on
+ * the machine (repeats stack). A locked-out machine can't be checked in to until a manager clears it.
  * Ends any open check-in on this machine (replaced) and the operator's open check-in elsewhere (moved).
  * The check-in then follows the engine: see syncCheckins().
  */
@@ -364,26 +378,44 @@ export async function checkIn(
     /** The machine's code, from its QR sticker. */
     machineCode: string;
     pin: string;
-    answers: Record<string, boolean | undefined>;
+    answers: Record<string, string | undefined>;
+    /** Notes per question (shown for defects). */
+    answerNotes?: Record<string, string | undefined>;
     notes?: string;
+    /** The operator agreed to the confirmation statement ("I confirm that it's safe to use"). */
+    confirmed: boolean;
+    /** After a major defect: lock the machine out for repair. */
+    lockout?: boolean;
     phoneLocation?: PhoneLocation | null;
   },
   now = new Date(),
 ): Promise<CheckInResult> {
   const [machine] = await db
-    .select({ id: machines.id, organizationId: machines.organizationId, lat: machines.lastLat, lng: machines.lastLng })
+    .select({
+      id: machines.id,
+      organizationId: machines.organizationId,
+      lat: machines.lastLat,
+      lng: machines.lastLng,
+      checklistTemplateId: machines.checklistTemplateId,
+      lockedOutAt: machines.lockedOutAt,
+    })
     .from(machines)
     .where(eq(machines.code, input.machineCode));
   if (!machine) return { ok: false, reason: "unknown-machine" };
+  if (machine.lockedOutAt) return { ok: false, reason: "machine-locked-out" };
   const organizationId = machine.organizationId;
-  if (await isLockedOut(db, machine.id, now)) return { ok: false, reason: "locked" };
+  if (await pinLockedOut(db, machine.id, now)) return { ok: false, reason: "locked" };
 
   const operator = await operatorForPin(db, organizationId, machine.id, input.pin, now);
   if (!operator) return { ok: false, reason: "bad-pin" };
 
-  if (CHECKLIST.some((item) => typeof input.answers[item.id] !== "boolean")) return { ok: false, reason: "incomplete" };
-  const answers: ChecklistAnswer[] = CHECKLIST.map((item) => ({ id: item.id, question: item.question, ok: input.answers[item.id]! }));
-  const failedItems = answers.filter((a) => !a.ok).map((a) => a.question);
+  const { template, options } = await checklistForMachine(db, machine);
+  const evaluation = evaluateAnswers(template.sections, options, { answers: input.answers, notes: input.answerNotes });
+  if (!evaluation.ok) return { ok: false, reason: evaluation.reason, questions: evaluation.questions };
+  const { answers, defects } = evaluation;
+  const lockout = Boolean(input.lockout) && evaluation.hasMajor;
+  if (!lockout && !input.confirmed) return { ok: false, reason: "not-confirmed" };
+  const failedItems = defects.map((d) => `${d.question} (${d.answerLabel})`);
 
   const allowed = await db
     .select({ operatorId: machineOperators.operatorId })
@@ -399,7 +431,8 @@ export async function checkIn(
     .select()
     .from(engineSessions)
     .where(and(eq(engineSessions.machineId, machine.id), isNull(engineSessions.endedAt)));
-  const live = running && isLive(running, now.getTime()) ? running : null;
+  // A machine being locked out isn't taken into use, so the check-in isn't linked to a running engine.
+  const live = running && isLive(running, now.getTime()) && !lockout ? running : null;
   const [previous] = live
     ? await db
         .select({ engineSessionId: checkins.engineSessionId })
@@ -417,16 +450,21 @@ export async function checkIn(
       .update(checkins)
       .set({ endedAt: now, endReason: "moved" })
       .where(and(eq(checkins.operatorId, operator.id), isNull(checkins.endedAt)));
-    return tx
+    const [row] = await tx
       .insert(checkins)
       .values({
         organizationId,
         machineId: machine.id,
         operatorId: operator.id,
         startedAt: now,
+        // Locking out ends the check-in straight away: nobody operates a locked-out machine.
+        ...(lockout && { endedAt: now, endReason: "locked out" }),
         authorized,
-        checklistOk: failedItems.length === 0,
+        checklistOk: defects.length === 0,
         answers,
+        templateName: template.name,
+        confirmationText: lockout ? null : template.confirmationText,
+        lockoutRequested: lockout,
         notes: input.notes?.trim() || null,
         phoneLat: phone?.lat ?? null,
         phoneLng: phone?.lng ?? null,
@@ -438,6 +476,15 @@ export async function checkIn(
         method: "web",
       })
       .returning({ id: checkins.id });
+    await recordIssues(tx, { organizationId, machineId: machine.id, checkinId: row.id, defects, now });
+    if (lockout) {
+      const major = defects.filter((d) => d.severity === "major").map((d) => d.question);
+      await tx
+        .update(machines)
+        .set({ lockedOutAt: now, lockedOutReason: `${operator.name} reported: ${major.join("; ")}`, lockedOutCheckinId: row.id })
+        .where(eq(machines.id, machine.id));
+    }
+    return [row];
   });
 
   return {
@@ -445,8 +492,9 @@ export async function checkIn(
     checkinId: inserted[0].id,
     operatorName: operator.name,
     authorized,
-    checklistOk: failedItems.length === 0,
+    checklistOk: defects.length === 0,
     failedItems,
+    lockedOut: lockout,
     location: location.check,
     distanceM: location.distanceM,
     engineRunning: live !== null,
@@ -467,7 +515,7 @@ export async function checkOut(
     .from(machines)
     .where(eq(machines.code, input.machineCode));
   if (!machine) return { ok: false, reason: "unknown-machine" };
-  if (await isLockedOut(db, machine.id, now)) return { ok: false, reason: "locked" };
+  if (await pinLockedOut(db, machine.id, now)) return { ok: false, reason: "locked" };
   await syncCheckins(db, machine.id, now);
   const [open] = await db
     .select({ id: checkins.id, operatorId: checkins.operatorId })

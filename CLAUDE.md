@@ -96,7 +96,13 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
 - Organizations, users: `src/lib/organizations.ts`. Machines, pairing, device stock: `src/lib/machines.ts` (both tested).
 - Operators, approvals, check-in/out, PIN rate limit and phone-location check: `src/lib/operators.ts`
   (takes the db, tested; thresholds in `CHECKIN_RULES`). Flag wording: `src/lib/checkin-flags.ts`.
-  The pre-start checklist questions: `src/lib/checklist.ts`.
+- Checklists (`src/lib/checklists.ts`, tested; Craig's design 2026-10-19, `docs/checklists.md`): per-org answer sets
+  (labels free, each with a severity pass/minor/major/na) and templates (sections → questions with stable ids,
+  one answer set, customizable confirmation text; one `is_default`). Machine uses `checklist_template_id` or the
+  default; `ensureChecklistDefaults` creates defaults lazily. Check-ins snapshot questions/answers/confirmation.
+  Defects → `checklist_issues` (one open per machine+question; repeats stack, escalation re-alerts via
+  `alert_checkin_id`); minor and major both raise "Repair needed". Major + operator's choice → machine
+  `locked_out_at` (no check-ins until a manager clears it) + `equipment_locked` notification.
 - Check-ins follow the engine (Craig's rule, 2026-10-17): start within 5 min → the check-in is linked to that
   engine session (`checkins.engine_session_id`); engine stops (after a break allowance by check-in
   `method`: web 30 min, ble 0, `CHECKIN_RULES.breakMinutes`) or no start → automatic check-out, recorded at

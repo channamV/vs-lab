@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
 import { checkins, machineOperators, machines, organizations, users } from "@/lib/db/schema";
-import { CHECKLIST } from "@/lib/checklist";
+import { DEFAULT_SECTIONS } from "@/lib/checklists";
 import { checkIn, createOperator, OperatorError, setMachineOperators, updateOperator } from "@/lib/operators";
 import { AccountError, addUser, updateUser } from "./organizations";
 
@@ -11,7 +11,7 @@ let orgA: number;
 let orgB: number;
 let machineA: number;
 let machineB: number;
-const allOk = Object.fromEntries(CHECKLIST.map((item) => [item.id, true]));
+const allOk = Object.fromEntries(DEFAULT_SECTIONS.flatMap((s) => s.questions).map((q) => [q.id, "ok"]));
 
 beforeEach(async () => {
   db = createDb();
@@ -33,8 +33,8 @@ describe("operators in different organizations", () => {
     const johnB = await createOperator(db, orgB, { name: "John Smith", pin: "1234" });
     expect(johnA.id).not.toBe(johnB.id);
 
-    const onA = await checkIn(db, { machineCode: "A-EXC", pin: "1234", answers: allOk });
-    const onB = await checkIn(db, { machineCode: "B-EXC", pin: "1234", answers: allOk });
+    const onA = await checkIn(db, { confirmed: true, machineCode: "A-EXC", pin: "1234", answers: allOk });
+    const onB = await checkIn(db, { confirmed: true, machineCode: "B-EXC", pin: "1234", answers: allOk });
     expect(onA.ok && onB.ok).toBe(true);
     const rows = await db.select().from(checkins).orderBy(checkins.id);
     expect(rows.map((r) => [r.machineId, r.operatorId, r.organizationId])).toEqual([
@@ -58,7 +58,7 @@ describe("operators in different organizations", () => {
 
   it("won't let one organization check in, edit or approve another's operators", async () => {
     const bOnly = await createOperator(db, orgB, { name: "Bob", pin: "5555" });
-    expect(await checkIn(db, { machineCode: "A-EXC", pin: "5555", answers: allOk })).toEqual({ ok: false, reason: "bad-pin" });
+    expect(await checkIn(db, { confirmed: true, machineCode: "A-EXC", pin: "5555", answers: allOk })).toEqual({ ok: false, reason: "bad-pin" });
     await expect(updateOperator(db, orgA, bOnly.id, { name: "Hacked", active: true })).rejects.toThrow(/not found/);
     await setMachineOperators(db, orgA, machineA, [bOnly.id]);
     expect(await db.select().from(machineOperators)).toHaveLength(0);

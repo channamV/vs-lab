@@ -33,6 +33,7 @@ import { checkinFlags, engineLabel, locationLabel } from "@/lib/checkin-flags";
 import { endCheckinAction, setAllowedOperators, setArming } from "./actions";
 import { unpairDeviceAction } from "../actions";
 import { EditMachineForm, PairDeviceForm } from "../MachineForms";
+import { LockoutBanner, MachineChecklist } from "./MachineChecklist";
 import { AlertList } from "../../alerts/AlertList";
 import { ALERT_RULES, isArmed, isMonitored } from "@/lib/alerts";
 
@@ -89,6 +90,8 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
           </span>
         )}
       </div>
+
+      <LockoutBanner machine={machine} auth={auth} timeZone={tz} now={now} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-7">
         <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
@@ -244,6 +247,8 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
         </section>
       </div>
 
+      <MachineChecklist machine={machine} auth={auth} timeZone={tz} now={now} />
+
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -315,11 +320,15 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
                         ) : (
                           <details>
                             <summary className={`cursor-pointer ${failed.length ? "text-amber-700 dark:text-amber-400" : ""}`}>
-                              {failed.length ? `${failed.length} not OK` : "All OK, with notes"}
+                              {failed.length ? `${failed.length} defect${failed.length === 1 ? "" : "s"}` : "All OK, with notes"}
+                              {c.lockoutRequested && " · locked out"}
                             </summary>
                             <ul className="mt-1 list-disc pl-4 text-xs">
                               {failed.map((a) => (
-                                <li key={a.id}>{a.question}</li>
+                                <li key={a.id}>
+                                  {a.question}: {a.answer ?? "Not OK"}
+                                  {a.note && <> (“{a.note}”)</>}
+                                </li>
                               ))}
                             </ul>
                             {c.notes && <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">“{c.notes}”</p>}

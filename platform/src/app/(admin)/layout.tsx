@@ -41,6 +41,11 @@ async function NavLinks() {
       <Link href="/operators" className={linkClass}>
         Operators
       </Link>
+      {hasRole(auth, "manager") && (
+        <Link href="/checklists" className={linkClass}>
+          Checklists
+        </Link>
+      )}
       <Link href="/alerts" className={`flex items-center gap-1.5 ${linkClass}`}>
         Alerts
         {!!alertCount && <span className="rounded-full bg-red-600 px-1.5 text-xs font-semibold text-white">{alertCount}</span>}

@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { alerts, checkins, engineSessions, machines, operators, type Alert, type Machine } from "@/lib/db/schema";
+import { alerts, checkins, checklistIssues, engineSessions, machines, operators, type Alert, type Machine } from "@/lib/db/schema";
 import { isCheckinCurrent } from "@/lib/operators";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, formatDistance, machineLabel } from "@/lib/format";
@@ -17,7 +17,7 @@ export const ALERT_RULES = {
 
 export const ALERT_LABELS = {
   "unauthorized-use": "Unauthorized use",
-  "checklist-failed": "Checklist issues",
+  "checklist-failed": "Repair needed",
   "not-approved": "Operator not approved",
   "not-at-machine": "Not confirmed at machine",
 } as const;
@@ -102,14 +102,35 @@ export async function raiseCheckinAlerts(db: Db, checkinId: number, now = new Da
   const base = { organizationId: c.organizationId, machineId: machine.id, checkinId: c.id, createdAt: now };
   const raised: Alert[] = [];
 
-  if (!c.checklistOk) {
-    const failed = c.answers.filter((a) => !a.ok).map((a) => a.question);
+  // Repair needed: only for issues this check-in opened or made more severe. A defect that's already
+  // open stacks onto its issue without another alert (see recordIssues in checklists.ts).
+  const issues = await db
+    .select()
+    .from(checklistIssues)
+    .where(eq(checklistIssues.alertCheckinId, c.id));
+  if (issues.length) {
+    const others = (
+      await db
+        .select({ id: checklistIssues.id })
+        .from(checklistIssues)
+        .where(and(eq(checklistIssues.machineId, machine.id), isNull(checklistIssues.resolvedAt)))
+    ).length - issues.length;
+    const list = issues
+      .map((i) => `${i.question} (${i.answerLabel}${i.reportCount > 1 ? `, now ${i.severity}` : ""})${i.note ? `: "${i.note}"` : ""}`)
+      .join("; ");
     raised.push(
       ...(await raise(db, {
         ...base,
         type: "checklist-failed",
-        title: `Checklist issues: ${name}`,
-        detail: `${who} reported as not OK: ${failed.join("; ")}.${c.notes ? ` Notes: "${c.notes}"` : ""}`,
+        title: `Repair needed: ${name}`,
+        detail: [
+          `${who} reported ${list}.`,
+          c.lockoutRequested ? "The machine has been locked out for repair." : "",
+          others > 0 ? `${others} other open issue${others === 1 ? "" : "s"} on this machine.` : "",
+          c.notes ? `Notes: "${c.notes}"` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
       })),
     );
   }

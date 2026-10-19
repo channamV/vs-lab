@@ -120,6 +120,13 @@ async function FleetOverview() {
                 </td>
                 {showDivision && <td className="px-4 py-2">{d.divisionName ?? <span className="text-slate-500">—</span>}</td>}
                 <td className="px-4 py-2">
+                  {d.lockedOutAt && (
+                    <div className="mb-1">
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/50 dark:text-red-300">
+                        🔒 Locked out
+                      </span>
+                    </div>
+                  )}
                   {d.deviceId || d.lastSeenAt ? (
                     <StatusBadge status={connectionStatus(d, now)} />
                   ) : (

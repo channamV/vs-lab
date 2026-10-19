@@ -13,7 +13,7 @@ type FlaggableCheckin = {
 export function checkinFlags(c: FlaggableCheckin): string[] {
   const flags: string[] = [];
   if (!c.authorized) flags.push("not approved");
-  if (!c.checklistOk) flags.push("checklist issues");
+  if (!c.checklistOk) flags.push("checklist defects");
   if (c.locationCheck === "far") flags.push(`not at machine (${formatDistance(c.distanceM)} away)`);
   if (c.locationCheck === "no-phone-location") flags.push("location not shared");
   if (c.engine.kind === "already-running") flags.push("engine running before check-in");

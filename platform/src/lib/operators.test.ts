@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDb, migrateDb, type Db } from "@/lib/db";
 import { checkins, engineSessions, machines, operators, organizations } from "@/lib/db/schema";
-import { CHECKLIST } from "@/lib/checklist";
+import { DEFAULT_CONFIRMATION, DEFAULT_SECTIONS } from "@/lib/checklists";
 import {
   CHECKIN_RULES,
   checkIn,
@@ -20,7 +20,7 @@ import {
 
 let db: Db;
 let ORG: number;
-const allOk = Object.fromEntries(CHECKLIST.map((item) => [item.id, true]));
+const allOk = Object.fromEntries(DEFAULT_SECTIONS.flatMap((s) => s.questions).map((q) => [q.id, "ok"]));
 /** Machine IDs by QR code. */
 let M: Record<string, number>;
 const codeOf = (machineId: number) => Object.keys(M).find((code) => M[code] === machineId);
@@ -59,7 +59,7 @@ describe("operators", () => {
 describe("checkIn", () => {
   it("checks an operator in with a passed checklist", async () => {
     await createOperator(db, ORG, { name: "Jane", pin: "1111" });
-    const result = await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk, notes: " all good " });
+    const result = await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk, notes: " all good " });
     expect(result).toEqual({
       ok: true,
       checkinId: expect.any(Number),
@@ -67,66 +67,73 @@ describe("checkIn", () => {
       authorized: true,
       checklistOk: true,
       failedItems: [],
+      lockedOut: false,
       location: "no-phone-location",
       distanceM: null,
       engineRunning: false,
     });
     const [row] = await db.select().from(checkins);
     expect(row).toMatchObject({ machineId: M.MACH0001, endedAt: null, notes: "all good", checklistOk: true });
-    expect(row.answers).toHaveLength(CHECKLIST.length);
+    expect(row.answers).toHaveLength(10);
+    expect(row).toMatchObject({ templateName: "Standard pre-start", confirmationText: DEFAULT_CONFIRMATION });
+    expect(row.answers[0]).toMatchObject({ id: "walkaround", answer: "OK", severity: "pass", section: "Walk-around", ok: true });
   });
 
   it("records and flags failed checklist items without blocking", async () => {
     await createOperator(db, ORG, { name: "Jane", pin: "1111" });
-    const result = await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: { ...allOk, seatbelt: false } });
-    expect(result).toMatchObject({ ok: true, checklistOk: false, failedItems: ["Seatbelt in good condition and working"] });
+    const result = await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: { ...allOk, seatbelt: "service_soon" } });
+    expect(result).toMatchObject({ ok: true, checklistOk: false, failedItems: ["Seatbelt in good condition and working (Service soon)"] });
   });
 
   it("requires every checklist item to be answered", async () => {
     await createOperator(db, ORG, { name: "Jane", pin: "1111" });
     const missingOne = { ...allOk, seatbelt: undefined };
-    expect(await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: missingOne })).toEqual({ ok: false, reason: "incomplete" });
+    expect(await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: missingOne })).toEqual({
+      ok: false,
+      reason: "incomplete",
+      questions: ["Seatbelt in good condition and working"],
+    });
     expect(await db.select().from(checkins)).toHaveLength(0);
   });
 
   it("rejects unknown machines, wrong PINs and inactive operators", async () => {
     const op = await createOperator(db, ORG, { name: "Jane", pin: "1111" });
-    expect(await checkIn(db, { machineCode: "NOPE", pin: "1111", answers: allOk })).toEqual({ ok: false, reason: "unknown-machine" });
-    expect(await checkIn(db, { machineCode: "MACH0001", pin: "9999", answers: allOk })).toEqual({ ok: false, reason: "bad-pin" });
+    expect(await checkIn(db, { confirmed: true, machineCode: "NOPE", pin: "1111", answers: allOk })).toEqual({ ok: false, reason: "unknown-machine" });
+    expect(await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "9999", answers: allOk })).toEqual({ ok: false, reason: "bad-pin" });
     await updateOperator(db, ORG, op.id, { name: "Jane", active: false });
-    expect(await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk })).toEqual({ ok: false, reason: "bad-pin" });
+    expect(await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk })).toEqual({ ok: false, reason: "bad-pin" });
   });
 
   it("locks the machine's check-in page after too many wrong PINs", async () => {
     await createOperator(db, ORG, { name: "Jane", pin: "1111" });
     const now = new Date("2026-10-15T12:00:00Z");
     for (let i = 0; i < CHECKIN_RULES.maxPinFailures; i++) {
-      await checkIn(db, { machineCode: "MACH0001", pin: "0000", answers: allOk }, now);
+      await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "0000", answers: allOk }, now);
     }
     // Even the right PIN is refused during the lockout, but other machines are unaffected
-    expect(await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk }, now)).toEqual({ ok: false, reason: "locked" });
-    expect((await checkIn(db, { machineCode: "MACH0002", pin: "1111", answers: allOk }, now)).ok).toBe(true);
+    expect(await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk }, now)).toEqual({ ok: false, reason: "locked" });
+    expect((await checkIn(db, { confirmed: true, machineCode: "MACH0002", pin: "1111", answers: allOk }, now)).ok).toBe(true);
     // After the lockout period it works again
     const later = new Date(now.getTime() + (CHECKIN_RULES.lockoutMinutes + 1) * 60_000);
-    expect((await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk }, later)).ok).toBe(true);
+    expect((await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk }, later)).ok).toBe(true);
   });
 
   it("flags operators who aren't on the machine's allowed list", async () => {
     const jane = await createOperator(db, ORG, { name: "Jane", pin: "1111" });
     await createOperator(db, ORG, { name: "Bob", pin: "2222" });
     await setMachineOperators(db, ORG, M.MACH0001, [jane.id]);
-    expect(await checkIn(db, { machineCode: "MACH0001", pin: "2222", answers: allOk })).toMatchObject({ ok: true, authorized: false });
-    expect(await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk })).toMatchObject({ ok: true, authorized: true });
+    expect(await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "2222", answers: allOk })).toMatchObject({ ok: true, authorized: false });
+    expect(await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk })).toMatchObject({ ok: true, authorized: true });
     // No list on the other machine → anyone active is allowed
-    expect(await checkIn(db, { machineCode: "MACH0002", pin: "2222", answers: allOk })).toMatchObject({ ok: true, authorized: true });
+    expect(await checkIn(db, { confirmed: true, machineCode: "MACH0002", pin: "2222", answers: allOk })).toMatchObject({ ok: true, authorized: true });
   });
 
   it("replaces the previous operator and moves an operator between machines", async () => {
     await createOperator(db, ORG, { name: "Jane", pin: "1111" });
     await createOperator(db, ORG, { name: "Bob", pin: "2222" });
-    await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk });
-    await checkIn(db, { machineCode: "MACH0001", pin: "2222", answers: allOk }); // Bob takes over MACH0001
-    await checkIn(db, { machineCode: "MACH0002", pin: "2222", answers: allOk }); // Bob moves to MACH0002
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk });
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "2222", answers: allOk }); // Bob takes over MACH0001
+    await checkIn(db, { confirmed: true, machineCode: "MACH0002", pin: "2222", answers: allOk }); // Bob moves to MACH0002
 
     const rows = await db.select().from(checkins).orderBy(checkins.id);
     expect(rows.map((r) => [codeOf(r.machineId), r.endReason])).toEqual([
@@ -142,7 +149,7 @@ describe("checkOut", () => {
     await createOperator(db, ORG, { name: "Jane", pin: "1111" });
     await createOperator(db, ORG, { name: "Bob", pin: "2222" });
     expect(await checkOut(db, { machineCode: "MACH0001", pin: "1111" })).toEqual({ ok: false, reason: "not-checked-in" });
-    await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk });
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk });
     expect(await checkOut(db, { machineCode: "MACH0001", pin: "2222" })).toEqual({ ok: false, reason: "bad-pin" });
     expect(await checkOut(db, { machineCode: "MACH0001", pin: "1111" })).toEqual({ ok: true, operatorName: "Jane" });
     const [row] = await db.select().from(checkins);
@@ -151,7 +158,7 @@ describe("checkOut", () => {
 
   it("deactivating an operator checks them out", async () => {
     const jane = await createOperator(db, ORG, { name: "Jane", pin: "1111" });
-    await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk });
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk });
     await updateOperator(db, ORG, jane.id, { name: "Jane", active: false });
     const [row] = await db.select().from(checkins);
     expect(row.endReason).toBe("deactivated");
@@ -189,11 +196,11 @@ describe("location check", () => {
   it("is stored with the check-in", async () => {
     await db.update(machines).set({ lastLat: machine.lat, lastLng: machine.lng });
     await createOperator(db, ORG, { name: "Jane", pin: "1111" });
-    const near = await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk, phoneLocation: { ...offsetNorth(20), accuracyM: 8 } });
+    const near = await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk, phoneLocation: { ...offsetNorth(20), accuracyM: 8 } });
     expect(near).toMatchObject({ ok: true, location: "near" });
-    const far = await checkIn(db, { machineCode: "MACH0002", pin: "1111", answers: allOk, phoneLocation: { lat: 43.7, lng: -79.4, accuracyM: 8 } });
+    const far = await checkIn(db, { confirmed: true, machineCode: "MACH0002", pin: "1111", answers: allOk, phoneLocation: { lat: 43.7, lng: -79.4, accuracyM: 8 } });
     expect(far).toMatchObject({ ok: true, location: "far" });
-    const none = await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk });
+    const none = await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk });
     expect(none).toMatchObject({ ok: true, location: "no-phone-location" });
 
     const rows = await db.select().from(checkins).orderBy(checkins.id);
@@ -221,7 +228,7 @@ describe("check-in follows the engine", () => {
   });
 
   it("links the engine start within the window, then checks out when the engine stops", async () => {
-    await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
     const s = await startEngine(M.MACH0001, 3);
     await syncCheckins(db, M.MACH0001, at(3));
     expect((await rows())[0]).toMatchObject({ engineSessionId: s.id, engineLink: "started", endedAt: null });
@@ -241,7 +248,7 @@ describe("check-in follows the engine", () => {
   });
 
   it("keeps the same operator when the engine restarts within the break allowance", async () => {
-    await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
     const first = await startEngine(M.MACH0001, 2);
     await syncCheckins(db, M.MACH0001, at(2));
     await stopEngine(first.id, 60); // lunch
@@ -255,7 +262,7 @@ describe("check-in follows the engine", () => {
   });
 
   it("gives beacon check-ins no break allowance", async () => {
-    await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
     await db.update(checkins).set({ method: "ble" });
     const s = await startEngine(M.MACH0001, 1);
     await syncCheckins(db, M.MACH0001, at(1));
@@ -265,7 +272,7 @@ describe("check-in follows the engine", () => {
   });
 
   it("checks the operator out if the engine doesn't start within the window", async () => {
-    await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
     await syncCheckins(db, M.MACH0001, at(window - 1));
     expect((await rows())[0].endedAt).toBeNull();
     await syncCheckins(db, M.MACH0001, at(window + 2));
@@ -277,7 +284,7 @@ describe("check-in follows the engine", () => {
   });
 
   it("ends a check-in when the device goes silent while running", async () => {
-    await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
     await startEngine(M.MACH0001, 1);
     await syncCheckins(db, M.MACH0001, at(1));
     // No reports since minute 1 → session gone stale; after the break allowance the check-in ends
@@ -287,17 +294,17 @@ describe("check-in follows the engine", () => {
 
   it("links straight away when the engine is already running", async () => {
     const s = await startEngine(M.MACH0001, -10);
-    const result = await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
+    const result = await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
     expect(result).toMatchObject({ ok: true, engineRunning: true });
     expect((await rows())[0]).toMatchObject({ engineSessionId: s.id, engineLink: "already-running" });
   });
 
   it("treats a check-in on another operator's running engine as a takeover", async () => {
-    await checkIn(db, { machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "1111", answers: allOk }, at(0));
     const s = await startEngine(M.MACH0001, 2);
     await syncCheckins(db, M.MACH0001, at(2));
     await engineReport(s.id, 240);
-    await checkIn(db, { machineCode: "MACH0001", pin: "2222", answers: allOk }, at(240)); // shift change, engine idling
+    await checkIn(db, { confirmed: true, machineCode: "MACH0001", pin: "2222", answers: allOk }, at(240)); // shift change, engine idling
     const [jane, bob] = await rows();
     expect(jane).toMatchObject({ endReason: "replaced", endedAt: at(240) });
     expect(bob).toMatchObject({ engineSessionId: s.id, engineLink: "takeover", endedAt: null });

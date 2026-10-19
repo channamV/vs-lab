@@ -10,7 +10,7 @@ Only machines whose service level is **Safety & Access Monitoring** (machine pag
 | Alert | When | How often |
 |---|---|---|
 | **Unauthorized use** | The machine is **armed** and its engine has been running for **5 minutes** without anyone checking in for that run. Operators are checked out automatically when the engine has been off longer than the break allowance (30 minutes for web check-ins), so a start after that needs a new check-in. | Once per engine-on period |
-| **Checklist issues** | An operator answered "Not OK" to any pre-start checklist item. Includes their notes. | Once per check-in |
+| **Repair needed** | A pre-start checklist reported a minor or major defect that isn't already an open issue on the machine, or reported an open one as more severe. Repeats stack on the issue without a new alert. Says if the machine was locked out. See [checklists.md](checklists.md). | Once per check-in, only for new or escalated issues |
 | **Operator not approved** | The operator isn't on the machine's approved list. | Once per check-in |
 | **Not confirmed at machine** | The operator's phone was more than 100 m from the machine, or they didn't share their location. | Once per check-in |
 

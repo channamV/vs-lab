@@ -7,7 +7,9 @@ they did the pre-start checklist. Works on any phone (iPhone or Android) with no
 
 1. Scan the **QR sticker** on the machine with the phone camera. The check-in page opens.
 2. Enter their **PIN**.
-3. Answer the **pre-start checklist**: OK or Not OK for each item, plus optional notes.
+3. Answer the machine's **pre-start checklist** (e.g. OK / Minor defect / Major defect / Not applicable for each
+   item), describe any defects, and tick the **final confirmation** ("I confirm that it's safe to use").
+   After a **major defect** they're asked whether to **lock the machine out for repair**.
 4. Tap **Check in**. The phone asks to share its location: tap **Allow**.
 5. **Start the engine within 5 minutes.** That engine run now belongs to them.
 6. Nothing to do at the end: when the engine stops, they're **checked out automatically**.
@@ -17,8 +19,9 @@ they did the pre-start checklist. Works on any phone (iPhone or Android) with no
 No check-out needed. (Experience with tap-in/tap-out cards: people don't check out.) A check-out
 option is still on the page for anyone who wants it.
 
-A "Not OK" answer doesn't block the check-in. The machine still starts (this is Monitoring, not
-Control), and the answer is recorded and flagged for the fleet manager.
+A defect doesn't block the check-in (unless the operator chooses to lock the machine out). It's recorded as an
+issue on the machine and raises a *Repair needed* alert. Checklists, answers, issues and lockout are explained
+in [checklists.md](checklists.md).
 
 ## How we confirm the operator is really at the machine
 
@@ -71,8 +74,8 @@ The numbers (100 m, 150 m, 5 minutes, 30-minute break) are in `CHECKIN_RULES` in
 - **Fleet page:** *Operator* column shows who is checked in, with flags for checklist issues,
   not-approved operators, not at machine, location not shared, and engine running before check-in.
 - **Machine page:** current operator (with *End check-in* if needed) and the check-in history,
-  with *At machine* and *Engine* columns. Click "1 not OK" to see which
-  items failed and the operator's notes.
+  with *At machine* and *Engine* columns. Click "1 defect" to see which
+  items and the operator's notes. Open issues are under *Checklist and issues*.
 
 ## Security notes
 
@@ -85,8 +88,8 @@ The numbers (100 m, 150 m, 5 minutes, 30-minute break) are in `CHECKIN_RULES` in
 
 ## Changing the checklist
 
-The questions are in `platform/src/lib/checklist.ts`. Ask Claude Code to change them. Past
-check-ins keep the questions as they were asked at the time.
+**Checklists** in the top bar: see [checklists.md](checklists.md). Past check-ins keep the questions as they were
+asked at the time.
 
 ## Trying it with test data
 

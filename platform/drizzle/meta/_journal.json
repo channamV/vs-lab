@@ -99,6 +99,13 @@
       "when": 1792422721272,
       "tag": "0013_drop_alert_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792432956176,
+      "tag": "0014_checklists",
+      "breakpoints": true
     }
   ]
 }

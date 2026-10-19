@@ -6,6 +6,9 @@ import { getDb } from "@/lib/db";
 import {
   alerts,
   checkins,
+  checklistAnswerSets,
+  checklistIssues,
+  checklistTemplates,
   deviceAssignments,
   deviceEvents,
   devices,
@@ -21,6 +24,7 @@ import {
 } from "@/lib/db/schema";
 import { machineScope, type Scope } from "@/lib/divisions";
 import { getRule, listRules, recentActivity, scopeOfUser } from "@/lib/notifications";
+import { ensureChecklistDefaults } from "@/lib/checklists";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -285,6 +289,7 @@ const checkinWithOperator = {
   authorized: checkins.authorized,
   checklistOk: checkins.checklistOk,
   answers: checkins.answers,
+  lockoutRequested: checkins.lockoutRequested,
   notes: checkins.notes,
   locationCheck: checkins.locationCheck,
   distanceM: checkins.distanceM,
@@ -412,6 +417,90 @@ export async function openAlertCountIfSignedIn(): Promise<number | null> {
     .innerJoin(machines, eq(machines.id, alerts.machineId))
     .where(and(eq(alerts.organizationId, auth.organizationId), machineScope(auth), isNull(alerts.acknowledgedAt)));
   return row.count;
+}
+
+// ---------- Checklists ----------
+
+/**
+ * Who may change checklist templates and answer sets: managers and owners who see the whole
+ * organization (templates are shared by every division).
+ */
+export async function canEditChecklists() {
+  const auth = await requireSession();
+  return hasRole(auth, "manager") && auth.divisionIds === null;
+}
+
+/** The organization's checklists (with how many machines use each) and answer sets. */
+export async function checklistSettings() {
+  const auth = await requireSession();
+  const db = getDb();
+  await ensureChecklistDefaults(db, auth.organizationId);
+  const [templates, sets, usage, machineCount] = await Promise.all([
+    db
+      .select({ template: checklistTemplates, answerSetName: checklistAnswerSets.name })
+      .from(checklistTemplates)
+      .innerJoin(checklistAnswerSets, eq(checklistAnswerSets.id, checklistTemplates.answerSetId))
+      .where(eq(checklistTemplates.organizationId, auth.organizationId))
+      .orderBy(desc(checklistTemplates.isDefault), asc(checklistTemplates.name)),
+    db.select().from(checklistAnswerSets).where(eq(checklistAnswerSets.organizationId, auth.organizationId)).orderBy(asc(checklistAnswerSets.name)),
+    db
+      .select({ templateId: machines.checklistTemplateId, n: sql<number>`count(*)::int` })
+      .from(machines)
+      .where(eq(machines.organizationId, auth.organizationId))
+      .groupBy(machines.checklistTemplateId),
+    db.select({ n: sql<number>`count(*)::int` }).from(machines).where(eq(machines.organizationId, auth.organizationId)),
+  ]);
+  const byTemplate = new Map(usage.map((u) => [u.templateId, u.n]));
+  const assigned = usage.filter((u) => u.templateId !== null).reduce((sum, u) => sum + u.n, 0);
+  return {
+    templates: templates.map(({ template, answerSetName }) => ({
+      ...template,
+      answerSetName,
+      questionCount: template.sections.reduce((n, sec) => n + sec.questions.length, 0),
+      // Machines without their own checklist use the default.
+      machines: (byTemplate.get(template.id) ?? 0) + (template.isDefault ? machineCount[0].n - assigned : 0),
+    })),
+    answerSets: sets.map((set) => ({ ...set, usedBy: templates.filter((t) => t.template.answerSetId === set.id).length })),
+  };
+}
+
+export async function getChecklistTemplate(id: number) {
+  const auth = await requireSession();
+  const [row] = await getDb()
+    .select()
+    .from(checklistTemplates)
+    .where(and(eq(checklistTemplates.id, id), eq(checklistTemplates.organizationId, auth.organizationId)));
+  return row ?? null;
+}
+
+export async function getAnswerSet(id: number) {
+  const auth = await requireSession();
+  const [row] = await getDb()
+    .select()
+    .from(checklistAnswerSets)
+    .where(and(eq(checklistAnswerSets.id, id), eq(checklistAnswerSets.organizationId, auth.organizationId)));
+  return row ?? null;
+}
+
+/** A machine's checklist, the choices for it, and its checklist issues (open first, then recently resolved). */
+export async function machineChecklist(machineId: number) {
+  const auth = await requireMachine(machineId);
+  const db = getDb();
+  await ensureChecklistDefaults(db, auth.organizationId);
+  const [templates, issues] = await Promise.all([
+    db
+      .select({ id: checklistTemplates.id, name: checklistTemplates.name, isDefault: checklistTemplates.isDefault })
+      .from(checklistTemplates)
+      .where(eq(checklistTemplates.organizationId, auth.organizationId))
+      .orderBy(asc(checklistTemplates.name)),
+    db
+      .select()
+      .from(checklistIssues)
+      .where(eq(checklistIssues.machineId, machineId))
+      .orderBy(sql`${checklistIssues.resolvedAt} is not null`, desc(checklistIssues.lastReportedAt))
+      .limit(30),
+  ]);
+  return { templates, issues };
 }
 
 // ---------- Alert subscriptions ----------

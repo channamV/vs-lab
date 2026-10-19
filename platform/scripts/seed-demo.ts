@@ -17,7 +17,7 @@ import { createDb, defaultDbOptions, migrateDb } from "../src/lib/db";
 import { checkins, devices, engineSessions, operators, organizations, type ChecklistAnswer } from "../src/lib/db/schema";
 import { createMachine, pairDevice } from "../src/lib/machines";
 import { pairedMachineId } from "../src/lib/telemetry/ingest";
-import { CHECKLIST } from "../src/lib/checklist";
+import { DEFAULT_CONFIRMATION, DEFAULT_SECTIONS, DEFAULT_TEMPLATE_NAME } from "../src/lib/checklists";
 import { hashPin } from "../src/lib/operators";
 import { appTimeZone, startOfLocalDay } from "../src/lib/telemetry/engine";
 
@@ -110,7 +110,12 @@ async function main() {
 
         // The operator checks in 1–4 minutes before each start and is checked out when the engine stops.
         // Now and then a checklist item fails, or the phone wasn't at the machine.
-        const answers: ChecklistAnswer[] = CHECKLIST.map((item) => ({ ...item, ok: Math.random() > 0.02 }));
+        const answers: ChecklistAnswer[] = DEFAULT_SECTIONS.flatMap((section) =>
+          section.questions.map((q) => {
+            const ok = Math.random() > 0.02;
+            return { id: q.id, question: q.text, section: section.title, answer: ok ? "OK" : "Service soon", severity: ok ? "pass" : "minor", ok } as const;
+          }),
+        );
         checkinRows.push({
           organizationId,
           machineId,
@@ -122,6 +127,8 @@ async function main() {
           engineLink: "started",
           authorized: true,
           checklistOk: answers.every((a) => a.ok),
+          templateName: DEFAULT_TEMPLATE_NAME,
+          confirmationText: DEFAULT_CONFIRMATION,
           answers,
           ...(Math.random() < 0.05
             ? { locationCheck: "far", distanceM: rand(800, 6000) }

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
 import { devices, machines, notificationDeliveries, notificationEvents, organizations } from "@/lib/db/schema";
-import { CHECKLIST } from "@/lib/checklist";
+import { DEFAULT_SECTIONS } from "@/lib/checklists";
 import { createDivision, setUserDivisions } from "@/lib/divisions";
 import { createMachine, pairDevice } from "@/lib/machines";
 import { checkIn, createOperator, syncCheckins } from "@/lib/operators";
@@ -148,7 +148,7 @@ describe("delivery", () => {
     await db.insert(devices).values({ id: "DEV1" });
     await pairDevice(db, "DEV1", eastMachine, at(-60));
     const [{ code }] = await db.select({ code: machines.code }).from(machines).where(eq(machines.id, eastMachine));
-    await checkIn(db, { machineCode: code, pin: "1111", answers: Object.fromEntries(CHECKLIST.map((i) => [i.id, true])) }, at(-2));
+    await checkIn(db, { confirmed: true, machineCode: code, pin: "1111", answers: Object.fromEntries(DEFAULT_SECTIONS.flatMap((s) => s.questions).map((q) => [q.id, "ok"])) }, at(-2));
 
     await ingestSamples(db, "DEV1", [{ batteryCentivolts: 1400 }], { now: at(0) });
     await syncCheckins(db, eastMachine, at(0));

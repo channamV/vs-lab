@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
 import { alerts, engineSessions, machines, organizations, users } from "@/lib/db/schema";
-import { CHECKLIST } from "@/lib/checklist";
+import { DEFAULT_SECTIONS } from "@/lib/checklists";
 import { CHECKIN_RULES, checkIn, checkOut, createOperator, setMachineOperators, syncCheckins } from "@/lib/operators";
 import { acknowledgeAlert, ALERT_RULES, checkUnauthorizedUse, isArmed, raiseCheckinAlerts } from "./alerts";
 import { deliverAlerts } from "./notifications";
@@ -11,7 +11,7 @@ import { addUser } from "./organizations";
 let db: Db;
 let ORG: number;
 let MACHINE: number;
-const allOk = Object.fromEntries(CHECKLIST.map((item) => [item.id, true]));
+const allOk = Object.fromEntries(DEFAULT_SECTIONS.flatMap((s) => s.questions).map((q) => [q.id, "ok"]));
 const t0 = new Date("2026-10-15T12:00:00Z");
 const at = (min: number) => new Date(t0.getTime() + min * 60_000);
 const grace = ALERT_RULES.unauthorizedGraceMinutes;
@@ -46,12 +46,12 @@ describe("unauthorized use", () => {
   });
 
   it("doesn't alert when someone is checked in", async () => {
-    await checkIn(db, { machineCode: "MACH1", pin: "1111", answers: allOk }, at(1));
+    await checkIn(db, { confirmed: true, machineCode: "MACH1", pin: "1111", answers: allOk }, at(1));
     expect(await checkUnauthorizedUse(db, MACHINE, at(grace + 5))).toHaveLength(0);
   });
 
   it("alerts when the engine keeps running after the operator checks out", async () => {
-    await checkIn(db, { machineCode: "MACH1", pin: "1111", answers: allOk }, at(-2));
+    await checkIn(db, { confirmed: true, machineCode: "MACH1", pin: "1111", answers: allOk }, at(-2));
     await syncCheckins(db, MACHINE, at(1)); // engine started at 0 → linked
     await db.update(engineSessions).set({ lastSeenAt: at(20) }); // engine still reporting
     expect(await checkOut(db, { machineCode: "MACH1", pin: "1111" }, at(20))).toMatchObject({ ok: true });
@@ -60,7 +60,7 @@ describe("unauthorized use", () => {
   });
 
   it("alerts on a restart after the operator's engine-on period ended", async () => {
-    await checkIn(db, { machineCode: "MACH1", pin: "1111", answers: allOk }, at(-2));
+    await checkIn(db, { confirmed: true, machineCode: "MACH1", pin: "1111", answers: allOk }, at(-2));
     await syncCheckins(db, MACHINE, at(1));
     // Engine stops at 30. Jane's break allowance runs out, then the engine restarts with nobody checking in.
     await db.update(engineSessions).set({ endedAt: at(30), lastSeenAt: at(30) });
@@ -71,7 +71,7 @@ describe("unauthorized use", () => {
   });
 
   it("doesn't alert when the same operator restarts after a short break", async () => {
-    await checkIn(db, { machineCode: "MACH1", pin: "1111", answers: allOk }, at(-2));
+    await checkIn(db, { confirmed: true, machineCode: "MACH1", pin: "1111", answers: allOk }, at(-2));
     await syncCheckins(db, MACHINE, at(1));
     await db.update(engineSessions).set({ endedAt: at(30), lastSeenAt: at(30) });
     await db.insert(engineSessions).values({ machineId: MACHINE, startedAt: at(45), lastSeenAt: at(45 + grace + 1) });
@@ -108,28 +108,28 @@ describe("check-in alerts", () => {
   it("raises one alert per problem, once", async () => {
     const other = await createOperator(db, ORG, { name: "Bob", pin: "2222" });
     await setMachineOperators(db, ORG, MACHINE, [other.id]);
-    const result = await checkIn(db, {
+    const result = await checkIn(db, { confirmed: true,
       machineCode: "MACH1",
       pin: "1111",
-      answers: { ...allOk, seatbelt: false },
+      answers: { ...allOk, seatbelt: "service_soon" },
       notes: "buckle broken",
       phoneLocation: { lat: 43.7, lng: -79.4, accuracyM: 10 },
     });
     if (!result.ok) throw new Error("check-in failed");
     const raised = await raiseCheckinAlerts(db, result.checkinId);
     expect(raised.map((a) => a.type).sort()).toEqual(["checklist-failed", "not-approved", "not-at-machine"]);
-    expect(raised.find((a) => a.type === "checklist-failed")!.detail).toContain('Seatbelt in good condition and working. Notes: "buckle broken"');
+    expect(raised.find((a) => a.type === "checklist-failed")!.detail).toContain('Jane reported Seatbelt in good condition and working (Service soon). Notes: "buckle broken"');
     expect(raised.find((a) => a.type === "not-at-machine")!.detail).toMatch(/Jane checked in [\d.]+ km away/);
     expect(await raiseCheckinAlerts(db, result.checkinId)).toHaveLength(0);
   });
 
   it("is quiet for a clean check-in, and for machines that aren't monitored", async () => {
-    const clean = await checkIn(db, { machineCode: "MACH1", pin: "1111", answers: allOk, phoneLocation: { lat: 43.65, lng: -79.38, accuracyM: 5 } });
+    const clean = await checkIn(db, { confirmed: true, machineCode: "MACH1", pin: "1111", answers: allOk, phoneLocation: { lat: 43.65, lng: -79.38, accuracyM: 5 } });
     if (!clean.ok) throw new Error("check-in failed");
     expect(await raiseCheckinAlerts(db, clean.checkinId)).toHaveLength(0);
 
     await db.update(machines).set({ tier: "gps" });
-    const bad = await checkIn(db, { machineCode: "MACH1", pin: "1111", answers: { ...allOk, seatbelt: false } });
+    const bad = await checkIn(db, { confirmed: true, machineCode: "MACH1", pin: "1111", answers: { ...allOk, seatbelt: "service_soon" } });
     if (!bad.ok) throw new Error("check-in failed");
     expect(await raiseCheckinAlerts(db, bad.checkinId)).toHaveLength(0);
   });
