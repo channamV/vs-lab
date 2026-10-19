@@ -60,7 +60,7 @@ async function UserList() {
                 <div className="font-medium">{u.name ?? u.email}</div>
                 {u.name && <div className="text-xs text-slate-500">{u.email}</div>}
                 <Link href={`/alerts/subscriptions?user=${u.id}`} className="text-xs text-sky-700 hover:underline dark:text-sky-400">
-                  Alert emails
+                  Subscriptions
                 </Link>
               </td>
               <td className="px-4 py-2 text-slate-500">{timeAgo(u.lastSignInAt, now)}</td>

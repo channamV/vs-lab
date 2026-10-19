@@ -20,7 +20,7 @@ import {
   users,
 } from "@/lib/db/schema";
 import { machineScope, type Scope } from "@/lib/divisions";
-import { listSubscriptions, scopeOfUser } from "@/lib/subscriptions";
+import { getRule, listRules, recentActivity, scopeOfUser } from "@/lib/notifications";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -417,29 +417,53 @@ export async function openAlertCountIfSignedIn(): Promise<number | null> {
 // ---------- Alert subscriptions ----------
 
 /**
- * One user's alert subscriptions and what they can choose from (only machines and divisions they can
- * see). Everyone manages their own; owners can manage anyone's in their organization. Null if not allowed.
+ * Whose notification subscriptions are being managed: your own (in your own organization, even if a
+ * platform admin is viewing another), or, for owners, anyone's in the organization. Null if not allowed.
  */
-export async function subscriptionSettings(userId?: number) {
+async function subscriptionOwner(userId?: number) {
   const auth = await requireSession();
-  const db = getDb();
   const editingOther = userId !== undefined && userId !== auth.userId;
   if (editingOther && !hasRole(auth, "owner")) return null;
-  // Your own subscriptions live in your own organization (platform admins may be viewing another one).
   const organizationId = editingOther ? auth.organizationId : auth.homeOrganizationId;
-  const [user] = await db
+  const [user] = await getDb()
     .select()
     .from(users)
     .where(and(eq(users.id, editingOther ? userId : auth.userId), eq(users.organizationId, organizationId)));
-  if (!user) return null;
+  return user ? { user, isSelf: !editingOther } : null;
+}
+
+/** The subscriptions list page: rules plus the last day's events and what they matched. */
+export async function subscriptionList(userId?: number) {
+  const owner = await subscriptionOwner(userId);
+  if (!owner) return null;
+  const db = getDb();
+  const [rules, activity, names] = await Promise.all([
+    listRules(db, owner.user.organizationId, owner.user.id),
+    recentActivity(db, owner.user),
+    subscriptionChoices(owner.user),
+  ]);
+  return { ...owner, rules, activity, names };
+}
+
+/** The new/edit form: the rule (if editing) and what the user may choose from. */
+export async function subscriptionForm(ruleId: number | null, userId?: number) {
+  const owner = await subscriptionOwner(userId);
+  if (!owner) return null;
+  const rule = ruleId ? await getRule(getDb(), owner.user.organizationId, owner.user.id, ruleId) : null;
+  if (ruleId && !rule) return null;
+  return { ...owner, rule, choices: await subscriptionChoices(owner.user) };
+}
+
+/** Machines and divisions the user can see, and the organization's operators. */
+async function subscriptionChoices(user: { id: number; organizationId: number; role: (typeof users.$inferSelect)["role"] }) {
+  const db = getDb();
   const scope = await scopeOfUser(db, user);
-  const [subscriptions, divisionChoices, machineChoices] = await Promise.all([
-    listSubscriptions(db, organizationId, user.id),
+  const [divisionRows, machineRows, operatorRows] = await Promise.all([
     db
       .select({ id: divisions.id, name: divisions.name })
       .from(divisions)
       .where(
-        and(eq(divisions.organizationId, organizationId), scope.divisionIds ? inArray(divisions.id, scope.divisionIds) : undefined),
+        and(eq(divisions.organizationId, user.organizationId), scope.divisionIds ? inArray(divisions.id, scope.divisionIds) : undefined),
       )
       .orderBy(asc(divisions.name)),
     db
@@ -447,8 +471,13 @@ export async function subscriptionSettings(userId?: number) {
       .from(machines)
       .where(machineScope(scope))
       .orderBy(asc(machines.unitNumber), asc(machines.name)),
+    db
+      .select({ id: operators.id, name: operators.name, employeeNumber: operators.employeeNumber, active: operators.active })
+      .from(operators)
+      .where(eq(operators.organizationId, user.organizationId))
+      .orderBy(desc(operators.active), asc(operators.name)),
   ]);
-  return { user, isSelf: !editingOther, subscriptions, divisions: divisionChoices, machines: machineChoices };
+  return { divisions: divisionRows, machines: machineRows, operators: operatorRows, timeZone: appTimeZone() };
 }
 
 // ---------- Organization users (owners manage them) ----------

@@ -9,6 +9,8 @@ import { machines } from "@/lib/db/schema";
 import { endCheckin, setMachineOperators } from "@/lib/operators";
 import { assertCheckinInScope, assertMachineInScope } from "@/lib/divisions";
 import { appTimeZone, startOfLocalDay } from "@/lib/telemetry/engine";
+import { recordEvent } from "@/lib/notifications";
+import { afterEvents } from "@/lib/alert-jobs";
 
 const AllowedOperators = z.object({
   id: z.coerce.number().int().positive(),
@@ -19,7 +21,12 @@ export async function setAllowedOperators(formData: FormData) {
   const auth = await requireAuth("manager");
   const input = AllowedOperators.parse({ id: formData.get("id"), operatorIds: formData.getAll("operator") });
   await assertMachineInScope(getDb(), auth, input.id);
-  await setMachineOperators(getDb(), auth.organizationId, input.id, input.operatorIds);
+  const { added, removed } = await setMachineOperators(getDb(), auth.organizationId, input.id, input.operatorIds);
+  const event = (type: "operator_assigned" | "operator_revoked", operatorId: number) =>
+    recordEvent(getDb(), { organizationId: auth.organizationId, machineId: input.id, type, operatorId, detail: `Changed by ${auth.email}` });
+  afterEvents(
+    await Promise.all([...added.map((id) => event("operator_assigned", id)), ...removed.map((id) => event("operator_revoked", id))]),
+  );
   refresh();
 }
 

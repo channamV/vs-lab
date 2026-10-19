@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, asc, count, eq, gt, gte, isNull } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { addDefaultSubscriptions } from "@/lib/subscriptions";
+import { addDefaultRule } from "@/lib/notifications";
 import { divisions, loginTokens, organizations, sessions, userDivisions, users, type Role } from "@/lib/db/schema";
 
 /**
@@ -54,7 +54,7 @@ async function ensurePlatformAdminUser(db: Db, email: string) {
   let [org] = await db.select().from(organizations).orderBy(asc(organizations.id)).limit(1);
   if (!org) [org] = await db.insert(organizations).values({ name: "Veristart Lab" }).returning();
   const [user] = await db.insert(users).values({ organizationId: org.id, email, role: "owner" }).returning();
-  await addDefaultSubscriptions(db, user.id, user.role);
+  await addDefaultRule(db, user);
   return user;
 }
 

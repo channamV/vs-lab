@@ -462,30 +462,101 @@ export const alerts = pgTable(
 );
 
 /**
- * Which alerts a user is emailed about. Each row: an alert type (null = every type), for which machines
- * (division or machine set = just those; both null = every machine the user can see), and how.
- * Users are only ever sent alerts for machines they can see (see src/lib/divisions.ts).
+ * A user's notification rule ("subscription"): which events, on which machines / by which operators, when,
+ * and how they're told. Empty lists mean "all". Users only hear about machines they can see.
+ * Matching: src/lib/notifications.ts.
  */
-export const alertSubscriptions = pgTable(
-  "alert_subscriptions",
+export const notificationRules = pgTable(
+  "notification_rules",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
     userId: bigint("user_id", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    /** unauthorized-use, checklist-failed, not-approved, not-at-machine; null = all of them. */
-    type: text("type"),
-    divisionId: bigint("division_id", { mode: "number" }).references(() => divisions.id, { onDelete: "cascade" }),
-    machineId: bigint("machine_id", { mode: "number" }).references(() => machines.id, { onDelete: "cascade" }),
-    /** email for now; text messages and app notifications later. */
-    channel: text("channel").notNull().default("email"),
+    name: text("name").notNull(),
+    /** Keys of EVENT_TYPES in src/lib/notifications.ts. */
+    eventTypes: text("event_types").array().notNull(),
+    /** Empty = all machines (that the user can see). A machine matches if listed, or in a listed division. */
+    machineIds: bigint("machine_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
+    divisionIds: bigint("division_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
+    /** Empty = any operator. When set, events without an operator don't match. */
+    operatorIds: bigint("operator_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
+    /** 0 = Sunday … 6 = Saturday. Empty = every day. */
+    weekdays: integer("weekdays").array().notNull().default(sql`'{}'`),
+    /** "HH:mm", or "" for any time. A window like 18:00–06:00 runs overnight. */
+    startTime: text("start_time").notNull().default(""),
+    endTime: text("end_time").notNull().default(""),
+    /** The schedule's time zone (set from APP_TIMEZONE each time the rule is saved). */
+    timezone: text("timezone").notNull(),
+    /** email for now; sms later. Email goes to the user's sign-in address. */
+    channels: text("channels").array().notNull().default(sql`'{email}'`),
+    enabled: boolean("enabled").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("alert_subscriptions_user_idx").on(t.userId)],
+  (t) => [index("notification_rules_org_idx").on(t.organizationId), index("notification_rules_user_idx").on(t.userId)],
+);
+
+/**
+ * Things that happened that people can be notified about: engine starts/stops, alerts, machine and
+ * approval changes. Recorded first, then matched against rules and delivered in the background.
+ */
+export const notificationEvents = pgTable(
+  "notification_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    /** Filled in from the check-in when the event is processed (start/stop), or when recorded. */
+    operatorId: bigint("operator_id", { mode: "number" }).references(() => operators.id, { onDelete: "set null" }),
+    engineSessionId: bigint("engine_session_id", { mode: "number" }).references(() => engineSessions.id, { onDelete: "set null" }),
+    alertId: bigint("alert_id", { mode: "number" }).references(() => alerts.id, { onDelete: "set null" }),
+    /** Extra detail for the message, e.g. what changed. */
+    detail: text("detail"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Null until matched and delivered. */
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("notification_events_org_time_idx").on(t.organizationId, t.occurredAt),
+    index("notification_events_pending_idx").on(t.machineId).where(sql`${t.processedAt} is null`),
+    uniqueIndex("notification_events_one_per_session_idx").on(t.type, t.engineSessionId),
+    uniqueIndex("notification_events_one_per_alert_idx").on(t.alertId),
+  ],
+);
+
+/** Who was sent what. One per event, person and channel, whatever number of their rules matched. */
+export const notificationDeliveries = pgTable(
+  "notification_deliveries",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    eventId: bigint("event_id", { mode: "number" })
+      .notNull()
+      .references(() => notificationEvents.id, { onDelete: "cascade" }),
+    userId: bigint("user_id", { mode: "number" }).references(() => users.id, { onDelete: "cascade" }),
+    /** The rule names that matched, for the email and the preview. */
+    ruleNames: text("rule_names").array().notNull(),
+    channel: text("channel").notNull(),
+    recipient: text("recipient").notNull(),
+    /** sent, failed, not-configured */
+    status: text("status").notNull(),
+    error: text("error"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("notification_deliveries_once_idx").on(t.eventId, t.userId, t.channel)],
 );
 
 export type Organization = typeof organizations.$inferSelect;
-export type AlertSubscription = typeof alertSubscriptions.$inferSelect;
+export type NotificationRule = typeof notificationRules.$inferSelect;
+export type NotificationEvent = typeof notificationEvents.$inferSelect;
 export type Division = typeof divisions.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];

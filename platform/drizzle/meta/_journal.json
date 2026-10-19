@@ -85,6 +85,20 @@
       "when": 1792418504382,
       "tag": "0011_alert_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792422708497,
+      "tag": "0012_notification_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792422721272,
+      "tag": "0013_drop_alert_subscriptions",
+      "breakpoints": true
     }
   ]
 }

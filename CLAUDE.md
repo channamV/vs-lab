@@ -42,7 +42,7 @@ github.com/stanleyhuangyc/Freematics.
   owners and platform admins are never limited. `AuthContext.divisionIds` (null = all) is the `Scope`:
   page reads filter machines with `machineScope(auth)` (check-ins/alerts via their machine); actions on a
   machine/check-in/alert call `assertMachineInScope` / `assertCheckinInScope` / `assertAlertInScope`, and
-  machine create/edit calls `assertDivisionChoice`. Operators are org-wide. Alert emails: `usersForMachine`.
+  machine create/edit calls `assertDivisionChoice`. Operators are org-wide. Notifications check `canSeeMachine`.
   Non-empty divisions can't be deleted (it would widen limited users' access).
 - **Multi-tenant.** Every customer is an `organization`. Machines, operators, check-ins, alerts and users
   belong to one. Every page read in `src/lib/data.ts` and every admin
@@ -103,11 +103,15 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   the engine-stop time. A restart within the allowance re-links to the new session. Operators never have to check out. `syncCheckins()` saves this on each device report and before check-in/out;
   pages apply the same rules on read (`automaticEnd`, `isCheckinCurrent`) so they're right between reports.
 - Alerts: rules in `src/lib/alerts.ts` (takes the db, tested; `ALERT_RULES`), email via Resend's HTTP API in
-  `src/lib/notify.ts`. Recipients = `subscribersFor()` in `src/lib/subscriptions.ts` (tested): per-user
-  `alert_subscriptions` (type or all, all machines / division / machine, channel email), only users who can
-  see the machine; plus `ALERT_EMAIL_TO`. New owners/managers get a default "all alerts" subscription. Rules run in `after()` (`src/lib/alert-jobs.ts`) from the device routes and the
+  `src/lib/notify.ts`. Rules run in `after()` (`src/lib/alert-jobs.ts`) from the device routes and the
   check-in action, so they never delay or break a device's HTTP 200. Dedupe is by unique index
   (one per engine session / per check-in).
+- Notifications (`src/lib/notifications.ts`, tested; UI modelled on production's notification subscriptions):
+  events (`notification_events`: engine start/stop recorded in ingest, alerts via `deliverAlerts`, machine and
+  approval changes via `recordEvent` + `afterEvents`) are matched against per-user `notification_rules` (event
+  types, machines/divisions/operators — empty = all, weekdays + From/To in the rule's timezone, overnight wrap)
+  by `processEvents` in `after()`, only for users who can see the machine. One `notification_deliveries` row
+  per event/person/channel. Email goes to the sign-in address only. Alerts also go to `ALERT_EMAIL_TO`.
 - Forms using `useActionState`: React clears fields after every submit, so on an error return the
   submitted values and re-key the form (see `CheckinForms.tsx`, `OperatorForms.tsx`).
 - Engine on/off detection and engine-hours maths live in `src/lib/telemetry/engine.ts` (pure functions, tested).

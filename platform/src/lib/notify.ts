@@ -1,8 +1,3 @@
-import { eq } from "drizzle-orm";
-import type { Db } from "@/lib/db";
-import { alerts, type Alert } from "@/lib/db/schema";
-import { subscribersFor } from "@/lib/subscriptions";
-
 /**
  * Email (sign-in links and alerts) through Resend (resend.com, free tier: 3,000 emails a month). Uses
  * Resend's HTTP API directly, so swapping to another email service only means changing sendEmail().
@@ -12,7 +7,7 @@ import { subscribersFor } from "@/lib/subscriptions";
  *   ALERT_EMAIL_FROM  optional sender, e.g. "VS Lab <alerts@veristart.ai>" (a domain verified in Resend).
  *                     Defaults to Resend's test sender, which only delivers to your own Resend address.
  *   ALERT_EMAIL_TO    optional extra addresses that get every alert from every organization (platform
- *                     staff). Each organization's owners and managers get its alerts automatically.
+ *                     staff). Everyone else gets what their notification rules ask for (notifications.ts).
  *   APP_URL           optional. The site address for links in emails (Vercel's own address is used if unset).
  */
 
@@ -24,21 +19,6 @@ export function senderSettings(): Sender | null {
   return { apiKey, from: process.env.ALERT_EMAIL_FROM?.trim() || "VS Lab <onboarding@resend.dev>" };
 }
 
-const splitEmails = (value: string | undefined) =>
-  (value ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-
-/**
- * Who gets an alert: users subscribed to it (src/lib/subscriptions.ts) who can see the machine, plus
- * ALERT_EMAIL_TO (Veristart staff).
- */
-export async function alertRecipients(db: Db, alert: Pick<Alert, "type" | "machineId">): Promise<string[]> {
-  const subscribers = await subscribersFor(db, alert);
-  return [...new Set([...subscribers, ...splitEmails(process.env.ALERT_EMAIL_TO)])];
-}
-
 /** The site's public address, for links in emails. */
 export function appUrl(): string | null {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
@@ -47,26 +27,6 @@ export function appUrl(): string | null {
 }
 
 export type EmailMessage = { subject: string; text: string };
-
-export function alertEmail(alert: Pick<Alert, "title" | "detail" | "machineId">, baseUrl: string | null): EmailMessage {
-  const link = baseUrl ? `${baseUrl}/machines/${alert.machineId}` : null;
-  return {
-    subject: `⚠ ${alert.title}`,
-    text: [
-      alert.title,
-      "",
-      alert.detail ?? "",
-      "",
-      link ? `Machine: ${link}` : "",
-      baseUrl ? `All alerts: ${baseUrl}/alerts` : "",
-      baseUrl ? `Choose which alerts you get: ${baseUrl}/alerts/subscriptions` : "",
-      "",
-      "— VS Lab",
-    ]
-      .filter((line, i, all) => line !== "" || all[i - 1] !== "")
-      .join("\n"),
-  };
-}
 
 export async function sendEmail(
   sender: Sender,
@@ -87,33 +47,6 @@ export async function sendEmail(
 }
 
 /** Emails each new alert and records the result on the alert. Never throws. */
-export async function deliverAlerts(db: Db, newAlerts: Alert[]) {
-  if (newAlerts.length === 0) return;
-  const sender = senderSettings();
-  for (const alert of newAlerts) {
-    try {
-      const to = await alertRecipients(db, alert);
-      if (!sender || to.length === 0) {
-        await db
-          .update(alerts)
-          .set({ emailStatus: sender ? "no-recipients" : "not-configured" })
-          .where(eq(alerts.id, alert.id));
-        continue;
-      }
-      // Recipients don't see each other's addresses: one email per person.
-      const results = await Promise.all(to.map((address) => sendEmail(sender, [address], alertEmail(alert, appUrl()))));
-      const failed = results.find((r) => !r.ok);
-      const result = failed ?? { ok: true as const };
-      await db
-        .update(alerts)
-        .set(result.ok ? { emailStatus: "sent", emailError: null } : { emailStatus: "failed", emailError: result.error })
-        .where(eq(alerts.id, alert.id));
-    } catch (err) {
-      console.error("Alert email failed", alert.id, err);
-    }
-  }
-}
-
 export function signInEmail(link: string, minutes: number): EmailMessage {
   return {
     subject: "Your VS Lab sign-in link",

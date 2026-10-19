@@ -2,7 +2,7 @@ import "server-only";
 import { after } from "next/server";
 import { getDb } from "@/lib/db";
 import { checkUnauthorizedUse, raiseCheckinAlerts } from "@/lib/alerts";
-import { deliverAlerts } from "@/lib/notify";
+import { deliverAlerts, processEvents } from "@/lib/notifications";
 import { syncCheckins } from "@/lib/operators";
 import { pairedMachineId } from "@/lib/telemetry/ingest";
 
@@ -21,6 +21,8 @@ export function afterDeviceReport(deviceId: string) {
       // First link/end check-ins to match the engine (automatic check-out), then check for unauthorized use.
       await syncCheckins(db, machineId);
       await deliverAlerts(db, await checkUnauthorizedUse(db, machineId));
+      // Engine starts/stops recorded by this report (operator filled in from the synced check-in).
+      await processEvents(db, { machineId });
     } catch (err) {
       console.error("Check-in sync / unauthorized-use check failed", deviceId, err);
     }
@@ -34,6 +36,19 @@ export function afterCheckin(checkinId: number) {
       await deliverAlerts(db, await raiseCheckinAlerts(db, checkinId));
     } catch (err) {
       console.error("Check-in alerts failed", checkinId, err);
+    }
+  });
+}
+
+/** Delivers events recorded by an admin action (machine added or changed, approvals changed). */
+export function afterEvents(eventIds: (number | null)[]) {
+  const ids = eventIds.filter((id) => id !== null);
+  if (ids.length === 0) return;
+  after(async () => {
+    try {
+      await processEvents(getDb(), { eventIds: ids });
+    } catch (err) {
+      console.error("Notifications failed", ids, err);
     }
   });
 }

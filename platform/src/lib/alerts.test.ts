@@ -5,7 +5,7 @@ import { alerts, engineSessions, machines, organizations, users } from "@/lib/db
 import { CHECKLIST } from "@/lib/checklist";
 import { CHECKIN_RULES, checkIn, checkOut, createOperator, setMachineOperators, syncCheckins } from "@/lib/operators";
 import { acknowledgeAlert, ALERT_RULES, checkUnauthorizedUse, isArmed, raiseCheckinAlerts } from "./alerts";
-import { alertEmail, deliverAlerts } from "./notify";
+import { deliverAlerts } from "./notifications";
 import { addUser } from "./organizations";
 
 let db: Db;
@@ -145,11 +145,18 @@ describe("acknowledgeAlert", () => {
 });
 
 describe("alert emails", () => {
-  it("includes the details and a link to the machine", () => {
-    const msg = alertEmail({ title: "Unauthorized use: Unit 14 · Excavator", detail: "Engine running.", machineId: 7 }, "https://lab.example.com");
+  it("includes the details, a link to the machine and the matching subscription", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("APP_URL", "https://lab.example.com");
+    await addUser(db, ORG, { email: "owner@a.com", role: "owner" });
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await deliverAlerts(db, await checkUnauthorizedUse(db, MACHINE, at(grace + 1)));
+    const msg = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(msg.subject).toBe("⚠ Unauthorized use: Unit 14 · Excavator");
-    expect(msg.text).toContain("Engine running.");
-    expect(msg.text).toContain("https://lab.example.com/machines/7");
+    expect(msg.text).toContain("has been running for");
+    expect(msg.text).toContain(`https://lab.example.com/machines/${MACHINE}`);
+    expect(msg.text).toContain("Your subscription: All alerts");
   });
 
   it("marks alerts not-configured when email isn't set up", async () => {

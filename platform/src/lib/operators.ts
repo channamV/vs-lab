@@ -282,7 +282,10 @@ export async function updateOperator(
   }
 }
 
-/** Replaces the list of operators allowed on a machine. An empty list means any active operator. */
+/**
+ * Replaces the list of operators allowed on a machine. An empty list means any active operator.
+ * Returns who was added and removed (for notifications).
+ */
 export async function setMachineOperators(db: Db, organizationId: number, machineId: number, operatorIds: number[]) {
   const [machine] = await db
     .select({ id: machines.id })
@@ -296,13 +299,17 @@ export async function setMachineOperators(db: Db, organizationId: number, machin
         .from(operators)
         .where(and(eq(operators.organizationId, organizationId), inArray(operators.id, operatorIds)))
     : [];
-  operatorIds = valid.map((o) => o.id);
+  operatorIds = [...new Set(valid.map((o) => o.id))];
+  const before = (
+    await db.select({ id: machineOperators.operatorId }).from(machineOperators).where(eq(machineOperators.machineId, machineId))
+  ).map((r) => r.id);
   await db.transaction(async (tx) => {
     await tx.delete(machineOperators).where(eq(machineOperators.machineId, machineId));
     if (operatorIds.length) {
-      await tx.insert(machineOperators).values([...new Set(operatorIds)].map((operatorId) => ({ machineId, operatorId })));
+      await tx.insert(machineOperators).values(operatorIds.map((operatorId) => ({ machineId, operatorId })));
     }
   });
+  return { added: operatorIds.filter((id) => !before.includes(id)), removed: before.filter((id) => !operatorIds.includes(id)) };
 }
 
 async function isLockedOut(db: Db, machineId: number, now: Date) {

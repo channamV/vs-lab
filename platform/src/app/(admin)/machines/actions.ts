@@ -8,6 +8,8 @@ import { getDb } from "@/lib/db";
 import { tierEnum } from "@/lib/db/schema";
 import { createMachine, MachineError, pairDevice, unpairDevice, updateMachine } from "@/lib/machines";
 import { assertDivisionChoice, assertMachineInScope, DivisionError } from "@/lib/divisions";
+import { recordEvent } from "@/lib/notifications";
+import { afterEvents } from "@/lib/alert-jobs";
 
 /** What was typed, to refill the form after an error (React clears it after every submit). */
 export type MachineFields = Record<(typeof FIELDS)[number], string>;
@@ -47,6 +49,9 @@ export async function addMachineAction(prev: MachineFormState, formData: FormDat
     const input = toInput(values);
     await assertDivisionChoice(getDb(), auth, input.divisionId);
     ({ id } = await createMachine(getDb(), auth.organizationId, input));
+    afterEvents([
+      await recordEvent(getDb(), { organizationId: auth.organizationId, machineId: id, type: "equipment_created", detail: `Added by ${auth.email}` }),
+    ]);
   } catch (err) {
     if (err instanceof MachineError || err instanceof DivisionError) return { error: err.message, version: prev.version + 1, values };
     throw err;
@@ -63,6 +68,9 @@ export async function updateMachineAction(prev: MachineFormState, formData: Form
     await assertMachineInScope(getDb(), auth, id);
     await assertDivisionChoice(getDb(), auth, input.divisionId);
     await updateMachine(getDb(), auth.organizationId, id, input);
+    afterEvents([
+      await recordEvent(getDb(), { organizationId: auth.organizationId, machineId: id, type: "equipment_updated", detail: `Changed by ${auth.email}` }),
+    ]);
   } catch (err) {
     if (err instanceof MachineError || err instanceof DivisionError) return { error: err.message, version: prev.version + 1, values };
     throw err;

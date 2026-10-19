@@ -31,24 +31,42 @@ The Fleet page shows "Disarmed" under the machine's level.
 On the Alerts page, add a note if useful (e.g. "mechanic testing hydraulics") and click
 **Acknowledge**. Acknowledged alerts stay in the list below as a record.
 
-## Who gets alert emails (subscriptions)
+## Who gets emails: subscriptions
 
-Each person chooses which alerts they're emailed about: **Alerts → My alert emails**. A subscription is:
+Each person chooses what they're emailed about: **Alerts → My subscriptions**. The page works like the
+production portal's notification subscriptions.
 
-- **Alert:** one type (e.g. *Checklist issues*) or *All alerts*;
-- **For:** all machines, one division, or one machine;
-- **By:** email. Text messages could be added later.
+**A subscription has:**
+- **Name**, e.g. "Weekend machine starts".
+- **Event types** (click the chips). Hover over a chip, or look below the chips, for what each one means.
+  - Machine Start / Machine Stop
+  - Start Without Checklist (unauthorized use), Checklist — Repair Needed, Operator Not Approved,
+    Check-in Not at Machine (these four are also listed on the Alerts page)
+  - Equipment Created / Updated, Operator Assigned / Revoked (someone added a machine, changed one, or changed
+    its approved operators)
+  - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, battery power,
+    connectivity, lock/unlock).
+- **Machines** and **Operators**: search and tick. Leave a list empty for "all". If the company uses divisions,
+  you can also pick whole divisions.
+  - With operators ticked, events without an operator (e.g. Start Without Checklist) don't match.
+- **Schedule** (empty = any time): days, plus From/To times in the company's time zone (America/Toronto).
+  - A window that ends before it starts runs overnight. 18:00 to 06:00 means after hours, and the early-morning
+    part counts as the day it started: "Fri 18:00–06:00" covers Friday night into Saturday morning.
+- **Delivery:** email, to the person's sign-in address. It isn't editable, so nobody can redirect alerts to an
+  outside address. Text messages could come later.
 
-Examples: a mechanic subscribes to *Checklist issues* for all machines; a site supervisor to *All alerts* for
-their division; a manager to *Unauthorized use* for one high-value machine.
+**The subscriptions page** lists your subscriptions with an on/off switch (pause without deleting), Edit and
+Delete. On the right, **Last 24 hours** shows recent events on machines you can see, and for each one which of
+your subscriptions it matched and whether it was emailed.
 
-- Owners and managers start with *All alerts · All machines · Email*, the same as before subscriptions
-  existed. Viewers start with none, but can subscribe.
-- Owners can change anyone's: **Users → Alert emails** under the person's name.
-- People are only ever emailed about machines they can see. A manager limited to the East division never gets
-  West alerts, even if subscribed to "All machines".
-- Each person gets one email per alert, even if several of their subscriptions match.
-- Every alert email ends with a link to change your subscriptions.
+**Rules:**
+- Owners and managers start with an *All alerts* subscription (the four alert types, all machines), the same
+  as before. Viewers start with none, but can add their own.
+- Owners can manage anyone's subscriptions: **Users → Subscriptions** under the person's name.
+- People are only ever emailed about machines they can see. Division limits always apply.
+- One email per person per event, listing which of their subscriptions matched. Every email links back to the
+  subscriptions page.
+- Editing a paused subscription leaves it paused.
 
 ## Setting up email (Resend, free)
 

@@ -1,61 +1,75 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { hasRole } from "@/lib/auth";
-import { ALERT_LABELS } from "@/lib/alerts";
 import { requireAuth } from "@/lib/session";
-import { addSubscription, ALERT_CHANNELS, removeSubscription, SubscriptionError } from "@/lib/subscriptions";
+import { createRule, deleteRule, NotificationError, setRuleEnabled, updateRule } from "@/lib/notifications";
 
 /**
- * Everyone (viewers too) manages their own alert subscriptions; owners can manage anyone's in their
- * organization. Returns the organization the user belongs to, or throws.
+ * Everyone (viewers too) manages their own subscriptions; owners can manage anyone's in their
+ * organization. Returns the organization the subscriptions' owner belongs to.
  */
 async function organizationFor(userId: number) {
   const auth = await requireAuth();
   if (userId === auth.userId) return auth.homeOrganizationId;
-  if (!hasRole(auth, "owner")) throw new SubscriptionError("Only owners can change other people's alerts.");
+  if (!hasRole(auth, "owner")) throw new NotificationError("Only owners can change other people's subscriptions.");
   return auth.organizationId;
 }
 
-export type SubscriptionFormState = { error: string | null; version: number };
+export type RuleFormState = { error: string | null; version: number };
 
-const AddInput = z.object({
+const ids = z.array(z.coerce.number().int().nonnegative());
+const RuleForm = z.object({
   userId: z.coerce.number().int().positive(),
-  type: z.enum(["all", ...(Object.keys(ALERT_LABELS) as [string, ...string[]])]),
-  /** "all", "d:<division id>" or "m:<machine id>" */
-  where: z.string().regex(/^(all|[dm]:\d+)$/),
-  channel: z.enum(Object.keys(ALERT_CHANNELS) as [keyof typeof ALERT_CHANNELS]),
+  ruleId: z.string().regex(/^\d*$/),
+  name: z.string().max(80),
+  eventTypes: z.array(z.string().max(40)),
+  machineIds: ids,
+  divisionIds: ids,
+  operatorIds: ids,
+  weekdays: ids,
+  startTime: z.string().max(5),
+  endTime: z.string().max(5),
 });
 
-export async function addSubscriptionAction(prev: SubscriptionFormState, formData: FormData): Promise<SubscriptionFormState> {
-  const input = AddInput.parse({
+export async function saveRuleAction(prev: RuleFormState, formData: FormData): Promise<RuleFormState> {
+  const input = RuleForm.parse({
     userId: formData.get("userId"),
-    type: formData.get("type"),
-    where: formData.get("where"),
-    channel: formData.get("channel"),
+    ruleId: formData.get("ruleId") ?? "",
+    name: formData.get("name") ?? "",
+    eventTypes: formData.getAll("eventType"),
+    machineIds: formData.getAll("machine"),
+    divisionIds: formData.getAll("division"),
+    operatorIds: formData.getAll("operator"),
+    weekdays: formData.getAll("weekday"),
+    startTime: formData.get("startTime") ?? "",
+    endTime: formData.get("endTime") ?? "",
   });
-  const [kind, id] = input.where.split(":");
   try {
     const organizationId = await organizationFor(input.userId);
-    await addSubscription(getDb(), organizationId, input.userId, {
-      type: input.type === "all" ? null : (input.type as keyof typeof ALERT_LABELS),
-      divisionId: kind === "d" ? Number(id) : null,
-      machineId: kind === "m" ? Number(id) : null,
-      channel: input.channel,
-    });
+    if (input.ruleId) await updateRule(getDb(), organizationId, input.userId, Number(input.ruleId), input);
+    else await createRule(getDb(), organizationId, input.userId, input);
   } catch (err) {
-    if (err instanceof SubscriptionError) return { error: err.message, version: prev.version + 1 };
+    if (err instanceof NotificationError) return { error: err.message, version: prev.version + 1 };
     throw err;
   }
-  refresh();
-  return { error: null, version: prev.version + 1 };
+  const auth = await requireAuth();
+  redirect(input.userId === auth.userId ? "/alerts/subscriptions" : `/alerts/subscriptions?user=${input.userId}`);
 }
 
-export async function removeSubscriptionAction(formData: FormData) {
-  const userId = z.coerce.number().int().positive().parse(formData.get("userId"));
-  const id = z.coerce.number().int().positive().parse(formData.get("subscriptionId"));
-  await removeSubscription(getDb(), await organizationFor(userId), userId, id);
+const RuleRef = z.object({ userId: z.coerce.number().int().positive(), ruleId: z.coerce.number().int().positive() });
+
+export async function setRuleEnabledAction(formData: FormData) {
+  const { userId, ruleId } = RuleRef.parse({ userId: formData.get("userId"), ruleId: formData.get("ruleId") });
+  await setRuleEnabled(getDb(), await organizationFor(userId), userId, ruleId, formData.get("enabled") === "true");
+  refresh();
+}
+
+export async function deleteRuleAction(formData: FormData) {
+  const { userId, ruleId } = RuleRef.parse({ userId: formData.get("userId"), ruleId: formData.get("ruleId") });
+  await deleteRule(getDb(), await organizationFor(userId), userId, ruleId);
   refresh();
 }

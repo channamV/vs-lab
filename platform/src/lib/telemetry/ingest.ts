@@ -2,6 +2,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { deviceAssignments, deviceEvents, devices, engineSessions, machines, telemetry, type EngineSession } from "@/lib/db/schema";
 import { num, type SampleFields } from "@/lib/freematics/protocol";
+import { recordEvent as recordNotification } from "@/lib/notifications";
 import { detectEngine, ENGINE_THRESHOLDS, type EngineReading } from "./engine";
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
@@ -141,14 +142,19 @@ export async function ingestSamples(
  *  - running, open session         → extend it
  *  - stopped, open session         → close it
  *  - open session gone stale (no report > staleMinutes) → close it at its last report first
+ * Each start and stop is recorded as a notification event; alert-jobs delivers them after the response.
  */
 async function updateEngineState(db: Db, machineId: number, reading: EngineReading, now: Date) {
   const openWhere = and(eq(engineSessions.machineId, machineId), isNull(engineSessions.endedAt));
   let open: EngineSession | undefined = (await db.select().from(engineSessions).where(openWhere))[0];
+  const [{ organizationId }] = await db.select({ organizationId: machines.organizationId }).from(machines).where(eq(machines.id, machineId));
+  const engineEvent = (type: "start" | "stop", sessionId: number, at: Date) =>
+    recordNotification(db, { organizationId, machineId, type, engineSessionId: sessionId, occurredAt: at });
 
   const staleMs = ENGINE_THRESHOLDS.staleMinutes * 60_000;
   if (open && now.getTime() - open.lastSeenAt.getTime() > staleMs) {
     await db.update(engineSessions).set({ endedAt: open.lastSeenAt }).where(eq(engineSessions.id, open.id));
+    await engineEvent("stop", open.id, open.lastSeenAt);
     open = undefined;
   }
 
@@ -157,13 +163,16 @@ async function updateEngineState(db: Db, machineId: number, reading: EngineReadi
       await db.update(engineSessions).set({ lastSeenAt: now }).where(eq(engineSessions.id, open.id));
     } else {
       // The unique index allows only one open session; a simultaneous upload may have opened it already.
-      await db
+      const [started] = await db
         .insert(engineSessions)
         .values({ machineId, startedAt: now, lastSeenAt: now, source: reading.source })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning({ id: engineSessions.id });
+      if (started) await engineEvent("start", started.id, now);
     }
   } else if (open) {
     await db.update(engineSessions).set({ endedAt: now, lastSeenAt: now }).where(eq(engineSessions.id, open.id));
+    await engineEvent("stop", open.id, now);
   }
 
   // engineChangedAt marks when the current state began ("running since 9:42").

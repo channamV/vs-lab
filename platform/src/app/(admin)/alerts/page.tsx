@@ -19,7 +19,7 @@ export default function AlertsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/alerts/subscriptions" className="text-sm text-sky-700 hover:underline dark:text-sky-400">
-            My alert emails
+            My subscriptions
           </Link>
           <TestEmailButton />
         </div>

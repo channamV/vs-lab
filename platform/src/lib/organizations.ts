@@ -2,7 +2,7 @@ import { and, eq, ne } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { organizations, users, type Role } from "@/lib/db/schema";
 import { normalizeEmail } from "@/lib/auth";
-import { addDefaultSubscriptions } from "@/lib/subscriptions";
+import { addDefaultRule } from "@/lib/notifications";
 
 /**
  * Organizations and their users. (Machines and devices: src/lib/machines.ts.)
@@ -37,7 +37,7 @@ export async function addUser(db: Db, organizationId: number, input: { email: st
     .insert(users)
     .values({ organizationId, email, name: input.name?.trim() || null, role: input.role })
     .returning();
-  await addDefaultSubscriptions(db, user.id, user.role);
+  await addDefaultRule(db, user);
   return user;
 }
 
