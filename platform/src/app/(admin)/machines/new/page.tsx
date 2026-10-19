@@ -2,6 +2,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { requireRoleForPage } from "@/lib/session";
+import { listDivisions } from "@/lib/data";
 import { AddMachineForm } from "../MachineForms";
 
 /** Managers and owners add a piece of equipment. Veristart then pairs a tracking device with it. */
@@ -26,10 +27,11 @@ export default function NewMachinePage() {
 
 async function Form() {
   await connection(); // request-time page (the sign-in check reads the clock)
-  await requireRoleForPage("manager");
+  const auth = await requireRoleForPage("manager");
+  const divisions = await listDivisions();
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-      <AddMachineForm />
+      <AddMachineForm choice={{ divisions, allowNone: auth.divisionIds === null }} />
     </section>
   );
 }

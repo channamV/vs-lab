@@ -16,6 +16,8 @@ const field = "mt-1 w-full rounded border border-slate-300 bg-transparent px-2 p
 const button = "rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800 disabled:opacity-60";
 
 type Values = Partial<MachineFields>;
+/** The divisions the user may choose from, and whether "No division" is allowed (whole-organization users). */
+export type DivisionChoice = { divisions: { id: number; name: string }[]; allowNone: boolean };
 
 function fromMachine(m: Machine): Values {
   return {
@@ -27,10 +29,11 @@ function fromMachine(m: Machine): Values {
     year: m.year?.toString() ?? "",
     serialNumber: m.serialNumber ?? "",
     tier: m.tier,
+    divisionId: m.divisionId?.toString() ?? "",
   };
 }
 
-function Fields({ values }: { values: Values }) {
+function Fields({ values, choice }: { values: Values; choice: DivisionChoice }) {
   const text = (name: keyof MachineFields, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="block text-sm">
       <span className="text-slate-600 dark:text-slate-400">{label}</span>
@@ -57,15 +60,28 @@ function Fields({ values }: { values: Values }) {
           ))}
         </select>
       </label>
+      {choice.divisions.length > 0 && (
+        <label className="block text-sm">
+          <span className="text-slate-600 dark:text-slate-400">Division</span>
+          <select name="divisionId" defaultValue={values.divisionId ?? ""} required={!choice.allowNone} className={field}>
+            {choice.allowNone ? <option value="">No division</option> : <option value="" disabled>Choose…</option>}
+            {choice.divisions.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
     </div>
   );
 }
 
-export function AddMachineForm() {
+export function AddMachineForm({ choice }: { choice: DivisionChoice }) {
   const [state, action, pending] = useActionState(addMachineAction, { error: null, version: 0 } as MachineFormState);
   return (
     <form key={state.version} action={action} className="space-y-3">
-      <Fields values={state.values ?? {}} />
+      <Fields values={state.values ?? {}} choice={choice} />
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
       <button disabled={pending} className={button}>
         {pending ? "Adding…" : "Add machine"}
@@ -74,12 +90,12 @@ export function AddMachineForm() {
   );
 }
 
-export function EditMachineForm({ machine }: { machine: Machine }) {
+export function EditMachineForm({ machine, choice }: { machine: Machine; choice: DivisionChoice }) {
   const [state, action, pending] = useActionState(updateMachineAction, { error: null, version: 0 } as MachineFormState);
   return (
     <form key={state.version} action={action} className="space-y-3">
       <input type="hidden" name="id" value={machine.id} />
-      <Fields values={state.values ?? fromMachine(machine)} />
+      <Fields values={state.values ?? fromMachine(machine)} choice={choice} />
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
       <button disabled={pending} className={button}>
         {pending ? "Saving…" : "Save"}

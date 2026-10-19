@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, asc, count, eq, gt, gte, isNull } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { loginTokens, organizations, sessions, users, type Role } from "@/lib/db/schema";
+import { divisions, loginTokens, organizations, sessions, userDivisions, users, type Role } from "@/lib/db/schema";
 
 /**
  * Sign-in for the portal: people enter their email and get a one-time link (no passwords to manage).
@@ -138,6 +138,11 @@ export type AuthContext = {
   /** The organization being viewed: their own, or (platform admins) the one they switched to. */
   organizationId: number;
   organizationName: string;
+  /**
+   * The divisions this user is limited to, or null for the whole organization (owners, platform admins
+   * and users with no divisions ticked). See src/lib/divisions.ts.
+   */
+  divisionIds: number[] | null;
 };
 
 /** Looks up a session cookie. Null if missing, expired, or the user has been deactivated. */
@@ -153,17 +158,27 @@ export async function authFromToken(db: Db, token: string | undefined, now = new
   const organizationId = (isPlatformAdmin && row.session.viewOrganizationId) || row.user.organizationId;
   const [org] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
   if (!org) return null;
+  const role = isPlatformAdmin ? "owner" : row.user.role;
+  const limitedTo =
+    role === "owner"
+      ? []
+      : await db
+          .select({ id: userDivisions.divisionId })
+          .from(userDivisions)
+          .innerJoin(divisions, eq(divisions.id, userDivisions.divisionId))
+          .where(and(eq(userDivisions.userId, row.user.id), eq(divisions.organizationId, org.id)));
   return {
     sessionId: row.session.id,
     userId: row.user.id,
     email: row.user.email,
     name: row.user.name,
     // Platform admins can do everything in whichever organization they're viewing.
-    role: isPlatformAdmin ? "owner" : row.user.role,
+    role,
     isPlatformAdmin,
     homeOrganizationId: row.user.organizationId,
     organizationId: org.id,
     organizationName: org.name,
+    divisionIds: limitedTo.length ? limitedTo.map((d) => d.id) : null,
   };
 }
 

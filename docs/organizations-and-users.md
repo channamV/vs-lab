@@ -57,14 +57,32 @@ Operator names are just labels. They can repeat freely, even within one organiza
 - **PINs** are unique within an organization only. The QR code on a machine tells us which
   organization, so ABC Civil and XYZ Paving can both have an operator with PIN 1234.
 
+## Divisions (optional)
+
+For companies split into regions or business units, e.g. "Ontario" and "Quebec", or "Paving" and "Earthworks".
+A company that doesn't need them simply doesn't create any.
+
+- **Owners** create, rename and delete divisions at the bottom of the **Users** page.
+- Each **machine** goes in one division, or none. Set it under *Machine details* on the machine's page,
+  or when adding the machine.
+- On the **Users** page, tick divisions for a manager or viewer to **limit** them to those divisions. They then see
+  only those divisions' machines, plus the check-ins and alerts on them, and only get those machines' alert emails.
+  They can only put new machines in their own divisions. **Nothing ticked = the whole company.**
+- **Owners always see the whole company**, as do Veristart staff.
+- Machines with no division are only seen by people with access to the whole company.
+- **Operators** belong to the whole company, since people move between divisions. Who may run which machine is
+  still set per machine (*Approved operators*).
+- A division can only be deleted once it's empty. Move its machines out and un-tick it for any users first.
+  Otherwise those users would suddenly see the whole company.
+
 ## Alert emails
 
-Each organization's alerts go to its active **owners and managers**. `ALERT_EMAIL_TO` in Vercel is now
+Each machine's alerts go to its organization's active **owners**, and to the **managers** who can see that machine
+(managers limited to other divisions don't get them). `ALERT_EMAIL_TO` in Vercel is now
 optional: those addresses get every organization's alerts (for Veristart staff). Per-user alert
 subscriptions (pick alert types and machines) come next.
 
 ## Coming next
 
-- **Divisions:** optional groups of machines within an organization, with users limited to their division.
 - **Alert subscriptions per user.**
 - **Projects / jobsites**, with machine assignment history for reports.

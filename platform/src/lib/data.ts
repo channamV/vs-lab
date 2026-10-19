@@ -9,14 +9,17 @@ import {
   deviceAssignments,
   deviceEvents,
   devices,
+  divisions,
   engineSessions,
   machineOperators,
   machines,
   operators,
   organizations,
   telemetry,
+  userDivisions,
   users,
 } from "@/lib/db/schema";
+import { machineScope, type Scope } from "@/lib/divisions";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
 import type { AuthContext } from "@/lib/auth";
@@ -25,26 +28,29 @@ import { getAuth, requireAuth, requirePlatformAdmin, requireRoleForPage } from "
 /**
  * All page data goes through these functions. Each one checks the signed-in user itself (in addition
  * to proxy.ts) and only returns the user's organization's data, so nothing can leak between customers
- * even if a page forgets a check.
+ * even if a page forgets a check. Users limited to some divisions only see those divisions' machines
+ * (machineScope), and the check-ins and alerts on them.
  */
 async function requireSession(): Promise<AuthContext> {
   await connection(); // always read fresh data at request time
   return requireAuth();
 }
 
-/** The machine, if it belongs to the signed-in user's organization (looked up once per request). */
-const machineInOrg = cache(async (id: number, organizationId: number) => {
+/** The machine, if the signed-in user can see it (looked up once per request; cache keys must be simple values). */
+const cachedMachine = cache(async (id: number, organizationId: number, divisionKey: string) => {
+  const scope: Scope = { organizationId, divisionIds: divisionKey ? divisionKey.split(",").map(Number) : null };
   const [machine] = await getDb()
     .select()
     .from(machines)
-    .where(and(eq(machines.id, id), eq(machines.organizationId, organizationId)));
+    .where(and(eq(machines.id, id), machineScope(scope)));
   return machine ?? null;
 });
+const machineInScope = (id: number, scope: Scope) => cachedMachine(id, scope.organizationId, scope.divisionIds?.join(",") ?? "");
 
-/** For per-machine data: the signed-in user, after checking the machine is in their organization. */
+/** For per-machine data: the signed-in user, after checking they can see the machine. */
 async function requireMachine(id: number): Promise<AuthContext> {
   const auth = await requireSession();
-  if (!(await machineInOrg(id, auth.organizationId))) throw new Error("Machine not found");
+  if (!(await machineInScope(id, auth))) throw new Error("Machine not found");
   return auth;
 }
 
@@ -108,7 +114,7 @@ export async function engineHoursToday(): Promise<Map<number, number>> {
     .innerJoin(machines, eq(machines.id, engineSessions.machineId))
     .where(
       and(
-        eq(machines.organizationId, auth.organizationId),
+        machineScope(auth),
         or(isNull(engineSessions.endedAt), gte(engineSessions.endedAt, since)),
       ),
     )
@@ -140,14 +146,15 @@ export async function recentEngineSessions(id: number, limit = 10) {
 export async function listMachines() {
   const auth = await requireSession();
   const rows = await getDb()
-    .select({ machine: machines, deviceId: deviceAssignments.deviceId })
+    .select({ machine: machines, deviceId: deviceAssignments.deviceId, divisionName: divisions.name })
     .from(machines)
     .leftJoin(deviceAssignments, currentDevice)
-    .where(eq(machines.organizationId, auth.organizationId));
+    .leftJoin(divisions, eq(divisions.id, machines.divisionId))
+    .where(machineScope(auth));
   // Unit number first (numerically where possible), as fleet managers refer to machines by unit.
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   return rows
-    .map((r) => ({ ...r.machine, deviceId: r.deviceId }))
+    .map((r) => ({ ...r.machine, deviceId: r.deviceId, divisionName: r.divisionName }))
     .sort((a, b) =>
       a.unitNumber && b.unitNumber
         ? collator.compare(a.unitNumber, b.unitNumber)
@@ -162,7 +169,7 @@ export async function listMachines() {
 /** The machine, or null if it doesn't exist or belongs to another organization. */
 export async function getMachine(id: number) {
   const auth = await requireSession();
-  return machineInOrg(id, auth.organizationId);
+  return machineInScope(id, auth);
 }
 
 /** Old links used the device ID, which became the machine's QR code: find the machine by code. */
@@ -171,7 +178,7 @@ export async function machineIdForCode(code: string) {
   const [row] = await getDb()
     .select({ id: machines.id })
     .from(machines)
-    .where(and(eq(machines.code, code), eq(machines.organizationId, auth.organizationId)));
+    .where(and(eq(machines.code, code), machineScope(auth)));
   return row?.id ?? null;
 }
 
@@ -240,7 +247,7 @@ export async function listOperators() {
       .select({ operatorId: machineOperators.operatorId, machineId: machines.id, name: machines.name, unitNumber: machines.unitNumber })
       .from(machineOperators)
       .innerJoin(machines, eq(machines.id, machineOperators.machineId))
-      .where(eq(machines.organizationId, auth.organizationId)),
+      .where(machineScope(auth)),
   ]);
   const machinesFor = Map.groupBy(assignments, (a) => a.operatorId);
   return ops.map((op) => ({ ...op, machines: machinesFor.get(op.id) ?? [] }));
@@ -322,7 +329,8 @@ export async function currentCheckins() {
     .select(checkinWithOperator)
     .from(checkins)
     .innerJoin(operators, eq(operators.id, checkins.operatorId))
-    .where(and(eq(checkins.organizationId, auth.organizationId), isNull(checkins.endedAt)));
+    .innerJoin(machines, eq(machines.id, checkins.machineId))
+    .where(and(eq(checkins.organizationId, auth.organizationId), machineScope(auth), isNull(checkins.endedAt)));
   return new Map((await withEngine(rows)).filter((r) => r.current).map((r) => [r.machineId, r]));
 }
 
@@ -365,6 +373,7 @@ export async function openAlerts(machineId?: number) {
     .where(
       and(
         eq(alerts.organizationId, auth.organizationId),
+        machineScope(auth),
         isNull(alerts.acknowledgedAt),
         machineId ? eq(alerts.machineId, machineId) : undefined,
       ),
@@ -381,6 +390,7 @@ export async function acknowledgedAlerts(limit = 30, machineId?: number) {
     .where(
       and(
         eq(alerts.organizationId, auth.organizationId),
+        machineScope(auth),
         isNotNull(alerts.acknowledgedAt),
         machineId ? eq(alerts.machineId, machineId) : undefined,
       ),
@@ -397,7 +407,8 @@ export async function openAlertCountIfSignedIn(): Promise<number | null> {
   const [row] = await getDb()
     .select({ count: sql<number>`count(*)::int` })
     .from(alerts)
-    .where(and(eq(alerts.organizationId, auth.organizationId), isNull(alerts.acknowledgedAt)));
+    .innerJoin(machines, eq(machines.id, alerts.machineId))
+    .where(and(eq(alerts.organizationId, auth.organizationId), machineScope(auth), isNull(alerts.acknowledgedAt)));
   return row.count;
 }
 
@@ -406,11 +417,50 @@ export async function openAlertCountIfSignedIn(): Promise<number | null> {
 export async function listUsers() {
   await connection();
   const auth = await requireRoleForPage("owner");
-  return getDb()
-    .select()
-    .from(users)
-    .where(eq(users.organizationId, auth.organizationId))
-    .orderBy(desc(users.active), asc(users.email));
+  const db = getDb();
+  const [people, limits] = await Promise.all([
+    db.select().from(users).where(eq(users.organizationId, auth.organizationId)).orderBy(desc(users.active), asc(users.email)),
+    db
+      .select({ userId: userDivisions.userId, divisionId: userDivisions.divisionId })
+      .from(userDivisions)
+      .innerJoin(users, eq(users.id, userDivisions.userId))
+      .where(eq(users.organizationId, auth.organizationId)),
+  ]);
+  const byUser = Map.groupBy(limits, (l) => l.userId);
+  return people.map((u) => ({ ...u, divisionIds: (byUser.get(u.id) ?? []).map((l) => l.divisionId) }));
+}
+
+/**
+ * The organization's divisions with how many machines and limited users each has. Users limited to
+ * some divisions only get theirs (for choosing a machine's division).
+ */
+export async function listDivisions() {
+  const auth = await requireSession();
+  const db = getDb();
+  const [rows, machineCounts, userCounts] = await Promise.all([
+    db
+      .select()
+      .from(divisions)
+      .where(
+        and(
+          eq(divisions.organizationId, auth.organizationId),
+          auth.divisionIds ? inArray(divisions.id, auth.divisionIds) : undefined,
+        ),
+      )
+      .orderBy(asc(divisions.name)),
+    db
+      .select({ divisionId: machines.divisionId, n: sql<number>`count(*)::int` })
+      .from(machines)
+      .where(eq(machines.organizationId, auth.organizationId))
+      .groupBy(machines.divisionId),
+    db
+      .select({ divisionId: userDivisions.divisionId, n: sql<number>`count(*)::int` })
+      .from(userDivisions)
+      .groupBy(userDivisions.divisionId),
+  ]);
+  const m = new Map(machineCounts.map((c) => [c.divisionId, c.n]));
+  const u = new Map(userCounts.map((c) => [c.divisionId, c.n]));
+  return rows.map((d) => ({ ...d, machines: m.get(d.id) ?? 0, users: u.get(d.id) ?? 0 }));
 }
 
 // ---------- Platform admin (Veristart staff) ----------

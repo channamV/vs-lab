@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { deviceAssignments, devices, engineSessions, machines, organizations, type Tier } from "@/lib/db/schema";
+import { deviceAssignments, devices, divisions, engineSessions, machines, organizations, type Tier } from "@/lib/db/schema";
 
 /**
  * Machines (the customer's equipment) and devices (the tracking hardware on them).
@@ -28,6 +28,8 @@ export type MachineInput = {
   year?: number | null;
   serialNumber?: string;
   tier?: Tier;
+  /** Null = no division. Left out = unchanged (edit) / none (new). */
+  divisionId?: number | null;
 };
 
 const clean = (v: string | undefined) => v?.trim() || null;
@@ -53,6 +55,13 @@ async function cleanInput(db: Db, organizationId: number, input: MachineInput, e
   if (year !== null && (!Number.isInteger(year) || year < 1950 || year > new Date().getFullYear() + 1)) {
     throw new MachineError("Enter a valid model year.");
   }
+  if (input.divisionId) {
+    const [division] = await db
+      .select({ id: divisions.id })
+      .from(divisions)
+      .where(and(eq(divisions.id, input.divisionId), eq(divisions.organizationId, organizationId)));
+    if (!division) throw new MachineError("Division not found.");
+  }
   return {
     name,
     unitNumber,
@@ -62,6 +71,7 @@ async function cleanInput(db: Db, organizationId: number, input: MachineInput, e
     year,
     serialNumber: clean(input.serialNumber),
     ...(input.tier && { tier: input.tier }),
+    ...(input.divisionId !== undefined && { divisionId: input.divisionId }),
   };
 }
 

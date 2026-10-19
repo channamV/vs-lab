@@ -7,6 +7,7 @@ import { roleEnum } from "@/lib/db/schema";
 import { appUrl, senderSettings, sendEmail } from "@/lib/notify";
 import { AccountError, addUser, updateUser } from "@/lib/organizations";
 import { requireAuth } from "@/lib/session";
+import { createDivision, deleteDivision, DivisionError, renameDivision, setUserDivisions } from "@/lib/divisions";
 
 /** Owners manage their organization's users. */
 
@@ -38,13 +39,49 @@ export async function addUserAction(prev: UserFormState, formData: FormData): Pr
 export async function updateUserAction(formData: FormData) {
   const auth = await requireAuth("owner");
   const input = z
-    .object({ id: z.coerce.number().int().positive(), role: z.enum(roleEnum.enumValues), active: z.boolean() })
-    .parse({ id: formData.get("id"), role: formData.get("role"), active: formData.get("active") === "on" });
+    .object({
+      id: z.coerce.number().int().positive(),
+      role: z.enum(roleEnum.enumValues),
+      active: z.boolean(),
+      divisionIds: z.array(z.coerce.number().int().positive()),
+    })
+    .parse({
+      id: formData.get("id"),
+      role: formData.get("role"),
+      active: formData.get("active") === "on",
+      divisionIds: formData.getAll("division"),
+    });
   try {
     await updateUser(getDb(), auth.organizationId, input.id, { role: input.role, active: input.active });
+    // Owners always see the whole organization, so their division ticks are cleared.
+    await setUserDivisions(getDb(), auth.organizationId, input.id, input.role === "owner" ? [] : input.divisionIds);
   } catch (err) {
-    if (err instanceof AccountError) throw new Error(err.message);
+    if (err instanceof AccountError || err instanceof DivisionError) throw new Error(err.message);
     throw err;
   }
   refresh();
+}
+
+export type DivisionFormState = { error: string | null; version: number; name?: string };
+
+/** Create a division, or (with `divisionId`) rename or delete one: the button pressed sets `intent`. */
+export async function divisionAction(prev: DivisionFormState, formData: FormData): Promise<DivisionFormState> {
+  const auth = await requireAuth("owner");
+  const name = String(formData.get("name") ?? "").slice(0, 80);
+  const intent = z.enum(["create", "rename", "delete"]).parse(formData.get("intent"));
+  const db = getDb();
+  try {
+    if (intent === "create") {
+      await createDivision(db, auth.organizationId, name);
+    } else {
+      const id = z.coerce.number().int().positive().parse(formData.get("divisionId"));
+      if (intent === "rename") await renameDivision(db, auth.organizationId, id, name);
+      else await deleteDivision(db, auth.organizationId, id);
+    }
+  } catch (err) {
+    if (err instanceof DivisionError) return { error: err.message, version: prev.version + 1, name };
+    throw err;
+  }
+  refresh();
+  return { error: null, version: prev.version + 1 };
 }

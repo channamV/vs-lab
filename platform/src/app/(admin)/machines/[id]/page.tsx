@@ -17,6 +17,7 @@ import {
   getRecentEvents,
   getRecentTelemetry,
   getTrack,
+  listDivisions,
   listOperators,
   machineDevices,
   openAlerts,
@@ -54,7 +55,7 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
   const machine = await getMachine(id);
   if (!machine) notFound();
 
-  const [track, [latest], events, now, hours, sessions, current, history, operators, allowed, alerts, pairings, auth] = await Promise.all([
+  const [track, [latest], events, now, hours, sessions, current, history, operators, allowed, alerts, pairings, auth, divisions] = await Promise.all([
     getTrack(id),
     getRecentTelemetry(id, 1),
     getRecentEvents(id),
@@ -68,6 +69,7 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
     openAlerts(id),
     machineDevices(id),
     currentUser(),
+    listDivisions(),
   ]);
   const tz = appTimeZone();
   const engine = engineStatus(machine, now);
@@ -81,6 +83,11 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
         <h1 className="text-2xl font-semibold">{machineLabel(machine)}</h1>
         <StatusBadge status={status} />
         {details && <span className="text-sm text-slate-500">{details}</span>}
+        {machine.divisionId && (
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            {divisions.find((d) => d.id === machine.divisionId)?.name}
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-7">
@@ -363,7 +370,7 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="font-semibold">Machine details</h2>
-          <EditMachineForm machine={machine} />
+          <EditMachineForm machine={machine} choice={{ divisions, allowNone: auth?.divisionIds === null }} />
         </section>
 
         <DeviceSection

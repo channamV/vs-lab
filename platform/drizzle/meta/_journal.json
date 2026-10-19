@@ -71,6 +71,13 @@
       "when": 1792268329939,
       "tag": "0009_machines_step_b",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792417508376,
+      "tag": "0010_divisions",
+      "breakpoints": true
     }
   ]
 }

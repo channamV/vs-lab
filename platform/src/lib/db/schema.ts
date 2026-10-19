@@ -59,6 +59,40 @@ export const users = pgTable(
   (t) => [uniqueIndex("users_email_idx").on(t.email)],
 );
 
+/**
+ * Optional sub-groups of an organization (e.g. "Ontario", "Paving"). One level only. A company that
+ * doesn't need them has none, and everything behaves as before.
+ */
+export const divisions = pgTable(
+  "divisions",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("divisions_org_name_idx").on(t.organizationId, t.name)],
+);
+
+/**
+ * Which divisions a user is limited to. No rows = the whole organization. Owners always see the whole
+ * organization, whatever is here.
+ */
+export const userDivisions = pgTable(
+  "user_divisions",
+  {
+    userId: bigint("user_id", { mode: "number" })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    divisionId: bigint("division_id", { mode: "number" })
+      .notNull()
+      .references(() => divisions.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.divisionId] })],
+);
+
 /** One-time sign-in links. Only a hash of the token is stored; the token itself is only in the email. */
 export const loginTokens = pgTable(
   "login_tokens",
@@ -104,6 +138,8 @@ export const machines = pgTable(
     organizationId: bigint("organization_id", { mode: "number" })
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Null = not in a division (seen only by people with access to the whole organization). */
+    divisionId: bigint("division_id", { mode: "number" }).references(() => divisions.id, { onDelete: "restrict" }),
     /** Random code in the QR sticker URL (/checkin/<code>). Stays the same when the device is replaced. */
     code: text("code").notNull(),
     name: text("name").notNull(),
@@ -426,6 +462,7 @@ export const alerts = pgTable(
 );
 
 export type Organization = typeof organizations.$inferSelect;
+export type Division = typeof divisions.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Device = typeof devices.$inferSelect;

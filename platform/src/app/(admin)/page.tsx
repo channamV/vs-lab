@@ -73,6 +73,7 @@ async function FleetOverview() {
       status: connectionStatus(d, now),
     }));
 
+  const showDivision = machines.some((m) => m.divisionName);
   const unauthorized = alerts.filter((a) => a.type === "unauthorized-use").length;
   return (
     <>
@@ -96,6 +97,7 @@ async function FleetOverview() {
           <thead className="border-b border-slate-200 text-xs uppercase text-slate-500 dark:border-slate-800">
             <tr>
               <th className="px-4 py-2">Machine</th>
+              {showDivision && <th className="px-4 py-2">Division</th>}
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Engine</th>
               <th className="px-4 py-2 text-right">Hours today</th>
@@ -116,6 +118,7 @@ async function FleetOverview() {
                   </Link>
                   {d.unitNumber && <div className="text-xs text-slate-500">{d.name}</div>}
                 </td>
+                {showDivision && <td className="px-4 py-2">{d.divisionName ?? <span className="text-slate-500">—</span>}</td>}
                 <td className="px-4 py-2">
                   {d.deviceId || d.lastSeenAt ? (
                     <StatusBadge status={connectionStatus(d, now)} />

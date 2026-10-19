@@ -1,6 +1,7 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { alerts, users, type Alert } from "@/lib/db/schema";
+import { alerts, machines, type Alert } from "@/lib/db/schema";
+import { usersForMachine } from "@/lib/divisions";
 
 /**
  * Email (sign-in links and alerts) through Resend (resend.com, free tier: 3,000 emails a month). Uses
@@ -30,15 +31,13 @@ const splitEmails = (value: string | undefined) =>
     .filter(Boolean);
 
 /**
- * Who gets an organization's alerts: its active owners and managers, plus ALERT_EMAIL_TO.
- * (Per-user alert subscriptions will replace this.)
+ * Who gets a machine's alerts: its organization's active owners and managers (except managers limited to
+ * other divisions), plus ALERT_EMAIL_TO. (Per-user alert subscriptions will replace this.)
  */
-export async function alertRecipients(db: Db, organizationId: number): Promise<string[]> {
-  const rows = await db
-    .select({ email: users.email })
-    .from(users)
-    .where(and(eq(users.organizationId, organizationId), eq(users.active, true), inArray(users.role, ["owner", "manager"])));
-  return [...new Set([...rows.map((r) => r.email), ...splitEmails(process.env.ALERT_EMAIL_TO)])];
+export async function alertRecipients(db: Db, machineId: number): Promise<string[]> {
+  const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
+  const people = machine ? await usersForMachine(db, machine) : [];
+  return [...new Set([...people.map((p) => p.email), ...splitEmails(process.env.ALERT_EMAIL_TO)])];
 }
 
 /** The site's public address, for links in emails. */
@@ -93,7 +92,7 @@ export async function deliverAlerts(db: Db, newAlerts: Alert[]) {
   const sender = senderSettings();
   for (const alert of newAlerts) {
     try {
-      const to = await alertRecipients(db, alert.organizationId);
+      const to = await alertRecipients(db, alert.machineId);
       if (!sender || to.length === 0) {
         await db
           .update(alerts)

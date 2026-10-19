@@ -37,6 +37,13 @@ github.com/stanleyhuangyc/Freematics.
   unpaired devices store telemetry only. `devices.organization_id` = whose stock (null = Veristart's).
   Only platform admins pair/unpair/move stock (`src/lib/machines.ts`, tested). Machines get a random `code`
   for the QR URL; migrated machines kept the old device ID as code.
+- **Divisions** (optional, one level; `src/lib/divisions.ts`, tested). A machine is in one division or none
+  (`machines.division_id`). `user_divisions` limits a manager/viewer to some divisions; none = whole org;
+  owners and platform admins are never limited. `AuthContext.divisionIds` (null = all) is the `Scope`:
+  page reads filter machines with `machineScope(auth)` (check-ins/alerts via their machine); actions on a
+  machine/check-in/alert call `assertMachineInScope` / `assertCheckinInScope` / `assertAlertInScope`, and
+  machine create/edit calls `assertDivisionChoice`. Operators are org-wide. Alert emails: `usersForMachine`.
+  Non-empty divisions can't be deleted (it would widen limited users' access).
 - **Multi-tenant.** Every customer is an `organization`. Machines, operators, check-ins, alerts and users
   belong to one. Every page read in `src/lib/data.ts` and every admin
   action filters by the signed-in user's `organizationId`; per-machine reads go through `requireMachine()`.
@@ -45,7 +52,8 @@ github.com/stanleyhuangyc/Freematics.
   link opens `/login/verify`, where a button (POST) signs in, because email scanners pre-open links.
   Sessions are DB rows; the cookie holds a random token. Roles: owner / manager / viewer.
   Platform admins = `PLATFORM_ADMIN_EMAILS` (env); they can switch the organization they view.
-  `ADMIN_PASSWORD` is a transition fallback that signs in as the first platform admin; remove it later.
+  `ADMIN_PASSWORD` is a transition fallback that signs in as the first platform admin. Craig wants it kept
+  for now (2026-10-19): **remind him to remove it when vs-lab gets outside users.**
 - `src/proxy.ts` only checks a session cookie is present; `src/lib/session.ts` validates it against the
   database. Every admin server action must call `requireAuth("manager" | "owner")` (or
   `requirePlatformAdmin()`) itself: server actions can be posted to any route, including public ones.
@@ -76,7 +84,8 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   `npm run build` for config or build changes) before pushing.
 - Bigger or riskier changes (schema migrations, auth, device protocol) can still go on a branch with a
   pull request if Craig asks.
-- Once vs-lab has outside users, switch back to branches + pull requests reviewed before merging.
+- Once vs-lab has outside users, switch back to branches + pull requests reviewed before merging, and remind
+  Craig to remove the `ADMIN_PASSWORD` fallback (Vercel setting + code in `src/lib/auth.ts`).
 
 ## Conventions
 

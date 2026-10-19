@@ -5,11 +5,13 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/session";
 import { acknowledgeAlert } from "@/lib/alerts";
 import { getDb } from "@/lib/db";
-import { alertRecipients, appUrl, senderSettings, sendEmail } from "@/lib/notify";
+import { appUrl, senderSettings, sendEmail } from "@/lib/notify";
+import { assertAlertInScope } from "@/lib/divisions";
 
 export async function acknowledgeAction(formData: FormData) {
   const auth = await requireAuth("manager");
   const id = z.coerce.number().int().positive().parse(formData.get("alertId"));
+  await assertAlertInScope(getDb(), auth, id);
   await acknowledgeAlert(getDb(), auth.organizationId, id, String(formData.get("note") ?? "").slice(0, 500));
   refresh();
 }
@@ -26,9 +28,8 @@ export async function sendTestEmailAction(): Promise<TestEmailState> {
     text: `Alert emails are working.${base ? `\n\n${base}/alerts` : ""}\n\n— VS Lab`,
   });
   if (!result.ok) return { ok: false, message: `Sending failed: ${result.error}` };
-  const recipients = await alertRecipients(getDb(), auth.organizationId);
   return {
     ok: true,
-    message: `Sent to ${auth.email}. ${auth.organizationName} alerts go to: ${recipients.join(", ") || "nobody yet (add an owner or manager)"}.`,
+    message: `Sent to ${auth.email}. Each machine's alerts go to ${auth.organizationName}'s owners and the managers who can see that machine.`,
   };
 }
