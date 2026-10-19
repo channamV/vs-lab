@@ -31,6 +31,25 @@ The Fleet page shows "Disarmed" under the machine's level.
 On the Alerts page, add a note if useful (e.g. "mechanic testing hydraulics") and click
 **Acknowledge**. Acknowledged alerts stay in the list below as a record.
 
+## Who gets alert emails (subscriptions)
+
+Each person chooses which alerts they're emailed about: **Alerts → My alert emails**. A subscription is:
+
+- **Alert:** one type (e.g. *Checklist issues*) or *All alerts*;
+- **For:** all machines, one division, or one machine;
+- **By:** email. Text messages could be added later.
+
+Examples: a mechanic subscribes to *Checklist issues* for all machines; a site supervisor to *All alerts* for
+their division; a manager to *Unauthorized use* for one high-value machine.
+
+- Owners and managers start with *All alerts · All machines · Email*, the same as before subscriptions
+  existed. Viewers start with none, but can subscribe.
+- Owners can change anyone's: **Users → Alert emails** under the person's name.
+- People are only ever emailed about machines they can see. A manager limited to the East division never gets
+  West alerts, even if subscribed to "All machines".
+- Each person gets one email per alert, even if several of their subscriptions match.
+- Every alert email ends with a link to change your subscriptions.
+
 ## Setting up email (Resend, free)
 
 About 10 minutes. Resend's free plan allows 3,000 emails a month (100 a day).
@@ -40,8 +59,8 @@ About 10 minutes. Resend's free plan allows 3,000 emails a month (100 a day).
    (starts with `re_`). It's only shown once.
 3. In Vercel → `vs-lab-platform-tpj9` → **Settings → Environment Variables**, add (tick Production and Preview):
    - `RESEND_API_KEY` = the key
-   - `ALERT_EMAIL_TO` (optional) = extra addresses that get every organization's alerts. Each
-     organization's owners and managers get its alerts automatically.
+   - `ALERT_EMAIL_TO` (optional) = extra addresses that get every organization's alerts (Veristart staff).
+     Everyone else gets what they subscribe to (see above).
 4. **Deployments → ⋯ → Redeploy.**
 5. On the **Alerts** page click **Send test email**. It says "Sent to …" or explains what's wrong.
 

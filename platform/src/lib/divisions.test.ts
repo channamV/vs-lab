@@ -3,7 +3,6 @@ import { createDb, migrateDb, type Db } from "@/lib/db";
 import { alerts, checkins, machines, operators, organizations, users } from "@/lib/db/schema";
 import { authFromToken, redeemSignInLink, requestSignInLink } from "@/lib/auth";
 import { createMachine } from "@/lib/machines";
-import { alertRecipients } from "@/lib/notify";
 import {
   assertAlertInScope,
   assertCheckinInScope,
@@ -122,27 +121,5 @@ describe("managing divisions", () => {
     const [user] = await db.insert(users).values({ organizationId: otherOrg, email: "x@xyz.com", role: "manager" }).returning();
     await expect(setUserDivisions(db, otherOrg, user.id, [east])).rejects.toThrow(/not found/);
     await expect(setUserDivisions(db, org, user.id, [east])).rejects.toThrow(/User not found/);
-  });
-});
-
-describe("alert emails", () => {
-  it("go to owners and managers who can see the machine", async () => {
-    const people = await db
-      .insert(users)
-      .values([
-        { organizationId: org, email: "owner@abc.com", role: "owner" },
-        { organizationId: org, email: "east-mgr@abc.com", role: "manager" },
-        { organizationId: org, email: "west-mgr@abc.com", role: "manager" },
-        { organizationId: org, email: "all-mgr@abc.com", role: "manager" },
-        { organizationId: org, email: "east-viewer@abc.com", role: "viewer" },
-      ])
-      .returning();
-    const id = (email: string) => people.find((p) => p.email === email)!.id;
-    await setUserDivisions(db, org, id("east-mgr@abc.com"), [east]);
-    await setUserDivisions(db, org, id("west-mgr@abc.com"), [west]);
-    await setUserDivisions(db, org, id("east-viewer@abc.com"), [east]);
-
-    expect((await alertRecipients(db, eastMachine)).sort()).toEqual(["all-mgr@abc.com", "east-mgr@abc.com", "owner@abc.com"]);
-    expect((await alertRecipients(db, noDivisionMachine)).sort()).toEqual(["all-mgr@abc.com", "owner@abc.com"]);
   });
 });

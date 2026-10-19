@@ -20,6 +20,8 @@ import {
   users,
 } from "@/lib/db/schema";
 import { machineScope, type Scope } from "@/lib/divisions";
+import { listSubscriptions, scopeOfUser } from "@/lib/subscriptions";
+import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
 import type { AuthContext } from "@/lib/auth";
@@ -410,6 +412,43 @@ export async function openAlertCountIfSignedIn(): Promise<number | null> {
     .innerJoin(machines, eq(machines.id, alerts.machineId))
     .where(and(eq(alerts.organizationId, auth.organizationId), machineScope(auth), isNull(alerts.acknowledgedAt)));
   return row.count;
+}
+
+// ---------- Alert subscriptions ----------
+
+/**
+ * One user's alert subscriptions and what they can choose from (only machines and divisions they can
+ * see). Everyone manages their own; owners can manage anyone's in their organization. Null if not allowed.
+ */
+export async function subscriptionSettings(userId?: number) {
+  const auth = await requireSession();
+  const db = getDb();
+  const editingOther = userId !== undefined && userId !== auth.userId;
+  if (editingOther && !hasRole(auth, "owner")) return null;
+  // Your own subscriptions live in your own organization (platform admins may be viewing another one).
+  const organizationId = editingOther ? auth.organizationId : auth.homeOrganizationId;
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.id, editingOther ? userId : auth.userId), eq(users.organizationId, organizationId)));
+  if (!user) return null;
+  const scope = await scopeOfUser(db, user);
+  const [subscriptions, divisionChoices, machineChoices] = await Promise.all([
+    listSubscriptions(db, organizationId, user.id),
+    db
+      .select({ id: divisions.id, name: divisions.name })
+      .from(divisions)
+      .where(
+        and(eq(divisions.organizationId, organizationId), scope.divisionIds ? inArray(divisions.id, scope.divisionIds) : undefined),
+      )
+      .orderBy(asc(divisions.name)),
+    db
+      .select({ id: machines.id, name: machines.name, unitNumber: machines.unitNumber })
+      .from(machines)
+      .where(machineScope(scope))
+      .orderBy(asc(machines.unitNumber), asc(machines.name)),
+  ]);
+  return { user, isSelf: !editingOther, subscriptions, divisions: divisionChoices, machines: machineChoices };
 }
 
 // ---------- Organization users (owners manage them) ----------

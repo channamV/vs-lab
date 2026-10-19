@@ -6,6 +6,7 @@ import { CHECKLIST } from "@/lib/checklist";
 import { CHECKIN_RULES, checkIn, checkOut, createOperator, setMachineOperators, syncCheckins } from "@/lib/operators";
 import { acknowledgeAlert, ALERT_RULES, checkUnauthorizedUse, isArmed, raiseCheckinAlerts } from "./alerts";
 import { alertEmail, deliverAlerts } from "./notify";
+import { addUser } from "./organizations";
 
 let db: Db;
 let ORG: number;
@@ -158,16 +159,15 @@ describe("alert emails", () => {
     expect((await db.select().from(alerts))[0].emailStatus).toBe("not-configured");
   });
 
-  it("emails the organization's owners and managers (one email each) and records failures", async () => {
+  it("emails the subscribed users (one email each, owners and managers by default) and records failures", async () => {
     vi.stubEnv("RESEND_API_KEY", "re_test");
     vi.stubEnv("ALERT_EMAIL_TO", "");
-    await db.insert(users).values([
-      { organizationId: ORG, email: "owner@a.com", role: "owner" },
-      { organizationId: ORG, email: "viewer@a.com", role: "viewer" },
-      { organizationId: ORG, email: "gone@a.com", role: "manager", active: false },
-    ]);
+    await addUser(db, ORG, { email: "owner@a.com", role: "owner" });
+    await addUser(db, ORG, { email: "viewer@a.com", role: "viewer" });
+    const gone = await addUser(db, ORG, { email: "gone@a.com", role: "manager" });
+    await db.update(users).set({ active: false }).where(eq(users.id, gone.id));
     const [other] = await db.insert(organizations).values({ name: "Org B" }).returning();
-    await db.insert(users).values({ organizationId: other.id, email: "manager@b.com", role: "manager" });
+    await addUser(db, other.id, { email: "manager@b.com", role: "manager" });
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 

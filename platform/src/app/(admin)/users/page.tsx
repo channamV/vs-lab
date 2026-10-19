@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { listDivisions, listUsers, requestTime } from "@/lib/data";
 import { timeAgo } from "@/lib/format";
@@ -7,7 +8,7 @@ import { AddDivisionForm, DivisionRow } from "./DivisionForms";
 
 const ROLE_HELP = [
   ["Owner", "Everything, including adding and removing users."],
-  ["Manager", "Machines, operators, arm/disarm, acknowledging alerts. Gets alert emails."],
+  ["Manager", "Machines, operators, arm/disarm, acknowledging alerts. Gets all alert emails to start with."],
   ["Viewer", "Can look at everything, can't change anything."],
 ];
 
@@ -58,6 +59,9 @@ async function UserList() {
               <td className="px-4 py-2">
                 <div className="font-medium">{u.name ?? u.email}</div>
                 {u.name && <div className="text-xs text-slate-500">{u.email}</div>}
+                <Link href={`/alerts/subscriptions?user=${u.id}`} className="text-xs text-sky-700 hover:underline dark:text-sky-400">
+                  Alert emails
+                </Link>
               </td>
               <td className="px-4 py-2 text-slate-500">{timeAgo(u.lastSignInAt, now)}</td>
               <td className="px-4 py-2">

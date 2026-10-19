@@ -103,7 +103,9 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   the engine-stop time. A restart within the allowance re-links to the new session. Operators never have to check out. `syncCheckins()` saves this on each device report and before check-in/out;
   pages apply the same rules on read (`automaticEnd`, `isCheckinCurrent`) so they're right between reports.
 - Alerts: rules in `src/lib/alerts.ts` (takes the db, tested; `ALERT_RULES`), email via Resend's HTTP API in
-  `src/lib/notify.ts` (recipients: the organization's owners + managers, plus `ALERT_EMAIL_TO`). Rules run in `after()` (`src/lib/alert-jobs.ts`) from the device routes and the
+  `src/lib/notify.ts`. Recipients = `subscribersFor()` in `src/lib/subscriptions.ts` (tested): per-user
+  `alert_subscriptions` (type or all, all machines / division / machine, channel email), only users who can
+  see the machine; plus `ALERT_EMAIL_TO`. New owners/managers get a default "all alerts" subscription. Rules run in `after()` (`src/lib/alert-jobs.ts`) from the device routes and the
   check-in action, so they never delay or break a device's HTTP 200. Dedupe is by unique index
   (one per engine session / per check-in).
 - Forms using `useActionState`: React clears fields after every submit, so on an error return the

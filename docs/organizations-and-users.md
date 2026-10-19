@@ -77,12 +77,11 @@ A company that doesn't need them simply doesn't create any.
 
 ## Alert emails
 
-Each machine's alerts go to its organization's active **owners**, and to the **managers** who can see that machine
-(managers limited to other divisions don't get them). `ALERT_EMAIL_TO` in Vercel is now
-optional: those addresses get every organization's alerts (for Veristart staff). Per-user alert
-subscriptions (pick alert types and machines) come next.
+Each person chooses which alerts they get (**Alerts → My alert emails**; owners can set anyone's from the Users
+page). Owners and managers start with every alert. People are only emailed about machines they can see.
+Details: [alerts.md](alerts.md#who-gets-alert-emails-subscriptions). `ALERT_EMAIL_TO` in Vercel is now
+optional: those addresses get every organization's alerts (for Veristart staff).
 
 ## Coming next
 
-- **Alert subscriptions per user.**
 - **Projects / jobsites**, with machine assignment history for reports.

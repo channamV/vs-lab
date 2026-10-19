@@ -137,24 +137,3 @@ export async function setUserDivisions(db: Db, organizationId: number, userId: n
     if (valid.length) await tx.insert(userDivisions).values(valid.map((d) => ({ userId, divisionId: d.id })));
   });
 }
-
-/**
- * Users who should hear about a machine: active owners and managers of its organization, except managers
- * limited to other divisions.
- */
-export async function usersForMachine(db: Db, machine: { organizationId: number; divisionId: number | null }) {
-  const people = await db
-    .select({ id: users.id, email: users.email, role: users.role })
-    .from(users)
-    .where(and(eq(users.organizationId, machine.organizationId), eq(users.active, true), inArray(users.role, ["owner", "manager"])));
-  if (people.length === 0) return [];
-  const limits = await db
-    .select({ userId: userDivisions.userId, divisionId: userDivisions.divisionId })
-    .from(userDivisions)
-    .where(inArray(userDivisions.userId, people.map((p) => p.id)));
-  const byUser = Map.groupBy(limits, (l) => l.userId);
-  return people.filter((p) => {
-    const mine = byUser.get(p.id);
-    return p.role === "owner" || !mine || (machine.divisionId !== null && mine.some((l) => l.divisionId === machine.divisionId));
-  });
-}

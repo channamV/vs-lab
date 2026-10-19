@@ -461,7 +461,31 @@ export const alerts = pgTable(
   ],
 );
 
+/**
+ * Which alerts a user is emailed about. Each row: an alert type (null = every type), for which machines
+ * (division or machine set = just those; both null = every machine the user can see), and how.
+ * Users are only ever sent alerts for machines they can see (see src/lib/divisions.ts).
+ */
+export const alertSubscriptions = pgTable(
+  "alert_subscriptions",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: bigint("user_id", { mode: "number" })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** unauthorized-use, checklist-failed, not-approved, not-at-machine; null = all of them. */
+    type: text("type"),
+    divisionId: bigint("division_id", { mode: "number" }).references(() => divisions.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" }).references(() => machines.id, { onDelete: "cascade" }),
+    /** email for now; text messages and app notifications later. */
+    channel: text("channel").notNull().default("email"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("alert_subscriptions_user_idx").on(t.userId)],
+);
+
 export type Organization = typeof organizations.$inferSelect;
+export type AlertSubscription = typeof alertSubscriptions.$inferSelect;
 export type Division = typeof divisions.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];

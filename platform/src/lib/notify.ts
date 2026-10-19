@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { alerts, machines, type Alert } from "@/lib/db/schema";
-import { usersForMachine } from "@/lib/divisions";
+import { alerts, type Alert } from "@/lib/db/schema";
+import { subscribersFor } from "@/lib/subscriptions";
 
 /**
  * Email (sign-in links and alerts) through Resend (resend.com, free tier: 3,000 emails a month). Uses
@@ -31,13 +31,12 @@ const splitEmails = (value: string | undefined) =>
     .filter(Boolean);
 
 /**
- * Who gets a machine's alerts: its organization's active owners and managers (except managers limited to
- * other divisions), plus ALERT_EMAIL_TO. (Per-user alert subscriptions will replace this.)
+ * Who gets an alert: users subscribed to it (src/lib/subscriptions.ts) who can see the machine, plus
+ * ALERT_EMAIL_TO (Veristart staff).
  */
-export async function alertRecipients(db: Db, machineId: number): Promise<string[]> {
-  const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
-  const people = machine ? await usersForMachine(db, machine) : [];
-  return [...new Set([...people.map((p) => p.email), ...splitEmails(process.env.ALERT_EMAIL_TO)])];
+export async function alertRecipients(db: Db, alert: Pick<Alert, "type" | "machineId">): Promise<string[]> {
+  const subscribers = await subscribersFor(db, alert);
+  return [...new Set([...subscribers, ...splitEmails(process.env.ALERT_EMAIL_TO)])];
 }
 
 /** The site's public address, for links in emails. */
@@ -60,6 +59,7 @@ export function alertEmail(alert: Pick<Alert, "title" | "detail" | "machineId">,
       "",
       link ? `Machine: ${link}` : "",
       baseUrl ? `All alerts: ${baseUrl}/alerts` : "",
+      baseUrl ? `Choose which alerts you get: ${baseUrl}/alerts/subscriptions` : "",
       "",
       "— VS Lab",
     ]
@@ -92,7 +92,7 @@ export async function deliverAlerts(db: Db, newAlerts: Alert[]) {
   const sender = senderSettings();
   for (const alert of newAlerts) {
     try {
-      const to = await alertRecipients(db, alert.machineId);
+      const to = await alertRecipients(db, alert);
       if (!sender || to.length === 0) {
         await db
           .update(alerts)

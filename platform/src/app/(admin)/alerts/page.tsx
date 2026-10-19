@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { acknowledgedAlerts, openAlerts, requestTime } from "@/lib/data";
@@ -12,10 +13,16 @@ export default function AlertsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Alerts</h1>
           <p className="text-sm text-slate-500">
-            Unauthorized use and check-in problems on Safety &amp; Access Monitoring machines. New alerts are also emailed.
+            Unauthorized use and check-in problems on Safety &amp; Access Monitoring machines. New alerts are also emailed
+            to the people subscribed to them.
           </p>
         </div>
-        <TestEmailButton />
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href="/alerts/subscriptions" className="text-sm text-sky-700 hover:underline dark:text-sky-400">
+            My alert emails
+          </Link>
+          <TestEmailButton />
+        </div>
       </div>
       <Suspense fallback={<p className="text-sm text-slate-500">Loading alerts…</p>}>
         <Alerts />
