@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { afterCheckin } from "@/lib/alert-jobs";
+import type { PhotoFile } from "@/lib/photos";
 import { CHECKIN_RULES, checkIn, checkOut, type CheckinFailure, type LocationCheck, type PhoneLocation } from "@/lib/operators";
 
 /**
@@ -34,6 +35,8 @@ const MESSAGES: Record<CheckinFailure, string> = {
   "bad-pin": "PIN not recognized.",
   incomplete: "Answer every checklist item.",
   "note-required": "Describe the problem for each item marked as a defect.",
+  "photo-required": "Take the required photos.",
+  "photo-invalid": "A photo couldn't be used (too large, or not a picture). Remove it and take it again.",
   "not-confirmed": "Tick the confirmation at the end of the checklist.",
   "machine-locked-out": "This machine is locked out for repair. Don't operate it: a manager has to clear it first.",
   "not-checked-in": "Nobody is checked in on this machine.",
@@ -65,7 +68,13 @@ export async function checkInAction(prev: CheckinFormState, formData: FormData):
   // Answers and per-question notes arrive as item:<question id> and note:<question id>.
   const answers: Record<string, string> = {};
   const answerNotes: Record<string, string> = {};
+  // Photos arrive as photo:<question id> files, already shrunk by the phone (CheckinForms.tsx).
+  const photos: PhotoFile[] = [];
   for (const [key, value] of formData.entries()) {
+    if (key.startsWith("photo:") && typeof value !== "string" && photos.length < 40) {
+      photos.push({ questionId: key.slice(6, 46), data: new Uint8Array(await value.arrayBuffer()), contentType: value.type });
+      continue;
+    }
     if (typeof value !== "string" || value.length > 500) continue;
     if (key.startsWith("item:")) answers[key.slice(5, 45)] = value.slice(0, 40);
     if (key.startsWith("note:")) answerNotes[key.slice(5, 45)] = value;
@@ -78,6 +87,7 @@ export async function checkInAction(prev: CheckinFormState, formData: FormData):
     notes: String(formData.get("notes") ?? "").slice(0, 1000),
     confirmed: formData.get("confirmed") === "on",
     lockout: formData.get("lockout") === "yes",
+    photos,
     phoneLocation: phoneLocation(formData),
   });
   if (!result.ok) {

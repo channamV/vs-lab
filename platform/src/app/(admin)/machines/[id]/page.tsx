@@ -315,12 +315,13 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
                       <td className={`py-1.5 ${where.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{where.text}</td>
                       <td className={`py-1.5 ${timing.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{timing.text}</td>
                       <td className="py-1.5">
-                        {failed.length === 0 && !c.notes ? (
+                        {failed.length === 0 && !c.notes && c.photos.length === 0 ? (
                           <span className="text-emerald-700 dark:text-emerald-400">All OK</span>
                         ) : (
                           <details>
                             <summary className={`cursor-pointer ${failed.length ? "text-amber-700 dark:text-amber-400" : ""}`}>
-                              {failed.length ? `${failed.length} defect${failed.length === 1 ? "" : "s"}` : "All OK, with notes"}
+                              {failed.length ? `${failed.length} defect${failed.length === 1 ? "" : "s"}` : c.notes ? "All OK, with notes" : "All OK"}
+                              {c.photos.length > 0 && ` · 📷 ${c.photos.length}`}
                               {c.lockoutRequested && " · locked out"}
                             </summary>
                             <ul className="mt-1 list-disc pl-4 text-xs">
@@ -332,6 +333,13 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
                               ))}
                             </ul>
                             {c.notes && <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">“{c.notes}”</p>}
+                            {c.photos.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1.5">
+                                {c.photos.map((p) => (
+                                  <Thumb key={p.id} id={p.id} title={c.answers.find((a) => a.id === p.questionId)?.question ?? p.questionId} />
+                                ))}
+                              </div>
+                            )}
                           </details>
                         )}
                       </td>
@@ -507,6 +515,16 @@ async function DeviceSection({
         </details>
       )}
     </section>
+  );
+}
+
+/** A checklist photo thumbnail; opens the full photo. */
+function Thumb({ id, title }: { id: number; title: string }) {
+  return (
+    <a href={`/photos/${id}`} target="_blank" rel="noreferrer" title={title}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- private photo served by /photos/<id>, not optimisable */}
+      <img src={`/photos/${id}`} alt={title} loading="lazy" className="h-14 w-14 rounded object-cover" />
+    </a>
   );
 }
 

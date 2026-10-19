@@ -40,7 +40,22 @@ function Reorder({ index, count, onMove, onRemove, label }: { index: number; cou
   );
 }
 
-type EditableSection = { id?: string; title: string; questions: { id?: string; text: string; noteRequired: boolean }[] };
+type EditableQuestion = { id?: string; text: string; noteRequired: boolean; photoRequired?: boolean; photoOnly?: boolean };
+type EditableSection = { id?: string; title: string; questions: EditableQuestion[] };
+
+/** How a question is answered: an answer (photos optional), an answer plus a required photo, or a photo alone. */
+const KINDS = [
+  { value: "answer", label: "Answer (photo optional)" },
+  { value: "answer+photo", label: "Answer + required photo" },
+  { value: "photo", label: "Photo only" },
+] as const;
+const kindOf = (q: EditableQuestion) => (q.photoOnly ? "photo" : q.photoRequired ? "answer+photo" : "answer");
+const withKind = (q: EditableQuestion, kind: string): EditableQuestion => ({
+  ...q,
+  photoOnly: kind === "photo",
+  photoRequired: kind !== "answer",
+  noteRequired: kind === "photo" ? false : q.noteRequired,
+});
 
 export function TemplateEditor({
   template,
@@ -123,9 +138,24 @@ export function TemplateEditor({
                   className={field}
                   aria-label={`Question ${j + 1}`}
                 />
+                <select
+                  value={kindOf(q)}
+                  onChange={(e) =>
+                    setSection(i, { questions: section.questions.map((x, n) => (n === j ? withKind(x, e.target.value) : x)) })
+                  }
+                  className="shrink-0 rounded-lg border border-slate-300 bg-transparent px-2 py-2 text-xs dark:border-slate-700"
+                  aria-label={`How question ${j + 1} is answered`}
+                >
+                  {KINDS.map((k) => (
+                    <option key={k.value} value={k.value}>
+                      {k.label}
+                    </option>
+                  ))}
+                </select>
                 <label className="flex shrink-0 items-center gap-1 text-xs text-slate-600 dark:text-slate-400" title="Require a description when a defect is reported">
                   <input
                     type="checkbox"
+                    disabled={q.photoOnly}
                     checked={q.noteRequired}
                     onChange={(e) =>
                       setSection(i, { questions: section.questions.map((x, n) => (n === j ? { ...x, noteRequired: e.target.checked } : x)) })

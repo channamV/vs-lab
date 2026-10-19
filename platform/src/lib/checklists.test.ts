@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { alerts, checkins, checklistAnswerSets, checklistIssues, checklistTemplates, machines, organizations, users } from "@/lib/db/schema";
+import { alerts, checkinPhotos, checkins, checklistAnswerSets, checklistIssues, checklistTemplates, machines, organizations, users } from "@/lib/db/schema";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { raiseCheckinAlerts } from "@/lib/alerts";
+import { readPhoto } from "@/lib/photos";
 import { checkIn, createOperator } from "@/lib/operators";
 import {
   checklistForMachine,
@@ -167,7 +171,14 @@ describe("templates and answer sets", () => {
       sections: [{ title: "Exterior", questions: [{ text: "Tires and wheels" }, { text: "Lamps" }] }],
     });
     expect(pickup.sections).toEqual([
-      { id: "exterior", title: "Exterior", questions: [{ id: "tires_and_wheels", text: "Tires and wheels", noteRequired: false }, { id: "lamps", text: "Lamps", noteRequired: false }] },
+      {
+        id: "exterior",
+        title: "Exterior",
+        questions: [
+          { id: "tires_and_wheels", text: "Tires and wheels", noteRequired: false, photoRequired: false, photoOnly: false },
+          { id: "lamps", text: "Lamps", noteRequired: false, photoRequired: false, photoOnly: false },
+        ],
+      },
     ]);
     await setMachineTemplate(db, org, machineId, pickup.id);
     const result = await checkIn(db, { machineCode: "EXC14", pin: "1111", answers: { tires_and_wheels: "minor_defect", lamps: "ok" }, confirmed: true }, at(0));
@@ -218,5 +229,61 @@ describe("templates and answer sets", () => {
       { key: "pass", label: "Pass", severity: "pass", color: "#059669" },
       { key: "fail", label: "Fail", severity: "major", color: "#000000" },
     ]);
+  });
+});
+
+describe("photos", () => {
+  const sections = [
+    {
+      id: "walk",
+      title: "Walk-around",
+      questions: [
+        { id: "front", text: "Photo of front", noteRequired: false, photoOnly: true, photoRequired: true },
+        { id: "tires", text: "Tires", noteRequired: false, photoRequired: true },
+        { id: "horn", text: "Horn", noteRequired: false },
+      ],
+    },
+  ];
+  const options = [
+    { key: "ok", label: "OK", severity: "pass" as const, color: "#059669" },
+    { key: "bad", label: "Major defect", severity: "major" as const, color: "#dc2626" },
+  ];
+
+  it("needs required photos, and photo-only steps need no answer", () => {
+    const answers = { tires: "ok", horn: "ok" };
+    expect(evaluateAnswers(sections, options, { answers, photoCounts: { tires: 1 } })).toMatchObject({
+      ok: false,
+      reason: "photo-required",
+      questions: ["Photo of front"],
+    });
+    const ok = evaluateAnswers(sections, options, { answers, photoCounts: { front: 1, tires: 2 } });
+    expect(ok).toMatchObject({ ok: true, answers: [{ id: "front", photoOnly: true, answer: "Photo taken", ok: true }, { id: "tires" }, { id: "horn" }] });
+    // Without photo storage, required photos aren't enforced (so check-ins still work).
+    expect(evaluateAnswers(sections, options, { answers, enforcePhotos: false })).toMatchObject({ ok: true });
+  });
+
+  it("stores photos with the check-in, only for the machine's checklist questions", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "vslab-photos-"));
+    process.env.PHOTO_DIR = dir;
+    try {
+      const jpeg = { contentType: "image/jpeg", data: new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3]) };
+      expect(await checkInWith({}, { photos: [{ ...jpeg, questionId: "not-a-question" }] })).toEqual({ ok: false, reason: "photo-invalid" });
+      expect(await checkInWith({}, { photos: [{ questionId: "seatbelt", contentType: "text/html", data: new Uint8Array([1]) }] })).toEqual({ ok: false, reason: "photo-invalid" });
+      const four = Array.from({ length: 4 }, () => ({ ...jpeg, questionId: "seatbelt" }));
+      expect(await checkInWith({}, { photos: four })).toEqual({ ok: false, reason: "photo-invalid" });
+
+      const result = await checkInWith({ seatbelt: "service_soon" }, { photos: [{ ...jpeg, questionId: "seatbelt" }, { ...jpeg, questionId: "lights" }] });
+      expect(result).toMatchObject({ ok: true });
+      const rows = await db.select().from(checkinPhotos).orderBy(checkinPhotos.id);
+      expect(rows.map((r) => [r.questionId, r.contentType, r.bytes])).toEqual([
+        ["seatbelt", "image/jpeg", 6],
+        ["lights", "image/jpeg", 6],
+      ]);
+      expect(await readPhoto(rows[0].storageKey)).toEqual(jpeg.data);
+      expect(rows[0].storageKey).toMatch(/^org-\d+\/\d{4}-\d{2}-\d{2}\/[0-9a-f]{24}\.jpg$/);
+    } finally {
+      delete process.env.PHOTO_DIR;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

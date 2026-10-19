@@ -8,8 +8,10 @@ import {
   machineOperators,
   operators,
   pinFailures,
+  checkinPhotos,
 } from "@/lib/db/schema";
 import { checklistForMachine, evaluateAnswers, recordIssues } from "@/lib/checklists";
+import { PHOTO_RULES, photoStorageAvailable, savePhoto, type PhotoFile } from "@/lib/photos";
 import { effectiveEnd, type SessionSpan } from "@/lib/telemetry/engine";
 
 /**
@@ -341,6 +343,8 @@ export type CheckinFailure =
   | "bad-pin"
   | "incomplete"
   | "note-required"
+  | "photo-required"
+  | "photo-invalid"
   | "not-confirmed"
   | "machine-locked-out"
   | "not-checked-in";
@@ -386,6 +390,8 @@ export async function checkIn(
     confirmed: boolean;
     /** After a major defect: lock the machine out for repair. */
     lockout?: boolean;
+    /** Photos attached to checklist questions (already shrunk by the phone). */
+    photos?: PhotoFile[];
     phoneLocation?: PhoneLocation | null;
   },
   now = new Date(),
@@ -410,12 +416,35 @@ export async function checkIn(
   if (!operator) return { ok: false, reason: "bad-pin" };
 
   const { template, options } = await checklistForMachine(db, machine);
-  const evaluation = evaluateAnswers(template.sections, options, { answers: input.answers, notes: input.answerNotes });
+  // Photos: only for this checklist's questions, a few per question, real images of a sensible size.
+  const photos = input.photos ?? [];
+  const questionIds = new Set(template.sections.flatMap((sec) => sec.questions.map((q) => q.id)));
+  const photoCounts: Record<string, number> = {};
+  for (const p of photos) photoCounts[p.questionId] = (photoCounts[p.questionId] ?? 0) + 1;
+  const totalBytes = photos.reduce((n, p) => n + p.data.byteLength, 0);
+  if (
+    photos.some((p) => !questionIds.has(p.questionId) || !PHOTO_RULES.types.includes(p.contentType) || p.data.byteLength > PHOTO_RULES.maxBytes) ||
+    Object.values(photoCounts).some((n) => n > PHOTO_RULES.maxPerQuestion) ||
+    totalBytes > PHOTO_RULES.maxTotalBytes ||
+    (photos.length > 0 && !photoStorageAvailable())
+  ) {
+    return { ok: false, reason: "photo-invalid" };
+  }
+  const evaluation = evaluateAnswers(template.sections, options, {
+    answers: input.answers,
+    notes: input.answerNotes,
+    photoCounts,
+    enforcePhotos: photoStorageAvailable(),
+  });
   if (!evaluation.ok) return { ok: false, reason: evaluation.reason, questions: evaluation.questions };
   const { answers, defects } = evaluation;
   const lockout = Boolean(input.lockout) && evaluation.hasMajor;
   if (!lockout && !input.confirmed) return { ok: false, reason: "not-confirmed" };
   const failedItems = defects.map((d) => `${d.question} (${d.answerLabel})`);
+  // Store the photos before saving the check-in (a failed upload then doesn't leave a check-in without them).
+  const stored = await Promise.all(
+    photos.map(async (p) => ({ ...p, storageKey: await savePhoto(organizationId, p) })),
+  );
 
   const allowed = await db
     .select({ operatorId: machineOperators.operatorId })
@@ -476,6 +505,20 @@ export async function checkIn(
         method: "web",
       })
       .returning({ id: checkins.id });
+    if (stored.length) {
+      await tx.insert(checkinPhotos).values(
+        stored.map((p) => ({
+          organizationId,
+          machineId: machine.id,
+          checkinId: row.id,
+          questionId: p.questionId,
+          storageKey: p.storageKey,
+          contentType: p.contentType,
+          bytes: p.data.byteLength,
+          takenAt: now,
+        })),
+      );
+    }
     await recordIssues(tx, { organizationId, machineId: machine.id, checkinId: row.id, defects, now });
     if (lockout) {
       const major = defects.filter((d) => d.severity === "major").map((d) => d.question);

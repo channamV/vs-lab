@@ -44,7 +44,84 @@ function getPhoneLocation(): Promise<GeolocationPosition | null> {
   });
 }
 
-export type PublicChecklist = { sections: ChecklistSection[]; options: AnswerOption[]; confirmationText: string };
+export type PublicChecklist = { sections: ChecklistSection[]; options: AnswerOption[]; confirmationText: string; photosEnabled: boolean };
+
+const MAX_PHOTOS_PER_QUESTION = 3;
+
+/**
+ * Shrinks a photo on the phone before it's sent (phones take 3–8 MB pictures; a check-in can only send
+ * about 4 MB in total): longest side 1280 px, JPEG. Falls back to the original if the browser can't.
+ */
+async function shrinkPhoto(file: File): Promise<File> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.75));
+    return blob ? new File([blob], "photo.jpg", { type: "image/jpeg" }) : file;
+  } catch {
+    return file;
+  }
+}
+
+function PhotoPicker({
+  required,
+  photos,
+  onChange,
+  big,
+}: {
+  required: boolean;
+  photos: { file: File; url: string }[];
+  onChange: (photos: { file: File; url: string }[]) => void;
+  big?: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {photos.map((p, i) => (
+        <div key={p.url} className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element -- a local preview, not a page image */}
+          <img src={p.url} alt={`Photo ${i + 1}`} className="h-16 w-16 rounded object-cover" />
+          <button
+            type="button"
+            onClick={() => onChange(photos.filter((_, n) => n !== i))}
+            className="absolute -right-1.5 -top-1.5 h-6 w-6 rounded-full bg-slate-800 text-xs text-white"
+            aria-label={`Remove photo ${i + 1}`}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      {photos.length < MAX_PHOTOS_PER_QUESTION && (
+        <label
+          className={`flex cursor-pointer items-center gap-2 rounded border-2 border-dashed px-3 ${big ? "py-4 text-base" : "py-1.5 text-sm"} ${
+            required && photos.length === 0 ? "border-sky-600 text-sky-700 dark:text-sky-400" : "border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-400"
+          }`}
+        >
+          📷 {busy ? "Preparing…" : photos.length ? "Add another" : required ? "Take photo (required)" : "Add photo"}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="sr-only"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              setBusy(true);
+              const small = await shrinkPhoto(file);
+              setBusy(false);
+              onChange([...photos, { file: small, url: URL.createObjectURL(small) }]);
+            }}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
 
 /**
  * PIN, the machine's checklist, notes, then (after a major defect) whether to lock the machine out,
@@ -58,11 +135,24 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
   const [generalNotes, setGeneralNotes] = useState("");
   const [lockout, setLockout] = useState<"yes" | "no" | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const [photos, setPhotos] = useState<Record<string, { file: File; url: string }[]>>({});
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   // Get the phone's location first, then submit it with the form.
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const missing = checklist.photosEnabled
+      ? checklist.sections.flatMap((s) => s.questions).filter((q) => (q.photoRequired || q.photoOnly) && !photos[q.id]?.length)
+      : [];
+    if (missing.length) {
+      setPhotoError(`Take the required photo${missing.length > 1 ? "s" : ""}: ${missing.map((q) => q.text).join("; ")}`);
+      return;
+    }
+    setPhotoError(null);
     const formData = new FormData(event.currentTarget);
+    for (const [questionId, list] of Object.entries(photos)) {
+      for (const p of list) formData.append(`photo:${questionId}`, p.file, p.file.name);
+    }
     setLocating(true);
     const position = await getPhoneLocation();
     setLocating(false);
@@ -156,6 +246,25 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
             {section.questions.map((q) => {
               const chosen = checklist.options.find((o) => o.key === answers[q.id]);
               const defect = chosen?.severity === "minor" || chosen?.severity === "major";
+              const picker = checklist.photosEnabled && (
+                <PhotoPicker
+                  required={Boolean(q.photoRequired || q.photoOnly)}
+                  big={q.photoOnly}
+                  photos={photos[q.id] ?? []}
+                  onChange={(list) => {
+                    setPhotos((all) => ({ ...all, [q.id]: list }));
+                    setPhotoError(null);
+                  }}
+                />
+              );
+              if (q.photoOnly) {
+                return (
+                  <div key={q.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                    <p>{q.text}</p>
+                    {picker}
+                  </div>
+                );
+              }
               return (
                 <div key={q.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
                   <p>{q.text}</p>
@@ -190,6 +299,7 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
                       className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
                     />
                   )}
+                  {picker}
                 </div>
               );
             })}
@@ -241,6 +351,7 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
         </label>
       )}
 
+      {photoError && <p className="rounded bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950 dark:text-red-300">{photoError}</p>}
       <ErrorMessage state={state} />
       <button disabled={pending || locating} className={lockingOut ? `${buttonClass} bg-red-700 hover:bg-red-800` : buttonClass}>
         {locating ? "Getting your location…" : pending ? "Sending…" : lockingOut ? "Lock out machine" : "Check in"}

@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",
+    "@vercel/blob": "^2.8.2",
     "drizzle-orm": "^0.45.4",
     "leaflet": "^1.9.4",
     "next": "16.4.1",

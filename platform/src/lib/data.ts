@@ -5,6 +5,7 @@ import { cache } from "react";
 import { getDb } from "@/lib/db";
 import {
   alerts,
+  checkinPhotos,
   checkins,
   checklistAnswerSets,
   checklistIssues,
@@ -350,7 +351,15 @@ export async function recentCheckins(machineId: number, limit = 10) {
     .where(and(eq(checkins.machineId, machineId), eq(checkins.organizationId, auth.organizationId)))
     .orderBy(desc(checkins.startedAt))
     .limit(limit);
-  return withEngine(rows);
+  const photos = rows.length
+    ? await getDb()
+        .select({ id: checkinPhotos.id, checkinId: checkinPhotos.checkinId, questionId: checkinPhotos.questionId })
+        .from(checkinPhotos)
+        .where(inArray(checkinPhotos.checkinId, rows.map((r) => r.id)))
+        .orderBy(checkinPhotos.id)
+    : [];
+  const byCheckin = Map.groupBy(photos, (p) => p.checkinId);
+  return (await withEngine(rows)).map((r) => ({ ...r, photos: byCheckin.get(r.id) ?? [] }));
 }
 
 // ---------- Alerts ----------
@@ -500,7 +509,25 @@ export async function machineChecklist(machineId: number) {
       .orderBy(sql`${checklistIssues.resolvedAt} is not null`, desc(checklistIssues.lastReportedAt))
       .limit(30),
   ]);
-  return { templates, issues };
+  // Photos of each issue's item, taken while it was being reported.
+  const photos = issues.length
+    ? await db
+        .select({ id: checkinPhotos.id, questionId: checkinPhotos.questionId, takenAt: checkinPhotos.takenAt })
+        .from(checkinPhotos)
+        .where(and(eq(checkinPhotos.machineId, machineId), inArray(checkinPhotos.questionId, [...new Set(issues.map((i) => i.questionId))])))
+        .orderBy(desc(checkinPhotos.takenAt))
+        .limit(200)
+    : [];
+  return {
+    templates,
+    issues: issues.map((issue) => ({
+      ...issue,
+      photoIds: photos
+        .filter((p) => p.questionId === issue.questionId && p.takenAt >= issue.firstReportedAt && p.takenAt <= issue.lastReportedAt)
+        .slice(0, 6)
+        .map((p) => p.id),
+    })),
+  };
 }
 
 // ---------- Alert subscriptions ----------

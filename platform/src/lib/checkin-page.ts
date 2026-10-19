@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { checkins, engineSessions, machines, operators } from "@/lib/db/schema";
 import { isCheckinCurrent } from "@/lib/operators";
 import { checklistForMachine } from "@/lib/checklists";
+import { photoStorageAvailable } from "@/lib/photos";
 
 /**
  * Data for the PUBLIC check-in page (/checkin/<machine>), which operators open by scanning the
@@ -45,6 +46,6 @@ export async function getCheckinMachine(code: string) {
     unitNumber: machine.unitNumber,
     lockedOut: machine.lockedOutAt !== null,
     current,
-    checklist: { sections: template.sections, options, confirmationText: template.confirmationText },
+    checklist: { sections: template.sections, options, confirmationText: template.confirmationText, photosEnabled: photoStorageAvailable() },
   };
 }

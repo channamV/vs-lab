@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   // PGlite ships WebAssembly files that must be loaded from node_modules, not bundled.
   serverExternalPackages: ["@electric-sql/pglite"],
+  experimental: {
+    // Check-ins carry checklist photos (shrunk on the phone; see PHOTO_RULES in src/lib/photos.ts).
+    // Vercel accepts requests up to 4.5 MB.
+    serverActions: { bodySizeLimit: "4mb" },
+  },
   turbopack: {
     rules: {
       "*.css": {

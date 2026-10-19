@@ -103,6 +103,12 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   Defects → `checklist_issues` (one open per machine+question; repeats stack, escalation re-alerts via
   `alert_checkin_id`); minor and major both raise "Repair needed". Major + operator's choice → machine
   `locked_out_at` (no check-ins until a manager clears it) + `equipment_locked` notification.
+- Checklist photos (`src/lib/photos.ts`, tested): questions have `photoRequired` / `photoOnly` (missing = false).
+  The phone shrinks photos (CheckinForms.tsx) and sends them with the check-in action as `photo:<questionId>`
+  files (server action body limit 4mb in next.config.ts; Vercel caps requests at 4.5 MB). `checkIn` validates
+  (`PHOTO_RULES`), stores them in the private Vercel Blob store (`BLOB_READ_WRITE_TOKEN`; local `.data/photos`
+  without it) and records `checkin_photos` (with an `analysis` slot for future AI). Photos are only served by
+  `/photos/<id>` (session + `canSeeMachine`).
 - Check-ins follow the engine (Craig's rule, 2026-10-17): start within 5 min → the check-in is linked to that
   engine session (`checkins.engine_session_id`); engine stops (after a break allowance by check-in
   `method`: web 30 min, ble 0, `CHECKIN_RULES.breakMinutes`) or no start → automatic check-out, recorded at

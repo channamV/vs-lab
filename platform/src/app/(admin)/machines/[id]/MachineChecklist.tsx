@@ -98,6 +98,16 @@ export async function MachineChecklist({ machine, auth, timeZone, now }: { machi
                     </>
                   )}
                 </div>
+                {i.photoIds.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {i.photoIds.map((id) => (
+                      <a key={id} href={`/photos/${id}`} target="_blank" rel="noreferrer">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- private photo served by /photos/<id> */}
+                        <img src={`/photos/${id}`} alt={i.question} loading="lazy" className="h-14 w-14 rounded object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
               {canManage && (
                 <form action={resolveIssueAction} className="flex items-center gap-2">

@@ -33,10 +33,30 @@ exactly as they were at the time.
 Only managers and owners who see the whole company can change checklists (a manager limited to a division can
 still choose which checklist each of their machines uses).
 
+## Photos
+
+Operators can attach up to **3 photos to any question** (the 📷 button opens the phone's camera). In the checklist
+editor, each question is one of:
+
+| Type | The operator… |
+|---|---|
+| **Answer (photo optional)** | answers it; photos are optional |
+| **Answer + required photo** | answers it and must take at least one photo |
+| **Photo only** | just takes the photo, e.g. "Photo of front", "Photo of left side" (no answer) |
+
+- Photos are shrunk on the phone (to about 0.1–0.2 MB) before they're sent, so a check-in with many photos still
+  goes through on a weak signal. A check-in can carry about 4 MB of photos in total.
+- They're stored **privately** (Vercel Blob store *vs-lab-photos*, connected to the project). They're only
+  visible to signed-in people of the company who can see the machine: thumbnails in the machine's check-in history
+  (click "📷 3" on a check-in) and on each issue under *Checklist and issues*; click one to see it full size.
+- Each photo has space reserved for a future AI review (e.g. spotting damage the operator didn't report).
+- On your own computer, photos are saved in `platform/.data/photos`.
+
 ## What the operator sees
 
-The machine's checklist, section by section, with the answer buttons in their colours. For a defect they can add
-a description (required where the checklist says so). Then:
+The machine's checklist, section by section, with the answer buttons in their colours and a 📷 button on each
+question (required photos are marked). For a defect they can add a description (required where the checklist says
+so). Then:
 - **Major defect** → the lockout question. **Yes** locks the machine out (see below) instead of checking in.
   **No** carries on.
 - The **final confirmation** must be ticked to check in (not needed when locking out).

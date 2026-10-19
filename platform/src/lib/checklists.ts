@@ -132,13 +132,20 @@ export async function checklistForMachine(db: Db, machine: { organizationId: num
 
 // ---------- Answering ----------
 
-export type AnswerInput = { answers: Record<string, string | undefined>; notes?: Record<string, string | undefined> };
+export type AnswerInput = {
+  answers: Record<string, string | undefined>;
+  notes?: Record<string, string | undefined>;
+  /** How many photos the operator attached to each question. */
+  photoCounts?: Record<string, number | undefined>;
+  /** False when photo storage isn't available: required photos then aren't enforced. */
+  enforcePhotos?: boolean;
+};
 
 export type Defect = { questionId: string; question: string; section: string; severity: "minor" | "major"; answerLabel: string; note: string | null };
 
 export type Evaluation =
   | { ok: true; answers: ChecklistAnswer[]; defects: Defect[]; hasMajor: boolean }
-  | { ok: false; reason: "incomplete" | "note-required"; questions: string[] };
+  | { ok: false; reason: "incomplete" | "note-required" | "photo-required"; questions: string[] };
 
 /**
  * Checks an operator's answers against the template: every question answered with one of the set's
@@ -151,8 +158,17 @@ export function evaluateAnswers(sections: ChecklistSection[], options: AnswerOpt
   const defects: Defect[] = [];
   const missing: string[] = [];
   const needNote: string[] = [];
+  const needPhoto: string[] = [];
+  const enforcePhotos = input.enforcePhotos ?? true;
   for (const section of sections) {
     for (const q of section.questions) {
+      const photos = input.photoCounts?.[q.id] ?? 0;
+      if ((q.photoRequired || q.photoOnly) && photos === 0 && enforcePhotos) needPhoto.push(q.text);
+      if (q.photoOnly) {
+        // A photo step: the photo is the answer.
+        answers.push({ id: q.id, question: q.text, section: section.title, answer: photos ? "Photo taken" : "No photo", severity: "pass", ok: true, photoOnly: true });
+        continue;
+      }
       const option = byKey.get(input.answers[q.id] ?? "");
       if (!option) {
         missing.push(q.text);
@@ -177,6 +193,7 @@ export function evaluateAnswers(sections: ChecklistSection[], options: AnswerOpt
   }
   if (missing.length) return { ok: false, reason: "incomplete", questions: missing };
   if (needNote.length) return { ok: false, reason: "note-required", questions: needNote };
+  if (needPhoto.length) return { ok: false, reason: "photo-required", questions: needPhoto };
   return { ok: true, answers, defects, hasMajor: defects.some((d) => d.severity === "major") };
 }
 
@@ -270,7 +287,7 @@ export type TemplateInput = {
   name: string;
   answerSetId: number;
   confirmationText: string;
-  sections: { id?: string; title: string; questions: { id?: string; text: string; noteRequired?: boolean }[] }[];
+  sections: { id?: string; title: string; questions: { id?: string; text: string; noteRequired?: boolean; photoRequired?: boolean; photoOnly?: boolean }[] }[];
 };
 
 async function cleanTemplate(db: Db, organizationId: number, input: TemplateInput, exceptId?: number) {
@@ -304,7 +321,14 @@ async function cleanTemplate(db: Db, organizationId: number, input: TemplateInpu
         const keep = q.id && ID.test(q.id) && !seen.has(q.id);
         const id = keep ? q.id! : slug(q.text, questionIds);
         seen.add(id);
-        return { id, text: q.text, noteRequired: Boolean(q.noteRequired) };
+        const photoOnly = Boolean(q.photoOnly);
+        return {
+          id,
+          text: q.text,
+          noteRequired: photoOnly ? false : Boolean(q.noteRequired),
+          photoRequired: photoOnly || Boolean(q.photoRequired),
+          photoOnly,
+        };
       });
     if (questions.length === 0) continue;
     if (!title) throw new ChecklistError("Every section needs a title.");

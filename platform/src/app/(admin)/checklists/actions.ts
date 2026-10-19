@@ -35,7 +35,17 @@ const TemplateJson = z.object({
       z.object({
         id: z.string().max(60).optional(),
         title: z.string().max(200),
-        questions: z.array(z.object({ id: z.string().max(60).optional(), text: z.string().max(600), noteRequired: z.boolean() })).max(200),
+        questions: z
+          .array(
+            z.object({
+              id: z.string().max(60).optional(),
+              text: z.string().max(600),
+              noteRequired: z.boolean(),
+              photoRequired: z.boolean().optional(),
+              photoOnly: z.boolean().optional(),
+            }),
+          )
+          .max(200),
       }),
     )
     .max(50),

@@ -27,6 +27,9 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
    - `ALERT_EMAIL_FROM` = e.g. `VS Lab <alerts@veristart.ai>` (a domain verified in Resend)
    - `DEVICE_AUTO_REGISTER` = `true` for now: new devices appear in *Veristart stock* on the Platform page until staff pair them with a machine
    - `APP_TIMEZONE` (optional) = the time zone for daily engine hours, e.g. `America/Toronto` (the default)
+   - `BLOB_READ_WRITE_TOKEN` = set automatically when a **private Blob store** is connected to the project
+     (Vercel → Storage → Create → Blob, access *Private*). Needed for checklist photos; without it, photo buttons are
+     hidden and required photos aren't enforced. (VS Lab's store is *vs-lab-photos*.)
    - `ALERT_EMAIL_TO` (optional) = addresses that get every organization's alerts
 5. **Deploy:** *Deployments* → *Redeploy*. When it finishes, open the address Vercel shows
    (e.g. `vs-lab-xyz.vercel.app`) and sign in.

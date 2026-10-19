@@ -371,7 +371,13 @@ export const machineOperators = pgTable(
 export const SEVERITIES = ["pass", "minor", "major", "na"] as const;
 export type Severity = (typeof SEVERITIES)[number];
 export type AnswerOption = { key: string; label: string; severity: Severity; color: string };
-export type ChecklistSection = { id: string; title: string; questions: { id: string; text: string; noteRequired: boolean }[] };
+/**
+ * A checklist question. Operators can attach photos to any question; `photoRequired` makes one compulsory,
+ * and `photoOnly` makes the photo the whole step (no answer, e.g. "Photo of front"; implies required).
+ * Older templates don't have the photo fields: treat missing as false.
+ */
+export type ChecklistQuestion = { id: string; text: string; noteRequired: boolean; photoRequired?: boolean; photoOnly?: boolean };
+export type ChecklistSection = { id: string; title: string; questions: ChecklistQuestion[] };
 
 /**
  * One answer as recorded on a check-in, with the question and answer as they were at the time.
@@ -385,6 +391,8 @@ export type ChecklistAnswer = {
   answer?: string;
   severity?: Severity;
   note?: string;
+  /** A photo-only step (the answer is the photo). */
+  photoOnly?: boolean;
 };
 
 /** The answers operators choose from (e.g. OK / Minor defect / Major defect / Not applicable). One set per template. */
@@ -676,7 +684,38 @@ export const checklistIssues = pgTable(
   ],
 );
 
+/**
+ * Photos taken during a check-in, one row per photo, attached to a checklist question. The file is in
+ * private storage (Vercel Blob, or a local folder in development: src/lib/photos.ts) and is only served
+ * to signed-in users who can see the machine.
+ */
+export const checkinPhotos = pgTable(
+  "checkin_photos",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    checkinId: bigint("checkin_id", { mode: "number" })
+      .notNull()
+      .references(() => checkins.id, { onDelete: "cascade" }),
+    questionId: text("question_id").notNull(),
+    /** Where the file is, inside the photo storage. */
+    storageKey: text("storage_key").notNull(),
+    contentType: text("content_type").notNull(),
+    bytes: integer("bytes").notNull(),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull(),
+    /** For a future AI review of the photo (e.g. damage found). Null = not analysed. */
+    analysis: jsonb("analysis"),
+  },
+  (t) => [index("checkin_photos_checkin_idx").on(t.checkinId), index("checkin_photos_machine_question_idx").on(t.machineId, t.questionId)],
+);
+
 export type Organization = typeof organizations.$inferSelect;
+export type CheckinPhoto = typeof checkinPhotos.$inferSelect;
 export type ChecklistTemplate = typeof checklistTemplates.$inferSelect;
 export type ChecklistAnswerSet = typeof checklistAnswerSets.$inferSelect;
 export type ChecklistIssue = typeof checklistIssues.$inferSelect;
