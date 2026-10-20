@@ -56,6 +56,15 @@ export const EVENT_TYPES = {
   operator_assigned: { label: "Operator Assigned", description: "An operator was added to a machine's approved list." },
   operator_revoked: { label: "Operator Revoked", description: "An operator was removed from a machine's approved list." },
   equipment_locked: { label: "Equipment Locked", description: "An operator locked a machine out for repair after reporting a major defect." },
+  equipment_offline: {
+    label: "Equipment Connectivity Status",
+    description: "A tracking device went quiet for longer than expected (with how concerning that is), or came back online.",
+  },
+  possible_tamper: {
+    label: "Possible Tamper",
+    description:
+      "Medium or high concern: a device stopped reporting unexpectedly, restarted without signing off, came back somewhere else, or reported a different vehicle.",
+  },
 } as const;
 
 export type EventType = keyof typeof EVENT_TYPES;
@@ -64,7 +73,6 @@ export type EventType = keyof typeof EVENT_TYPES;
 export const LATER_EVENT_TYPES = [
   "Unauthorized Machine Movement",
   "Switched to Battery Power",
-  "Equipment Connectivity Status",
   "Equipment Removed",
   "Equipment Unlock / Operator Bypass",
   "Equipment Access Control",
@@ -76,9 +84,11 @@ export const ALERT_EVENT: Record<AlertType, EventType> = {
   "checklist-failed": "checklist_repair",
   "not-approved": "operator_not_approved",
   "not-at-machine": "not_at_machine",
+  tamper: "possible_tamper",
+  "tamper-escalated": "possible_tamper",
 };
 
-export const ALERT_EVENT_TYPES = Object.values(ALERT_EVENT);
+export const ALERT_EVENT_TYPES = [...new Set(Object.values(ALERT_EVENT))];
 
 export const CHANNELS = { email: "Email" } as const;
 

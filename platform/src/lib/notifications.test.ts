@@ -133,7 +133,7 @@ describe("rules", () => {
   it("gives new owners and managers an 'All alerts' rule; viewers none", async () => {
     const manager = await addUser(db, org, { email: "m@abc.com", role: "manager" });
     const viewer = await addUser(db, org, { email: "v@abc.com", role: "viewer" });
-    expect((await listRules(db, org, manager.id)).map((r) => [r.name, r.eventTypes.length])).toEqual([["All alerts", 4]]);
+    expect((await listRules(db, org, manager.id)).map((r) => [r.name, r.eventTypes.length])).toEqual([["All alerts", 5]]);
     expect(await listRules(db, org, viewer.id)).toEqual([]);
   });
 });

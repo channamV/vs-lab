@@ -113,6 +113,13 @@
       "when": 1792442150306,
       "tag": "0015_checkin_photos",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792489196879,
+      "tag": "0016_device_incidents",
+      "breakpoints": true
     }
   ]
 }

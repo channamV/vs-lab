@@ -4,7 +4,7 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { FleetMap, type MapMarker } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EngineBadge } from "@/components/EngineBadge";
-import { connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, requestTime } from "@/lib/data";
+import { connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, quietMachines, requestTime } from "@/lib/data";
 import { isArmed, isMonitored } from "@/lib/alerts";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, fmt, formatHours, machineLabel, TIER_LABELS, timeAgo } from "@/lib/format";
@@ -41,12 +41,13 @@ async function AddMachineLink() {
 }
 
 async function FleetOverview() {
-  const [machines, now, hoursToday, checkedIn, alerts] = await Promise.all([
+  const [machines, now, hoursToday, checkedIn, alerts, quiet] = await Promise.all([
     listMachines(),
     requestTime(),
     engineHoursToday(),
     currentCheckins(),
     openAlerts(),
+    quietMachines(),
   ]);
   const tz = appTimeZone();
 
@@ -124,6 +125,21 @@ async function FleetOverview() {
                     <div className="mb-1">
                       <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/50 dark:text-red-300">
                         🔒 Locked out
+                      </span>
+                    </div>
+                  )}
+                  {quiet.has(d.id) && (
+                    <div className="mb-1">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          quiet.get(d.id) === "high"
+                            ? "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300"
+                            : quiet.get(d.id) === "medium"
+                              ? "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
+                              : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        }`}
+                      >
+                        ⚠ Device quiet ({quiet.get(d.id)})
                       </span>
                     </div>
                   )}

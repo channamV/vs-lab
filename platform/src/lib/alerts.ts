@@ -20,6 +20,9 @@ export const ALERT_LABELS = {
   "checklist-failed": "Repair needed",
   "not-approved": "Operator not approved",
   "not-at-machine": "Not confirmed at machine",
+  /** Raised by the tamper watchdog (src/lib/tamper.ts); escalated = the same incident became high concern. */
+  tamper: "Possible tamper",
+  "tamper-escalated": "Possible tamper (escalated)",
 } as const;
 
 export type AlertType = keyof typeof ALERT_LABELS;

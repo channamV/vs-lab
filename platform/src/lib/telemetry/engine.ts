@@ -70,6 +70,11 @@ export function appTimeZone(): string {
   return process.env.APP_TIMEZONE || "America/Toronto";
 }
 
+/** The hour of the day (0–23) at `at` in the given time zone. */
+export function localHour(at: Date, timeZone: string): number {
+  return partsInZone(at.getTime(), timeZone).h;
+}
+
 function partsInZone(ms: number, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,

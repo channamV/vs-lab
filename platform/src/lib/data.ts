@@ -12,6 +12,7 @@ import {
   checklistTemplates,
   deviceAssignments,
   deviceEvents,
+  deviceIncidents,
   devices,
   divisions,
   engineSessions,
@@ -528,6 +529,30 @@ export async function machineChecklist(machineId: number) {
         .map((p) => p.id),
     })),
   };
+}
+
+// ---------- Tamper / connectivity ----------
+
+/** A machine's recent device incidents (quiet spells, power cuts, moved while quiet…), newest first. */
+export async function machineIncidents(machineId: number, limit = 10) {
+  await requireMachine(machineId);
+  return getDb()
+    .select()
+    .from(deviceIncidents)
+    .where(eq(deviceIncidents.machineId, machineId))
+    .orderBy(desc(deviceIncidents.openedAt))
+    .limit(limit);
+}
+
+/** Machines whose device is quiet right now (open incidents), keyed by machine ID, for the Fleet page. */
+export async function quietMachines() {
+  const auth = await requireSession();
+  const rows = await getDb()
+    .select({ machineId: deviceIncidents.machineId, concern: deviceIncidents.concern })
+    .from(deviceIncidents)
+    .innerJoin(machines, eq(machines.id, deviceIncidents.machineId))
+    .where(and(machineScope(auth), eq(deviceIncidents.kind, "silent"), isNull(deviceIncidents.resolvedAt)));
+  return new Map(rows.map((r) => [r.machineId, r.concern]));
 }
 
 // ---------- Alert subscriptions ----------

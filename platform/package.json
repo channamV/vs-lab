@@ -13,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "simulate": "tsx scripts/simulate.ts",
-    "demo:seed": "tsx scripts/seed-demo.ts"
+    "demo:seed": "tsx scripts/seed-demo.ts",
+    "watchdog": "tsx scripts/watchdog.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

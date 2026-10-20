@@ -7,6 +7,7 @@ import { checkins } from "@/lib/db/schema";
 import { deliverAlerts, processEvents, recordEvent } from "@/lib/notifications";
 import { syncCheckins } from "@/lib/operators";
 import { pairedMachineId } from "@/lib/telemetry/ingest";
+import { notifyIncidents, watchdog } from "@/lib/tamper";
 
 /**
  * Runs alert rules after the response has been sent, so devices and operators never wait on them
@@ -23,7 +24,9 @@ export function afterDeviceReport(deviceId: string) {
       // First link/end check-ins to match the engine (automatic check-out), then check for unauthorized use.
       await syncCheckins(db, machineId);
       await deliverAlerts(db, await checkUnauthorizedUse(db, machineId));
-      // Engine starts/stops recorded by this report (operator filled in from the synced check-in).
+      // Tamper: quiet spell ended, moved while quiet, different vehicle, power interrupted.
+      await deliverAlerts(db, await notifyIncidents(db, { machineId }));
+      // Engine starts/stops and connectivity changes recorded by this report.
       await processEvents(db, { machineId });
     } catch (err) {
       console.error("Check-in sync / unauthorized-use check failed", deviceId, err);
@@ -65,4 +68,15 @@ export function afterEvents(eventIds: (number | null)[]) {
       console.error("Notifications failed", ids, err);
     }
   });
+}
+
+/** The tamper watchdog (every 5 minutes, from Vercel Cron): find quiet devices, then alert and notify. */
+export async function runWatchdog(now = new Date()) {
+  const db = getDb();
+  const result = await watchdog(db, now);
+  const raised = await notifyIncidents(db, {}, now);
+  await deliverAlerts(db, raised);
+  // Connectivity notifications for every machine with something pending.
+  await processEvents(db, {}, now);
+  return { ...result, alerts: raised.length };
 }

@@ -34,6 +34,7 @@ import { endCheckinAction, setAllowedOperators, setArming } from "./actions";
 import { unpairDeviceAction } from "../actions";
 import { EditMachineForm, PairDeviceForm } from "../MachineForms";
 import { LockoutBanner, MachineChecklist } from "./MachineChecklist";
+import { Connectivity } from "./Connectivity";
 import { AlertList } from "../../alerts/AlertList";
 import { ALERT_RULES, isArmed, isMonitored } from "@/lib/alerts";
 
@@ -401,6 +402,7 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
+        <Connectivity machineId={machine.id} timeZone={tz} now={now} />
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="font-semibold">Latest data</h2>
           {latest ? (

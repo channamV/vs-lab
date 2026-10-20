@@ -535,6 +535,8 @@ export const alerts = pgTable(
       onDelete: "set null",
     }),
     checkinId: bigint("checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
+    /** For tamper alerts: the incident (one alert when it opens, one more if it escalates to high). */
+    incidentId: bigint("incident_id", { mode: "number" }),
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
     ackNote: text("ack_note"),
     /** sent, failed or not-configured (no email settings yet). Null while sending. */
@@ -546,6 +548,7 @@ export const alerts = pgTable(
     index("alerts_machine_created_idx").on(t.machineId, t.createdAt),
     uniqueIndex("alerts_one_per_engine_session_idx").on(t.type, t.engineSessionId),
     uniqueIndex("alerts_one_per_checkin_idx").on(t.type, t.checkinId),
+    uniqueIndex("alerts_one_per_incident_idx").on(t.type, t.incidentId),
   ],
 );
 
@@ -714,7 +717,60 @@ export const checkinPhotos = pgTable(
   (t) => [index("checkin_photos_checkin_idx").on(t.checkinId), index("checkin_photos_machine_question_idx").on(t.machineId, t.questionId)],
 );
 
+/**
+ * Possible tampering or connectivity problems with a machine's tracking device, found by the watchdog
+ * (src/lib/tamper.ts): a device that went quiet, came back somewhere else, came back reporting a different
+ * vehicle, or restarted without signing off (power cut). Each has a concern level and the reasons for it.
+ */
+export const deviceIncidents = pgTable(
+  "device_incidents",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    /** silent, moved-while-silent, vin-changed, power-interrupted */
+    kind: text("kind").notNull(),
+    /** low, medium, high */
+    concern: text("concern").notNull(),
+    /** Plain-language reasons for the concern level. */
+    reasons: text("reasons").array().notNull(),
+    /** The device's state when it was last heard from. */
+    lastContactAt: timestamp("last_contact_at", { withTimezone: true }).notNull(),
+    lastRssi: integer("last_rssi"),
+    lastBatteryV: real("last_battery_v"),
+    engineWasOn: boolean("engine_was_on"),
+    /** The device said goodbye (went to sleep normally) before going quiet. */
+    signedOff: boolean("signed_off").notNull().default(false),
+    lastLat: doublePrecision("last_lat"),
+    lastLng: doublePrecision("last_lng"),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
+    /** When it was last re-scored (e.g. medium → high after a second missed heartbeat). */
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    /** Null while open (still quiet). Set when the device reports again, or straight away for one-off findings. */
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolution: text("resolution"),
+    /** Bookkeeping for notifications: the highest concern already alerted, and the connectivity messages sent. */
+    alertedConcern: text("alerted_concern"),
+    offlineNotified: boolean("offline_notified").notNull().default(false),
+    onlineNotified: boolean("online_notified").notNull().default(false),
+    /** After a quiet spell ends: whether the first GPS position back has been compared with the last one. */
+    movementChecked: boolean("movement_checked").notNull().default(false),
+  },
+  (t) => [
+    uniqueIndex("device_incidents_one_open_silent_idx").on(t.machineId).where(sql`${t.kind} = 'silent' and ${t.resolvedAt} is null`),
+    index("device_incidents_machine_idx").on(t.machineId, t.openedAt),
+  ],
+);
+
 export type Organization = typeof organizations.$inferSelect;
+export type DeviceIncident = typeof deviceIncidents.$inferSelect;
 export type CheckinPhoto = typeof checkinPhotos.$inferSelect;
 export type ChecklistTemplate = typeof checklistTemplates.$inferSelect;
 export type ChecklistAnswerSet = typeof checklistAnswerSets.$inferSelect;

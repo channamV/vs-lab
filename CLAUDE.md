@@ -57,7 +57,7 @@ github.com/stanleyhuangyc/Freematics.
 - `src/proxy.ts` only checks a session cookie is present; `src/lib/session.ts` validates it against the
   database. Every admin server action must call `requireAuth("manager" | "owner")` (or
   `requirePlatformAdmin()`) itself: server actions can be posted to any route, including public ones.
-- Unauthenticated: `/hub/api/*` (devices), `/login*`, and `/checkin/<machine code>` (operator QR check-in,
+- Unauthenticated: `/hub/api/*` (devices), `/api/jobs/*` (Vercel Cron; each checks `Bearer CRON_SECRET`), `/login*`, and `/checkin/<machine code>` (operator QR check-in,
   `src/app/checkin/`). The check-in page reads only through `src/lib/checkin-page.ts` (machine name, unit # +
   current operator); its actions accept just a machine code, PIN and checklist answers. PINs are unique per
   organization; the machine identifies the organization.
@@ -109,6 +109,13 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   (`PHOTO_RULES`), stores them in the private Vercel Blob store (`BLOB_READ_WRITE_TOKEN`; local `.data/photos`
   without it) and records `checkin_photos` (with an `analysis` slot for future AI). Photos are only served by
   `/photos/<id>` (session + `canSeeMachine`).
+- Tamper watchdog (`src/lib/tamper.ts`, tested; `docs/tamper.md`): stock Telelogger reports every 1–5 s running,
+  signs off ("logout") when parked, then checks in every 15 min. `watchdog()` (Vercel Cron every 5 min →
+  `/api/jobs/watchdog` → `runWatchdog`; `npm run watchdog` locally) scores quiet paired devices with
+  `scoreSilence` (pure; `TAMPER_RULES`) into `device_incidents` (concern low/medium/high + reasons). Ingest calls
+  `noteContact` (ends a quiet spell; VIN change; restart without sign-off) and `checkMovement` (moved while
+  quiet). `notifyIncidents` raises `tamper` / `tamper-escalated` alerts (medium+) and `equipment_offline`
+  notifications. Cron needs Vercel Pro: add `crons` to `platform/vercel.json` only once the team is on Pro.
 - Check-ins follow the engine (Craig's rule, 2026-10-17): start within 5 min → the check-in is linked to that
   engine session (`checkins.engine_session_id`); engine stops (after a break allowance by check-in
   `method`: web 30 min, ble 0, `CHECKIN_RULES.breakMinutes`) or no start → automatic check-out, recorded at

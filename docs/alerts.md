@@ -14,6 +14,9 @@ Only machines whose service level is **Safety & Access Monitoring** (machine pag
 | **Operator not approved** | The operator isn't on the machine's approved list. | Once per check-in |
 | **Not confirmed at machine** | The operator's phone was more than 100 m from the machine, or they didn't share their location. | Once per check-in |
 
+**Possible tamper** alerts (a tracking device that went quiet, lost power, moved while quiet or reports a different
+vehicle) apply to every machine with a device: see [tamper.md](tamper.md).
+
 The unauthorized-use check runs each time the machine reports, so the alert arrives within a few
 seconds of the 5 minutes passing. If the device loses signal, the alert waits until it reports again.
 

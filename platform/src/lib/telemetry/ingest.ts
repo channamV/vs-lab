@@ -3,6 +3,7 @@ import type { Db } from "@/lib/db";
 import { deviceAssignments, deviceEvents, devices, engineSessions, machines, telemetry, type EngineSession } from "@/lib/db/schema";
 import { num, type SampleFields } from "@/lib/freematics/protocol";
 import { recordEvent as recordNotification } from "@/lib/notifications";
+import { checkMovement, noteContact } from "@/lib/tamper";
 import { detectEngine, ENGINE_THRESHOLDS, type EngineReading } from "./engine";
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
@@ -40,6 +41,21 @@ export async function pairedMachineId(db: Db, deviceId: string): Promise<number 
   return row?.machineId ?? null;
 }
 
+/** The device's state before this report, for the tamper checks (null for a brand-new device). */
+async function stateBefore(db: Db, deviceId: string) {
+  const [row] = await db.select({ lastSeenAt: devices.lastSeenAt, vin: devices.vin }).from(devices).where(eq(devices.id, deviceId));
+  return row ?? null;
+}
+
+/** Tamper checks for a report on a paired device. A problem here must never stop the device getting its HTTP 200. */
+async function tamperChecks(run: () => Promise<void>) {
+  try {
+    await run();
+  } catch (err) {
+    console.error("Tamper check failed", err);
+  }
+}
+
 function validFix(lat: number | null, lng: number | null): lat is number {
   return (
     lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0)
@@ -58,8 +74,10 @@ export async function ingestSamples(
   opts: { autoRegister?: boolean; now?: Date } = {},
 ): Promise<number> {
   const now = opts.now ?? new Date();
+  const before = await stateBefore(db, deviceId);
   await ensureDevice(db, deviceId, opts.autoRegister ?? autoRegisterEnabled());
   const machineId = await pairedMachineId(db, deviceId);
+  if (machineId) await tamperChecks(() => noteContact(db, { deviceId, machineId, before, now }));
   if (samples.length === 0) {
     await db.update(devices).set({ lastSeenAt: now }).where(eq(devices.id, deviceId));
     if (machineId) await db.update(machines).set({ lastSeenAt: now }).where(eq(machines.id, machineId));
@@ -124,6 +142,10 @@ export async function ingestSamples(
 
   // Samples in one upload arrive together, so the last one with a reading decides the engine state.
   const lastReading = readings.findLast((r) => r.running !== null);
+  if (machineId && lastFix) {
+    await tamperChecks(() => checkMovement(db, machineId, { lat: lastFix.lat!, lng: lastFix.lng! }, now));
+  }
+
   if (lastReading) {
     const [prev] = await db.select({ engineOn: devices.engineOn }).from(devices).where(eq(devices.id, deviceId));
     if (prev?.engineOn !== lastReading.running) {
@@ -191,8 +213,13 @@ export async function recordEvent(
   opts: { autoRegister?: boolean; now?: Date } = {},
 ) {
   const now = opts.now ?? new Date();
+  const before = await stateBefore(db, deviceId);
   await ensureDevice(db, deviceId, opts.autoRegister ?? autoRegisterEnabled());
   const machineId = await pairedMachineId(db, deviceId);
+  // Before the event is stored, so "the previous event" is the one before this.
+  if (machineId) {
+    await tamperChecks(() => noteContact(db, { deviceId, machineId, before, eventType: event.type, vin: event.vin, now }));
+  }
   await db.insert(deviceEvents).values({
     deviceId,
     machineId,
