@@ -14,7 +14,7 @@ Windows PC). Explain changes in plain language and keep the docs in `docs/` curr
 
 ## Hardware
 
-Freematics ONE+ **Model H**, SIM7670 (LTE Cat 1) modem, ESP32. Runs the stock Freematics
+Freematics ONE+ **Model H**, SIM7670 (LTE Cat 1) modem, ESP32. SIM cards: **Soracom, plan01s** (APN `soracom.io`). Runs the stock Freematics
 **Telelogger** firmware configured for "HTTPS POST" to our server. Source of truth for the
 device protocol: `firmware_v5/telelogger` and `libraries/FreematicsPlus` in
 github.com/stanleyhuangyc/Freematics.

@@ -7,6 +7,7 @@ Freematics' demo server. No code changes, just settings.
 
 - Freematics ONE+ Model H (SIM7670 LTE Cat 1)
 - Micro SIM with a data plan. An IoT SIM like Soracom is easiest. Note the **APN** your provider gives you.
+  VS Lab uses **Soracom plan01s** SIMs (APN `soracom.io`).
 - USB cable (the one that came with the device)
 - For bench testing: a **12 V OBD-II bench power adapter**. USB power is enough to flash and for Wi-Fi testing.
   The cellular modem can draw more power than USB supplies when it transmits.
