@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { createOperator, OperatorError, updateOperator } from "@/lib/operators";
+import { eraseOperator, logAudit, PrivacyError } from "@/lib/privacy";
 
 /** `name` refills the form after an error; `version` changes on every submit so the form re-renders with it. */
 export type OperatorFormState = { error: string | null; version: number; name?: string; employeeNumber?: string };
@@ -57,6 +58,31 @@ export async function updateOperatorAction(prev: OperatorFormState, formData: Fo
     if (err instanceof OperatorError) {
       return { error: err.message, version: prev.version + 1, name: input.name, employeeNumber: input.employeeNumber };
     }
+    throw err;
+  }
+  redirect("/operators");
+}
+
+/** Erases an operator's personal data (keeps the machine records). Whole-organization managers and owners. */
+export async function eraseOperatorAction(prev: OperatorFormState, formData: FormData): Promise<OperatorFormState> {
+  const auth = await requireAuth("manager");
+  if (auth.divisionIds !== null) throw new Error("You don't have permission to do that.");
+  const id = z.coerce.number().int().positive().parse(formData.get("id"));
+  if (String(formData.get("confirm") ?? "").trim().toUpperCase() !== "ERASE") {
+    return { error: "Type ERASE to confirm.", version: prev.version + 1 };
+  }
+  const db = getDb();
+  try {
+    const result = await eraseOperator(db, auth.organizationId, id);
+    await logAudit(db, {
+      organizationId: auth.organizationId,
+      actor: auth.email,
+      staff: auth.isPlatformAdmin,
+      action: "operator-erase",
+      detail: `Now "${result.placeholder}"; ${result.checkins} check-ins kept, ${result.photosDeleted} photos deleted`,
+    });
+  } catch (err) {
+    if (err instanceof PrivacyError) return { error: err.message, version: prev.version + 1 };
     throw err;
   }
   redirect("/operators");

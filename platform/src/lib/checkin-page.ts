@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
 import { connection } from "next/server";
 import { getDb } from "@/lib/db";
-import { checkins, engineSessions, machines, operators } from "@/lib/db/schema";
+import { checkins, engineSessions, machines, operators, organizations } from "@/lib/db/schema";
 import { isCheckinCurrent } from "@/lib/operators";
 import { checklistForMachine } from "@/lib/checklists";
 import { photoStorageAvailable } from "@/lib/photos";
@@ -10,8 +10,8 @@ import { photoStorageAvailable } from "@/lib/photos";
 /**
  * Data for the PUBLIC check-in page (/checkin/<machine>), which operators open by scanning the
  * QR sticker without signing in. Return only what that page shows: the machine's name, unit number,
- * whether it's locked out for repair, who is checked in, and its checklist (questions, answers and
- * confirmation statement). Everything else stays in src/lib/data.ts behind the admin session check.
+ * whether it's locked out for repair, who is checked in, its checklist (questions, answers and
+ * confirmation statement) and the privacy notice (organization name, privacy contact, how long data is kept). Everything else stays in src/lib/data.ts behind the admin session check.
  */
 export async function getCheckinMachine(code: string) {
   await connection();
@@ -39,13 +39,26 @@ export async function getCheckinMachine(code: string) {
     open && isCheckinCurrent(open.checkin, open.linked, Date.now())
       ? { operatorName: open.operatorName, startedAt: open.checkin.startedAt, engineRunning: open.linked !== null }
       : null;
-  const { template, options } = await checklistForMachine(db, machine);
+  const [{ template, options }, [org]] = await Promise.all([
+    checklistForMachine(db, machine),
+    db
+      .select({
+        name: organizations.name,
+        privacyContact: organizations.privacyContact,
+        locationDays: organizations.retainPhoneLocationDays,
+        photoDays: organizations.retainPhotoDays,
+        checkinDays: organizations.retainCheckinDays,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, machine.organizationId)),
+  ]);
   return {
     code: machine.code,
     name: machine.name,
     unitNumber: machine.unitNumber,
     lockedOut: machine.lockedOutAt !== null,
     current,
+    privacy: org,
     checklist: { sections: template.sections, options, confirmationText: template.confirmationText, photosEnabled: photoStorageAvailable() },
   };
 }

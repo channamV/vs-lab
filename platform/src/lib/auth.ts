@@ -3,6 +3,7 @@ import { and, asc, count, eq, gt, gte, isNull } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { addDefaultRule } from "@/lib/notifications";
 import { divisions, loginTokens, organizations, sessions, userDivisions, users, type Role } from "@/lib/db/schema";
+import { logAudit } from "@/lib/privacy";
 
 /**
  * Sign-in for the portal: people enter their email and get a one-time link (no passwords to manage).
@@ -196,4 +197,8 @@ export async function endSession(db: Db, token: string) {
 export async function viewOrganization(db: Db, auth: AuthContext, organizationId: number) {
   if (!auth.isPlatformAdmin) throw new Error("Not allowed");
   await db.update(sessions).set({ viewOrganizationId: organizationId }).where(eq(sessions.id, auth.sessionId));
+  // Customers can see when Veristart staff looked at their organization (Settings → access log).
+  if (organizationId !== auth.homeOrganizationId && organizationId !== auth.organizationId) {
+    await logAudit(db, { organizationId, actor: auth.email, staff: true, action: "staff-view", detail: "Opened the organization" });
+  }
 }

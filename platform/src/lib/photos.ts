@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { get, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 
 /**
  * Where checklist photos are kept. Private: files are never public; pages show them through
@@ -55,5 +55,18 @@ export async function readPhoto(key: string): Promise<ReadableStream<Uint8Array>
     return new Uint8Array(await readFile(path.join(localDir(), key)));
   } catch {
     return null;
+  }
+}
+
+/** Deletes stored photos (retention clean-up, operator erasure). Missing files are fine. */
+export async function deletePhotos(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    await del(keys);
+    return;
+  }
+  for (const key of keys) {
+    if (key.includes("..")) continue;
+    await rm(path.join(localDir(), key), { force: true });
   }
 }

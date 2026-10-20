@@ -14,7 +14,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "simulate": "tsx scripts/simulate.ts",
     "demo:seed": "tsx scripts/seed-demo.ts",
-    "watchdog": "tsx scripts/watchdog.ts"
+    "watchdog": "tsx scripts/watchdog.ts",
+    "retention": "tsx scripts/retention.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

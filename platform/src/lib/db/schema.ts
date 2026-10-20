@@ -32,7 +32,41 @@ export const organizations = pgTable("organizations", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
   name: text("name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Who operators contact about their data (shown on the check-in page), e.g. "privacy@abc.com". */
+  privacyContact: text("privacy_contact"),
+  /**
+   * How long personal data is kept, in days (GDPR storage limitation). The nightly clean-up
+   * (src/lib/privacy.ts) removes anything older. See RETENTION_LIMITS for the allowed ranges.
+   */
+  retainPhoneLocationDays: integer("retain_phone_location_days").notNull().default(90),
+  retainPhotoDays: integer("retain_photo_days").notNull().default(365),
+  retainTelemetryDays: integer("retain_telemetry_days").notNull().default(730),
+  retainCheckinDays: integer("retain_checkin_days").notNull().default(1095),
+  retainNotificationDays: integer("retain_notification_days").notNull().default(365),
 });
+
+/**
+ * Privacy-relevant actions the customer can see: Veristart staff opening their organization, and
+ * operator data exports and erasures. Kept for the life of the organization.
+ */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    /** Email of whoever did it. */
+    actor: text("actor").notNull(),
+    /** True for Veristart staff (platform admins). */
+    staff: boolean("staff").notNull().default(false),
+    /** staff-view, operator-export, operator-erase */
+    action: text("action").notNull(),
+    detail: text("detail"),
+  },
+  (t) => [index("audit_log_org_time_idx").on(t.organizationId, t.at)],
+);
 
 /**
  * owner: everything, including users. manager: machines, operators, arm/disarm, alerts. viewer: read-only.
@@ -341,6 +375,8 @@ export const operators = pgTable(
     pinHash: text("pin_hash").notNull(),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Set when the operator's personal data was erased (src/lib/privacy.ts). The row stays so machine records keep a placeholder. */
+    erasedAt: timestamp("erased_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("operators_org_pin_idx").on(t.organizationId, t.pinHash),
@@ -770,6 +806,7 @@ export const deviceIncidents = pgTable(
 );
 
 export type Organization = typeof organizations.$inferSelect;
+export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type DeviceIncident = typeof deviceIncidents.$inferSelect;
 export type CheckinPhoto = typeof checkinPhotos.$inferSelect;
 export type ChecklistTemplate = typeof checklistTemplates.$inferSelect;

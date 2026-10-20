@@ -27,8 +27,9 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
    - `ALERT_EMAIL_FROM` = e.g. `VS Lab <alerts@veristart.ai>` (a domain verified in Resend)
    - `DEVICE_AUTO_REGISTER` = `true` for now: new devices appear in *Veristart stock* on the Platform page until staff pair them with a machine
    - `APP_TIMEZONE` (optional) = the time zone for daily engine hours, e.g. `America/Toronto` (the default)
-   - `CRON_SECRET` = any long random string (e.g. from a password manager). Protects the 5-minute tamper
-     watchdog, which needs **Vercel Pro** for its schedule. See [tamper.md](tamper.md).
+   - `CRON_SECRET` = any long random string (e.g. from a password manager). Protects the scheduled jobs: the nightly
+     privacy clean-up ([privacy.md](privacy.md)) and the 5-minute tamper watchdog, which needs **Vercel Pro** for its
+     schedule ([tamper.md](tamper.md)).
    - `BLOB_READ_WRITE_TOKEN` = set automatically when a **private Blob store** is connected to the project
      (Vercel → Storage → Create → Blob, access *Private*). Needed for checklist photos; without it, photo buttons are
      hidden and required photos aren't enforced. (VS Lab's store is *vs-lab-photos*.)

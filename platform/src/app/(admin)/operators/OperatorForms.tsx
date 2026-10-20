@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { addOperatorAction, updateOperatorAction, type OperatorFormState } from "./actions";
+import { addOperatorAction, eraseOperatorAction, updateOperatorAction, type OperatorFormState } from "./actions";
 
 const field = "mt-1 w-full rounded border border-slate-300 bg-transparent px-2 py-1.5 dark:border-slate-700";
 const button = "rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800 disabled:opacity-60";
@@ -65,6 +65,24 @@ export function EditOperatorForm({
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
       <button disabled={pending} className={button}>
         {pending ? "Saving…" : "Save"}
+      </button>
+    </form>
+  );
+}
+
+/** Right to erasure: removes the operator's personal data; check-ins stay under "Former operator #id". */
+export function EraseOperatorForm({ operatorId }: { operatorId: number }) {
+  const [state, action, pending] = useActionState(eraseOperatorAction, { error: null, version: 0 } as OperatorFormState);
+  return (
+    <form key={state.version} action={action} className="space-y-2">
+      <input type="hidden" name="id" value={operatorId} />
+      <label className="block text-sm">
+        <span className="text-slate-600 dark:text-slate-400">Type ERASE to confirm</span>
+        <input name="confirm" autoComplete="off" className={field} />
+      </label>
+      {state.error && <p className="text-sm text-red-600">{state.error}</p>}
+      <button disabled={pending} className="rounded bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-60">
+        {pending ? "Erasing…" : "Erase this operator's data"}
       </button>
     </form>
   );

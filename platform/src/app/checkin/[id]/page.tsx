@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { getCheckinMachine } from "@/lib/checkin-page";
 import { appTimeZone } from "@/lib/telemetry/engine";
-import { clockTime } from "@/lib/format";
+import { clockTime, periodText } from "@/lib/format";
 import { CheckInForm, CheckOutForm } from "./CheckinForms";
 
 /** PUBLIC page opened from the QR sticker on a machine. No sign-in; operators identify with their PIN. */
@@ -65,6 +65,42 @@ async function Checkin({ params, searchParams }: Pick<PageProps<"/checkin/[id]">
           <CheckInForm machineCode={machine.code} checklist={machine.checklist} />
         </section>
       )}
+
+      {machine.privacy && <PrivacyNotice privacy={machine.privacy} />}
     </div>
+  );
+}
+
+/** What's recorded about the operator, why, for how long, and who to ask (GDPR transparency). */
+function PrivacyNotice({
+  privacy,
+}: {
+  privacy: { name: string; privacyContact: string | null; locationDays: number; photoDays: number; checkinDays: number };
+}) {
+  return (
+    <details className="rounded-lg border border-slate-200 p-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-400">
+      <summary className="cursor-pointer">Privacy: what this check-in records</summary>
+      <div className="mt-2 space-y-2">
+        <p>
+          {privacy.name} records who operates its equipment, for safety, security and inspection records: your name, the
+          time, your checklist answers, notes and photos, and when the machine was running. If you allow it, your
+          phone&apos;s location at check-in is used to confirm you&apos;re at the machine.
+        </p>
+        <p>
+          Phone location is kept for {periodText(privacy.locationDays)}, photos for {periodText(privacy.photoDays)}, and
+          check-in records for {periodText(privacy.checkinDays)}. The system is run for {privacy.name} by Veristart.
+        </p>
+        <p>
+          To see the data held about you, or to ask for it to be corrected or erased,{" "}
+          {privacy.privacyContact ? (
+            <>
+              contact <span className="font-medium">{privacy.privacyContact}</span>.
+            </>
+          ) : (
+            <>ask your supervisor.</>
+          )}
+        </p>
+      </div>
+    </details>
   );
 }

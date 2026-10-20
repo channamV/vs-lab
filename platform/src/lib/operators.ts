@@ -259,10 +259,11 @@ export async function updateOperator(
   const name = input.name.trim();
   if (!name) throw new OperatorError("Enter the operator's name.");
   const [existing] = await db
-    .select({ id: operators.id })
+    .select({ id: operators.id, erasedAt: operators.erasedAt })
     .from(operators)
     .where(and(eq(operators.id, id), eq(operators.organizationId, organizationId)));
   if (!existing) throw new OperatorError("Operator not found.");
+  if (existing.erasedAt) throw new OperatorError("This operator's data was erased; add them again as a new operator if needed.");
   const changes: Partial<typeof operators.$inferInsert> = {
     name,
     active: input.active,
@@ -298,7 +299,7 @@ export async function setMachineOperators(db: Db, organizationId: number, machin
     ? await db
         .select({ id: operators.id })
         .from(operators)
-        .where(and(eq(operators.organizationId, organizationId), inArray(operators.id, operatorIds)))
+        .where(and(eq(operators.organizationId, organizationId), inArray(operators.id, operatorIds), isNull(operators.erasedAt)))
     : [];
   operatorIds = [...new Set(valid.map((o) => o.id))];
   const before = (

@@ -28,6 +28,7 @@ sticker on the machine, entering a PIN and completing the pre-start checklist, a
 8. [Machines and devices](docs/machines-and-devices.md) — equipment vs tracking hardware, pairing and device swaps
 9. [Pre-start checklists](docs/checklists.md) — templates, answers, defects that stack, lockout for repair
 10. [Tamper and connectivity alerts](docs/tamper.md) — quiet devices, concern levels, the 5-minute watchdog
+11. [Privacy (GDPR)](docs/privacy.md) — retention, operator data download and erasure, privacy notice, access log
 
 ## Quick start
 

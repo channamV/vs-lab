@@ -57,7 +57,7 @@ github.com/stanleyhuangyc/Freematics.
 - `src/proxy.ts` only checks a session cookie is present; `src/lib/session.ts` validates it against the
   database. Every admin server action must call `requireAuth("manager" | "owner")` (or
   `requirePlatformAdmin()`) itself: server actions can be posted to any route, including public ones.
-- Unauthenticated: `/hub/api/*` (devices), `/api/jobs/*` (Vercel Cron; each checks `Bearer CRON_SECRET`), `/login*`, and `/checkin/<machine code>` (operator QR check-in,
+- Unauthenticated: `/hub/api/*` (devices), `/api/jobs/*` (Vercel Cron; each checks `Bearer CRON_SECRET` via `src/lib/cron.ts`), `/login*`, and `/checkin/<machine code>` (operator QR check-in,
   `src/app/checkin/`). The check-in page reads only through `src/lib/checkin-page.ts` (machine name, unit # +
   current operator); its actions accept just a machine code, PIN and checklist answers. PINs are unique per
   organization; the machine identifies the organization.
@@ -69,6 +69,7 @@ github.com/stanleyhuangyc/Freematics.
 npm run dev          # migrate DB + start at http://localhost:3000
 npm run simulate     # fake devices sending real Telelogger-format data (engines cycle on/off)
 npm run demo:seed    # demo machines paired with the SIM* devices + a week of engine/check-in history
+npm run retention    # privacy clean-up once (Vercel runs it nightly)
 npm run check        # lint + typecheck + tests — run before every commit
 npm run build        # production build
 npm run db:generate  # after editing src/lib/db/schema.ts → creates SQL in drizzle/
@@ -85,7 +86,8 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
 - Bigger or riskier changes (schema migrations, auth, device protocol) can still go on a branch with a
   pull request if Craig asks.
 - Once vs-lab has outside users, switch back to branches + pull requests reviewed before merging, and remind
-  Craig to remove the `ADMIN_PASSWORD` fallback (Vercel setting + code in `src/lib/auth.ts`).
+  Craig to remove the `ADMIN_PASSWORD` fallback (Vercel setting + code in `src/lib/auth.ts`). It must go before any
+  EU customer goes live (GDPR, `docs/privacy.md`).
 
 ## Conventions
 
@@ -115,7 +117,15 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   `scoreSilence` (pure; `TAMPER_RULES`) into `device_incidents` (concern low/medium/high + reasons). Ingest calls
   `noteContact` (ends a quiet spell; VIN change; restart without sign-off) and `checkMovement` (moved while
   quiet). `notifyIncidents` raises `tamper` / `tamper-escalated` alerts (medium+) and `equipment_offline`
-  notifications. Cron needs Vercel Pro: add `crons` to `platform/vercel.json` only once the team is on Pro.
+  notifications. Its 5-minute schedule needs Vercel Pro: add it to `crons` in `platform/vercel.json` only once the team is on Pro.
+- Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`
+  (limits in `src/lib/privacy-limits.ts`, edited on the owner-only `/settings` page). `applyRetention` (Vercel Cron
+  daily → `/api/jobs/retention`; `npm run retention`) clears phone locations, deletes photos (files via `deletePhotos`
+  first), telemetry, events, old check-ins/alerts/resolved issues/incidents/notifications, expired sessions.
+  `exportOperator` (JSON at `/operators/<id>/export`) and `eraseOperator` (placeholder "Former operator #id", PIN
+  unusable, approvals/locations/photos removed, name replaced in text; check-ins kept; `operators.erased_at`) are for
+  whole-org managers/owners (`canManageOperatorData`). `audit_log` (shown on Settings) records staff switching into an
+  org (`viewOrganization`) and exports/erasures. New personal data → add it to retention, export and erase.
 - Check-ins follow the engine (Craig's rule, 2026-10-17): start within 5 min → the check-in is linked to that
   engine session (`checkins.engine_session_id`); engine stops (after a break allowance by check-in
   `method`: web 30 min, ble 0, `CHECKIN_RULES.breakMinutes`) or no start → automatic check-out, recorded at

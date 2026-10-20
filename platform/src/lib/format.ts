@@ -54,3 +54,10 @@ export function formatDistance(metres: number | null | undefined): string {
   if (metres === null || metres === undefined) return "—";
   return metres < 1000 ? `${Math.round(metres)} m` : `${(metres / 1000).toFixed(1)} km`;
 }
+
+/** A retention period in plain words: "90 days", "1 year", "3 years", "18 months". */
+export function periodText(days: number): string {
+  if (days >= 365 && days % 365 === 0) return days === 365 ? "1 year" : `${days / 365} years`;
+  if (days >= 60 && days % 30 === 0) return `${days / 30} months`;
+  return days === 1 ? "1 day" : `${days} days`;
+}

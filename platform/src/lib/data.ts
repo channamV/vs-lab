@@ -27,6 +27,7 @@ import {
 import { machineScope, type Scope } from "@/lib/divisions";
 import { getRule, listRules, recentActivity, scopeOfUser } from "@/lib/notifications";
 import { ensureChecklistDefaults } from "@/lib/checklists";
+import { auditEntries } from "@/lib/privacy";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -438,6 +439,21 @@ export async function openAlertCountIfSignedIn(): Promise<number | null> {
 export async function canEditChecklists() {
   const auth = await requireSession();
   return hasRole(auth, "manager") && auth.divisionIds === null;
+}
+
+/** Exporting and erasing operators' data: the same people as checklists (they see every machine an operator used). */
+export const canManageOperatorData = canEditChecklists;
+
+/** Owners: the privacy contact, retention settings and the audit log (Settings page). */
+export async function privacySettings() {
+  await connection();
+  const auth = await requireRoleForPage("owner");
+  const db = getDb();
+  const [[org], log] = await Promise.all([
+    db.select().from(organizations).where(eq(organizations.id, auth.organizationId)),
+    auditEntries(db, auth.organizationId),
+  ]);
+  return { org, log };
 }
 
 /** The organization's checklists (with how many machines use each) and answer sets. */

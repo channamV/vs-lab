@@ -51,9 +51,14 @@ async function NavLinks() {
         {!!alertCount && <span className="rounded-full bg-red-600 px-1.5 text-xs font-semibold text-white">{alertCount}</span>}
       </Link>
       {hasRole(auth, "owner") && (
-        <Link href="/users" className={linkClass}>
-          Users
-        </Link>
+        <>
+          <Link href="/users" className={linkClass}>
+            Users
+          </Link>
+          <Link href="/settings" className={linkClass}>
+            Settings
+          </Link>
+        </>
       )}
       {auth.isPlatformAdmin && (
         <Link href="/platform" className={linkClass}>
