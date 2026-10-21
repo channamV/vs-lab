@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { commandsForReply, withCommands } from "@/lib/commands";
 import { EVENT_NAMES } from "@/lib/freematics/protocol";
 import { isValidDeviceId, recordEvent, UnknownDeviceError } from "@/lib/telemetry/ingest";
 
@@ -19,7 +20,7 @@ export async function GET(request: Request, ctx: RouteContext<"/hub/api/notify/[
       rssi: q.has("SSI") && Number.isFinite(rssi) && rssi !== 0 ? rssi : null,
       vin: q.get("VIN") || null,
     });
-    return new Response("OK");
+    return new Response(withCommands("OK", await commandsForReply(getDb(), devid)));
   } catch (err) {
     if (err instanceof UnknownDeviceError) return new Response("Unknown device", { status: 403 });
     throw err;

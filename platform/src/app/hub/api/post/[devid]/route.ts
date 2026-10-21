@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { commandsForReply, withCommands } from "@/lib/commands";
 import { afterDeviceReport } from "@/lib/alert-jobs";
 import { parsePayload } from "@/lib/freematics/protocol";
 import { ingestSamples, isValidDeviceId, UnknownDeviceError } from "@/lib/telemetry/ingest";
@@ -17,7 +18,7 @@ export async function POST(request: Request, ctx: RouteContext<"/hub/api/post/[d
   try {
     const count = await ingestSamples(getDb(), devid, parsed.samples);
     afterDeviceReport(devid);
-    return new Response(`OK ${count}`);
+    return new Response(withCommands(`OK ${count}`, await commandsForReply(getDb(), devid)));
   } catch (err) {
     if (err instanceof UnknownDeviceError) return new Response("Unknown device", { status: 403 });
     throw err;

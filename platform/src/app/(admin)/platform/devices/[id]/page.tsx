@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { getDeviceForStaff, requestTime } from "@/lib/data";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, fmt, machineLabel, timeAgo } from "@/lib/format";
+import { Commands } from "./Commands";
 
 /** Veristart staff only: one tracking device's health and the machines it has been on. */
 export default function DevicePage({ params }: PageProps<"/platform/devices/[id]">) {
@@ -53,6 +54,10 @@ async function DeviceDetail({ params }: Pick<PageProps<"/platform/devices/[id]">
         <dt className="text-slate-500">VIN (OBD)</dt>
         <dd className="font-mono">{device.vin ?? "—"}</dd>
       </dl>
+
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading commands…</p>}>
+        <Commands deviceId={device.id} />
+      </Suspense>
 
       <section className="space-y-2">
         <h2 className="font-semibold">Machines it has been on</h2>

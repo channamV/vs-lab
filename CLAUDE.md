@@ -25,6 +25,10 @@ github.com/stanleyhuangyc/Freematics.
 - `GET  /hub/api/notify/<DEVID>?EV=&SSI=&VIN=` — connection events (1 login, 2 logout, 7 ping...)
 - `GET  /hub/api/push?id=&lat=&lon=&speed=<knots>...` — "HTTPS GET" mode (GPS only)
 - Device only checks for HTTP 200. Parser: `platform/src/lib/freematics/protocol.ts`.
+- Device commands (`src/lib/commands.ts`, tested; `docs/device-commands.md`): replies to post/notify/push are
+  `OK …` plus `CMD <id> <sig> <command>` lines (stock firmware ignores them); our fork answers at
+  `GET /hub/api/ack/<DEVID>?id=&ok=&result=&sig=`. HMAC per-device key from `DEVICE_KEY_SECRET` (unset = unsigned).
+  Queued by platform admins on `/platform/devices/<id>`; resent each minute ≤5×, expire after 24 h.
 - `/hub/api/*` is unauthenticated (devices can't log in); everything else is behind `src/proxy.ts`
   **and** a session check in `src/lib/data.ts`. Keep both.
 

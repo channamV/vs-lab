@@ -15,6 +15,10 @@
  *   npm run simulate -- --refuel           # machines below half a tank are filled up while parked (fuel log)
  *   npm run simulate -- --siphon           # J1939 machines lose 15% of the tank while running, after ~4 minutes
  *
+ * Device commands (docs/device-commands.md): the simulated devices act like our firmware fork. They read
+ * commands from the replies, check the signature (with --device-secret, default $DEVICE_KEY_SECRET, the same
+ * secret as the platform), run them and answer at /hub/api/ack.
+ *
  * Simulated tanks are 400 L: set the machines' fuel tank size to 400 (npm run demo:seed does) so litres and
  * the "fuel lost while running" check work.
  *
@@ -27,6 +31,7 @@
  * firmware fork will (hour meter, fuel rate and total, coolant, RPM, load, DEF, fault codes; docs/can-data.md).
  */
 import { parseArgs } from "node:util";
+import { createHmac } from "node:crypto";
 import { encodePayload, type SampleFields } from "../src/lib/freematics/protocol";
 
 const { values: args } = parseArgs({
@@ -42,6 +47,7 @@ const { values: args } = parseArgs({
     "fuel-theft": { type: "boolean", default: false },
     refuel: { type: "boolean", default: false },
     siphon: { type: "boolean", default: false },
+    "device-secret": { type: "string", default: process.env.DEVICE_KEY_SECRET ?? "" },
   },
 });
 
@@ -97,6 +103,9 @@ interface SimDevice {
   /** --siphon: percentage points still to be taken while running. */
   siphonLeft: number;
   siphoned: boolean;
+  /** Commands already run (the firmware remembers the last ID, so a resent command isn't run twice). */
+  lastCommandId: number;
+  rateS: number | null;
 }
 
 const minutes = (min: number, max: number) => (min + Math.random() * (max - min)) * 60_000;
@@ -120,6 +129,8 @@ const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => ({
   idleFuelL: 900 + i * 450,
   siphonLeft: 0,
   siphoned: false,
+  lastCommandId: 0,
+  rateS: null,
   defPct: 70 + Math.random() * 25,
   coolantC: 20,
   fuelPct: 60 + Math.random() * 35,
@@ -253,14 +264,67 @@ async function send(path: string, init?: RequestInit): Promise<string> {
 }
 
 async function login(d: SimDevice) {
-  await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=`);
+  await handleReply(d, await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=`));
+}
+
+// ---------- Device commands (what our firmware fork will do) ----------
+
+const secret = args["device-secret"]!;
+/** The device's key, derived like the platform does (src/lib/commands.ts deviceKey). */
+const keyFor = (id: string) => (secret ? createHmac("sha256", secret).update(`device-key:${id}`).digest("hex").slice(0, 32) : null);
+const hmac16 = (key: string, text: string) => createHmac("sha256", key).update(text).digest("hex").slice(0, 16);
+
+async function handleReply(d: SimDevice, reply: string) {
+  for (const line of reply.split("\n").slice(1)) {
+    const m = /^CMD (\d+) (\S+) (.*)$/.exec(line);
+    if (!m) continue;
+    const id = Number(m[1]);
+    const [, , sig, command] = m;
+    if (id <= d.lastCommandId) continue; // already run; the answer may have been lost, so answer again below
+    const key = keyFor(d.id);
+    if (key && sig !== hmac16(key, `${d.id}\n${id}\n${command}`)) {
+      console.log(`${d.id}: ignored command #${id} with a bad signature`);
+      continue;
+    }
+    d.lastCommandId = id;
+    let ok = true;
+    let result = "OK";
+    const eq = command.indexOf("=");
+    const name = eq < 0 ? command : command.slice(0, eq);
+    const value = eq < 0 ? "" : command.slice(eq + 1);
+    if (name === "REPORT") result = "reported";
+    else if (name === "BEEP") console.log(`${d.id}: 🔔 beep ×${value}`);
+    else if (name === "RATE") {
+      d.rateS = Number(value);
+      result = `every ${value} s`;
+      console.log(`${d.id}: reporting interval set to ${value} s (the simulator keeps its own pace)`);
+    } else if (name === "WIFI") {
+      const ssid = value.split("\t")[0];
+      result = `saved ${ssid}`;
+      console.log(`${d.id}: Wi-Fi set to "${ssid}"`);
+    } else if (name === "RESET") {
+      console.log(`${d.id}: restarting`);
+      await send(`/hub/api/notify/${d.id}?EV=2&SSI=${d.rssi}`);
+      await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=`);
+    } else {
+      ok = false;
+      result = `unknown command ${name}`;
+    }
+    console.log(`${d.id}: ran command #${id} ${name} → ${result}`);
+    const ackSig = key ? hmac16(key, `ack\n${d.id}\n${id}\n${ok ? 1 : 0}\n${result}`) : "-";
+    await send(`/hub/api/ack/${d.id}?id=${id}&ok=${ok ? 1 : 0}&result=${encodeURIComponent(result)}&sig=${ackSig}`).catch((err) =>
+      console.error(`${d.id}: answer to #${id} failed: ${err.message}`),
+    );
+    if (name === "REPORT") await report(d);
+  }
 }
 
 async function report(d: SimDevice) {
   const sample = nextSample(d);
   const reply = await send(`/hub/api/post/${d.id}`, { method: "POST", body: encodePayload([sample]) });
+  await handleReply(d, reply);
   console.log(
-    `${new Date().toLocaleTimeString()}  ${d.id}  engine ${d.engineOn ? "on " : "off"}  ${sample.lat}, ${sample.lng}  ${sample.speedKph} km/h${sample.obdRpm ? `  ${sample.obdRpm} rpm (OBD)` : ""}${sample.j1939Rpm ? `  ${sample.j1939Rpm} rpm (J1939)${sample.j1939Faults ? "  FAULT" : ""}` : ""}  → ${reply}`,
+    `${new Date().toLocaleTimeString()}  ${d.id}  engine ${d.engineOn ? "on " : "off"}  ${sample.lat}, ${sample.lng}  ${sample.speedKph} km/h${sample.obdRpm ? `  ${sample.obdRpm} rpm (OBD)` : ""}${sample.j1939Rpm ? `  ${sample.j1939Rpm} rpm (J1939)${sample.j1939Faults ? "  FAULT" : ""}` : ""}  → ${reply.split("\n")[0]}`,
   );
 }
 

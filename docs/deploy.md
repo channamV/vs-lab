@@ -34,6 +34,8 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
      (Vercel → Storage → Create → Blob, access *Private*). Needed for checklist photos; without it, photo buttons are
      hidden and required photos aren't enforced. (VS Lab's store is *vs-lab-photos*.)
    - `ALERT_EMAIL_TO` (optional) = addresses that get every organization's alerts
+   - `DEVICE_KEY_SECRET` = any long random string: signs commands to devices. Needed before real devices with our
+     firmware get commands; see [device-commands.md](device-commands.md). Don't change it once devices are flashed.
 5. **Deploy:** *Deployments* → *Redeploy*. When it finishes, open the address Vercel shows
    (e.g. `vs-lab-xyz.vercel.app`) and sign in.
 6. **Test with the simulator from your PC:**

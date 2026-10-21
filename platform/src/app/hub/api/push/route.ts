@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { commandsForReply, withCommands } from "@/lib/commands";
 import { afterDeviceReport } from "@/lib/alert-jobs";
 import type { SampleFields } from "@/lib/freematics/protocol";
 import { ingestSamples, isValidDeviceId, UnknownDeviceError } from "@/lib/telemetry/ingest";
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
   try {
     const count = await ingestSamples(getDb(), id, Object.keys(sample).length ? [sample] : []);
     afterDeviceReport(id);
-    return new Response(`OK ${count}`);
+    return new Response(withCommands(`OK ${count}`, await commandsForReply(getDb(), id)));
   } catch (err) {
     if (err instanceof UnknownDeviceError) return new Response("Unknown device", { status: 403 });
     throw err;

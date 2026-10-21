@@ -33,6 +33,7 @@ import { getRule, listRules, recentActivity, scopeOfUser } from "@/lib/notificat
 import { ensureChecklistDefaults } from "@/lib/checklists";
 import { auditEntries } from "@/lib/privacy";
 import { buildReport, reportRange } from "@/lib/reports";
+import { commandHistory, deviceKey } from "@/lib/commands";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -891,6 +892,13 @@ export async function machinesWithoutDevice() {
 }
 
 /** Staff: one device's diagnostics, whatever machine or organization it's with. */
+/** Staff: a device's command history and key (for flashing our firmware). */
+export async function deviceCommandsForStaff(id: string) {
+  await connection();
+  await requirePlatformAdmin();
+  return { history: await commandHistory(getDb(), id), key: deviceKey(id) };
+}
+
 export async function getDeviceForStaff(id: string) {
   await connection();
   await requirePlatformAdmin();

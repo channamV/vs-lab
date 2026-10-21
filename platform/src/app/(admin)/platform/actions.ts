@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import { AccountError, createOrganization } from "@/lib/organizations";
 import { MachineError, setDeviceStock } from "@/lib/machines";
 import { requirePlatformAdmin } from "@/lib/session";
+import { cancelCommand, CommandError, queueCommand } from "@/lib/commands";
 
 /** Platform admins (Veristart staff) only. */
 
@@ -45,4 +46,29 @@ export async function setDeviceStockAction(prev: PlatformFormState, formData: Fo
   }
   refresh();
   return { error: null, version: prev.version + 1 };
+}
+
+export type CommandFormState = { error: string | null; queued: boolean; version: number };
+
+/** Queue a command for a device; it goes out with the reply to the device's next contact. */
+export async function queueCommandAction(prev: CommandFormState, formData: FormData): Promise<CommandFormState> {
+  const auth = await requirePlatformAdmin();
+  const deviceId = z.string().min(1).max(32).parse(formData.get("deviceId"));
+  const kind = String(formData.get("kind") ?? "");
+  const values = Object.fromEntries(["times", "seconds", "ssid", "password"].map((k) => [k, String(formData.get(k) ?? "")]));
+  try {
+    await queueCommand(getDb(), deviceId, kind, values, auth.email);
+  } catch (err) {
+    if (err instanceof CommandError) return { error: err.message, queued: false, version: prev.version + 1 };
+    throw err;
+  }
+  refresh();
+  return { error: null, queued: true, version: prev.version + 1 };
+}
+
+export async function cancelCommandAction(formData: FormData) {
+  await requirePlatformAdmin();
+  const deviceId = z.string().min(1).max(32).parse(formData.get("deviceId"));
+  await cancelCommand(getDb(), deviceId, z.coerce.number().int().positive().parse(formData.get("id")));
+  refresh();
 }

@@ -32,6 +32,7 @@ sticker on the machine, entering a PIN and completing the pre-start checklist, a
 12. [Worksites (geo-lock)](docs/worksites.md) — draw sites on a map; enter, leave and stayed-too-long notifications
 13. [Reports](docs/reports.md) — engine hours, idle, utilization, operators, checklist compliance, worksites; CSV
 14. [Engine (CAN) data](docs/can-data.md) — the OBD-II data we receive, J1939 for heavy equipment, simulating it
+15. [Device commands](docs/device-commands.md) — sending commands to devices (buzzer, Wi-Fi, reporting rate…), signing
 
 ## Quick start
 

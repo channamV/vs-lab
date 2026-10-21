@@ -958,7 +958,38 @@ export const fuelEvents = pgTable(
   (t) => [index("fuel_events_machine_idx").on(t.machineId, t.at), index("fuel_events_org_idx").on(t.organizationId, t.at)],
 );
 
+/**
+ * Commands for a device (src/lib/commands.ts): queued by Veristart staff, sent in the reply to the device's
+ * next report or check-in (our firmware fork reads them; the stock firmware ignores them), and answered by
+ * the device at /hub/api/ack. pending → sent → done / failed, or expired / cancelled.
+ */
+export const deviceCommands = pgTable(
+  "device_commands",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    /** The command line the device runs, e.g. "BEEP=3" (see COMMANDS). */
+    command: text("command").notNull(),
+    /** Plain-language description for the history, e.g. "Sound the buzzer 3 times". */
+    label: text("label").notNull(),
+    status: text("status").notNull().default("pending"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /** Sent in a reply this many times (resent until answered, up to a limit); the last time. */
+    sendCount: integer("send_count").notNull().default(0),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    /** The device's answer (e.g. "OK", a value, or an error). */
+    result: text("result"),
+  },
+  (t) => [index("device_commands_device_idx").on(t.deviceId, t.createdAt)],
+);
+
 export type Organization = typeof organizations.$inferSelect;
+export type DeviceCommand = typeof deviceCommands.$inferSelect;
 export type FuelEvent = typeof fuelEvents.$inferSelect;
 export type MachineFault = typeof machineFaults.$inferSelect;
 export type Worksite = typeof worksites.$inferSelect;
