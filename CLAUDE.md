@@ -117,7 +117,7 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   `scoreSilence` (pure; `TAMPER_RULES`) into `device_incidents` (concern low/medium/high + reasons). Ingest calls
   `noteContact` (ends a quiet spell; VIN change; restart without sign-off) and `checkMovement` (moved while
   quiet). `notifyIncidents` raises `tamper` / `tamper-escalated` alerts (medium+) and `equipment_offline`
-  notifications. Its 5-minute schedule needs Vercel Pro: add it to `crons` in `platform/vercel.json` only once the team is on Pro.
+  notifications. Both jobs are in `crons` in `platform/vercel.json` (the team is on Vercel Pro since 2026-10-21).
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`
   (limits in `src/lib/privacy-limits.ts`, edited on the owner-only `/settings` page). `applyRetention` (Vercel Cron
   daily → `/api/jobs/retention`; `npm run retention`) clears phone locations, deletes photos (files via `deletePhotos`

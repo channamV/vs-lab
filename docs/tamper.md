@@ -56,7 +56,7 @@ Applies to every machine with a paired device, whatever its service level.
 
 The watchdog runs every 5 minutes on Vercel (`crons` in `platform/vercel.json`, calling `/api/jobs/watchdog`).
 It needs:
-- **Vercel Pro** (the free plan only allows daily schedules), and
+- **Vercel Pro** (the free plan only allows daily schedules; VS Lab is on Pro since 2026-10-21), and
 - **`CRON_SECRET`** in the project's environment variables: any long random string. Vercel sends it with each
   call; anyone else calling the address gets "Unauthorized".
 
