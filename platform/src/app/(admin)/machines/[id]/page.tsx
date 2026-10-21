@@ -28,6 +28,7 @@ import {
   worksiteOutlines,
 } from "@/lib/data";
 import { WorksiteVisits } from "./WorksiteVisits";
+import { EngineData } from "./EngineData";
 import { appTimeZone, effectiveEnd } from "@/lib/telemetry/engine";
 import { PID_NAMES } from "@/lib/freematics/protocol";
 import { clockTime, fmt, formatHours, machineLabel, timeAgo } from "@/lib/format";
@@ -141,6 +142,10 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
             : "No GPS position yet. Veristart fits a tracking device to the machine; its position shows here once it reports."}
         </p>
       )}
+
+      <Suspense>
+        <EngineData machineId={machine.id} hourMeter={machine.engineHourMeter} />
+      </Suspense>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">

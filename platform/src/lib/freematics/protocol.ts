@@ -50,6 +50,17 @@ export const PID_NAMES: Record<number, string> = {
   0x142: "obdControlModuleV",
   0x146: "obdAmbientTempC",
   0x15c: "obdOilTempC",
+  // J1939 (heavy equipment engine computers). Not sent by the stock Telelogger: these are VS Lab's own
+  // PIDs for our firmware fork, which listens to the engine's J1939 broadcasts. See docs/can-data.md.
+  0x301: "j1939EngineHours", // SPN 247, total engine hours (h)
+  0x302: "j1939FuelRateLph", // SPN 183, fuel rate (L/h)
+  0x303: "j1939TotalFuelL", // SPN 250, total fuel used (L)
+  0x304: "j1939CoolantTempC", // SPN 110
+  0x305: "j1939Rpm", // SPN 190
+  0x306: "j1939EngineLoadPct", // SPN 92
+  0x307: "j1939DefLevelPct", // SPN 1761, DEF (AdBlue) tank level
+  0x310: "j1939Faults", // DM1 active faults: SPN × 32 + FMI each, ";"-separated; 0 = none active
+  0x311: "j1939Lamps", // DM1 lamps: 1 = malfunction, 2 = red stop, 4 = amber warning, 8 = protect
 };
 
 const NAME_TO_PID: Record<string, number> = Object.fromEntries(

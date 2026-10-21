@@ -16,6 +16,7 @@ import {
   devices,
   divisions,
   engineSessions,
+  machineFaults,
   machineOperators,
   machines,
   operators,
@@ -442,6 +443,41 @@ export async function openAlertCountIfSignedIn(): Promise<number | null> {
 export async function canEditChecklists() {
   const auth = await requireSession();
   return hasRole(auth, "manager") && auth.divisionIds === null;
+}
+
+// ---------- Engine computer (J1939) ----------
+
+/** The latest engine computer readings and the fault codes (active first, then recent) for a machine. */
+export async function machineEngineData(machineId: number) {
+  await requireMachine(machineId);
+  const db = getDb();
+  const [[latest], faults] = await Promise.all([
+    db
+      .select({ receivedAt: telemetry.receivedAt, fields: telemetry.fields })
+      .from(telemetry)
+      .where(and(eq(telemetry.machineId, machineId), sql`(${telemetry.fields} ? 'j1939EngineHours' or ${telemetry.fields} ? 'j1939Rpm' or ${telemetry.fields} ? 'j1939Faults')`))
+      .orderBy(desc(telemetry.receivedAt))
+      .limit(1),
+    db
+      .select()
+      .from(machineFaults)
+      .where(eq(machineFaults.machineId, machineId))
+      .orderBy(sql`${machineFaults.clearedAt} is null desc`, desc(machineFaults.lastSeenAt))
+      .limit(15),
+  ]);
+  return { latest: latest ?? null, faults };
+}
+
+/** Active fault code counts per machine (fleet list). */
+export async function activeFaultCounts() {
+  const auth = await requireSession();
+  const rows = await getDb()
+    .select({ machineId: machineFaults.machineId, count: sql<number>`count(*)`.mapWith(Number) })
+    .from(machineFaults)
+    .innerJoin(machines, eq(machines.id, machineFaults.machineId))
+    .where(and(isNull(machineFaults.clearedAt), machineScope(auth)))
+    .groupBy(machineFaults.machineId);
+  return new Map(rows.map((r) => [r.machineId, r.count]));
 }
 
 // ---------- Reports ----------

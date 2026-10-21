@@ -189,7 +189,7 @@ function Overview({ report }: { report: Report }) {
   const compliance = t.daysOperated ? t.daysWithCheckin / t.daysOperated : null;
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className={`grid grid-cols-2 gap-3 md:grid-cols-3 ${t.fuelMachines ? "xl:grid-cols-7" : "xl:grid-cols-6"}`}>
         <Tile label="Engine hours" value={formatHours(t.hours)} sub={t.activeMachines ? `${formatHours(t.hours / t.activeMachines)} per active machine` : undefined} />
         <Tile
           label="Utilization"
@@ -211,6 +211,14 @@ function Overview({ report }: { report: Report }) {
           sub={<ComplianceStatus rate={compliance} wordOnly />}
           help="Days a machine ran that had a pre-start check-in ÷ days it ran."
         />
+        {t.fuelMachines > 0 && (
+          <Tile
+            label="Fuel used"
+            value={`${Math.round(t.fuelL).toLocaleString("en-CA")} L`}
+            sub={`${t.fuelMachines} machine${t.fuelMachines === 1 ? "" : "s"} reporting`}
+            help="From the engine computer's fuel meter (J1939), on machines whose device reads it."
+          />
+        )}
       </div>
 
       <section className={`${card} space-y-3 p-4`}>
@@ -299,6 +307,7 @@ function Machines({ report, csv, now }: { report: Report; csv: string; now: numb
             <th className={th}>Utilization</th>
             <th className={th}>Last used</th>
             <th className={th}>Most time at</th>
+            {report.totals.fuelMachines > 0 && <th className={th}>Fuel used</th>}
           </tr>
         </thead>
         <tbody>
@@ -320,6 +329,18 @@ function Machines({ report, csv, now }: { report: Report; csv: string; now: numb
               </td>
               <td className={td}>{m.lastUsed ? timeAgo(m.lastUsed, now) : "not in this period"}</td>
               <td className="px-3 py-2">{m.topWorksite ?? "—"}</td>
+              {report.totals.fuelMachines > 0 && (
+                <td className={td}>
+                  {m.fuelL === null ? (
+                    "—"
+                  ) : (
+                    <>
+                      {Math.round(m.fuelL)} L
+                      {m.hours > 0 && <div className="text-xs text-slate-500">{(m.fuelL / m.hours).toFixed(1)} L/h</div>}
+                    </>
+                  )}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

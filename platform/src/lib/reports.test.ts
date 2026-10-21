@@ -133,10 +133,21 @@ describe("report", () => {
     expect(byDivision.machines).toHaveLength(2);
   });
 
+  it("reads fuel and hours from the engine computer's meters", async () => {
+    await db.insert(telemetry).values([
+      { deviceId: "D1", machineId: a, receivedAt: toronto("2026-10-19T08:00"), engineOn: true, fields: { j1939EngineHours: 1500.0, j1939TotalFuelL: 20000 } },
+      { deviceId: "D1", machineId: a, receivedAt: toronto("2026-10-20T10:00"), engineOn: true, fields: { j1939EngineHours: 1506.1, j1939TotalFuelL: 20096.5 } },
+    ]);
+    const r = await buildReport(db, { organizationId: org, divisionIds: null }, reportRange({}, now, tz), tz, { now });
+    expect(r.machines.find((m) => m.id === a)).toMatchObject({ meterHours: expect.closeTo(6.1, 5), fuelL: expect.closeTo(96.5, 5) });
+    expect(r.machines.find((m) => m.id === b)).toMatchObject({ meterHours: null, fuelL: null });
+    expect(r.totals).toMatchObject({ fuelMachines: 1, fuelL: expect.closeTo(96.5, 5) });
+  });
+
   it("exports CSV safely", async () => {
     const r = await buildReport(db, { organizationId: org, divisionIds: null }, reportRange({}, now, tz), tz, { now });
     const csv = toCsv(REPORT_CSV.machines(r));
-    expect(csv.split("\r\n")[0]).toBe("Unit,Machine,Type,Division,Engine hours,Idle hours (est.),Idle %,Days used,Utilization %,Last used,Most time at worksite");
+    expect(csv.split("\r\n")[0]).toMatch(/^Unit,Machine,Type,Division,Engine hours,Idle hours \(est.\),Idle %,Days used,Utilization %,Last used,Most time at worksite,Hour meter/);
     expect(csv).toContain("1,Excavator,,East,6.00,1.00,16.7,2,15.0,");
     expect(toCsv([["=HYPERLINK(1)", 'say "hi", ok']])).toBe(`'=HYPERLINK(1),"say ""hi"", ok"\r\n`);
   });

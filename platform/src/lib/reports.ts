@@ -157,6 +157,9 @@ export type MachineReport = {
   checkinsWithDefects: number;
   startsWithoutCheckin: number;
   topWorksite: string | null;
+  /** From the engine computer's own meters (J1939), when the machine reports them. */
+  meterHours: number | null;
+  fuelL: number | null;
 };
 
 export type OperatorReport = { id: number; name: string; hours: number; checkins: number; machines: number; days: number; defects: number };
@@ -192,6 +195,9 @@ export type Report = {
     checkins: number;
     checkinsWithDefects: number;
     startsWithoutCheckin: number;
+    /** Machines reporting fuel (J1939), and their total. */
+    fuelMachines: number;
+    fuelL: number;
   };
 };
 
@@ -214,7 +220,7 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
   const to = new Date(range.to);
   const none = ids.length === 0;
 
-  const [sessions, idleRows, checkinRows, unauthorized, visits] = await Promise.all([
+  const [sessions, idleRows, checkinRows, unauthorized, visits, ecuRows] = await Promise.all([
     none
       ? []
       : db
@@ -235,7 +241,8 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
             day: sql<string>`to_char(${telemetry.receivedAt} at time zone ${tz}, 'YYYY-MM-DD')`,
             on: sql<number>`count(*) filter (where ${telemetry.engineOn})`.mapWith(Number),
             idle: sql<number>`count(*) filter (where ${telemetry.engineOn} and case
-              when ${telemetry.fields}->>'obdRpm' is not null then (${telemetry.fields}->>'obdRpm')::float < ${REPORT_RULES.idleRpm}
+              when coalesce(${telemetry.fields}->>'j1939Rpm', ${telemetry.fields}->>'obdRpm') is not null
+                then coalesce(${telemetry.fields}->>'j1939Rpm', ${telemetry.fields}->>'obdRpm')::float < ${REPORT_RULES.idleRpm}
               else coalesce(${telemetry.speedKph}, 0) < ${REPORT_RULES.idleSpeedKph} end)`.mapWith(Number),
           })
           .from(telemetry)
@@ -268,6 +275,25 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
               or(isNull(worksiteVisits.leftAt), gte(worksiteVisits.leftAt, from)),
             ),
           ),
+    // Engine computer (J1939) meters: hours and fuel used in the period = last reading − first reading.
+    none
+      ? []
+      : db
+          .select({
+            machineId: telemetry.machineId,
+            hours: sql<number | null>`max((${telemetry.fields}->>'j1939EngineHours')::float) - min((${telemetry.fields}->>'j1939EngineHours')::float)`,
+            fuel: sql<number | null>`max((${telemetry.fields}->>'j1939TotalFuelL')::float) - min((${telemetry.fields}->>'j1939TotalFuelL')::float)`,
+          })
+          .from(telemetry)
+          .where(
+            and(
+              inArray(telemetry.machineId, ids),
+              gte(telemetry.receivedAt, from),
+              lt(telemetry.receivedAt, to),
+              sql`(${telemetry.fields} ? 'j1939EngineHours' or ${telemetry.fields} ? 'j1939TotalFuelL')`,
+            ),
+          )
+          .groupBy(telemetry.machineId),
   ]);
 
   const plannedPerMachine = plannedHours(range, org?.plannedHoursPerDay ?? 8, org?.workingDays ?? [1, 2, 3, 4, 5]);
@@ -279,6 +305,7 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
     (c) => c.checkin.machineId,
   );
   const unauthorizedBy = new Map(unauthorized.map((u) => [u.machineId, u.count]));
+  const ecuBy = new Map(ecuRows.map((r) => [r.machineId, { hours: r.hours === null ? null : Number(r.hours), fuel: r.fuel === null ? null : Number(r.fuel) }]));
   const visitsBy = Map.groupBy(visits, (v) => v.visit.machineId);
   /** Which operator each engine session belongs to (the latest check-in linked to it). */
   const sessionOperator = new Map<number, { id: number; name: string }>();
@@ -359,6 +386,8 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
       checkinsWithDefects: machineCheckins.filter((c) => !c.checkin.checklistOk).length,
       startsWithoutCheckin: unauthorizedBy.get(machine.id) ?? 0,
       topWorksite: [...siteTime].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+      meterHours: ecuBy.get(machine.id)?.hours ?? null,
+      fuelL: ecuBy.get(machine.id)?.fuel ?? null,
     };
   });
 
@@ -415,6 +444,8 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
       checkins: sum((m) => m.checkins),
       checkinsWithDefects: sum((m) => m.checkinsWithDefects),
       startsWithoutCheckin: sum((m) => m.startsWithoutCheckin),
+      fuelMachines: machineReports.filter((m) => m.fuelL !== null).length,
+      fuelL: sum((m) => m.fuelL ?? 0),
     },
   };
 }
@@ -434,7 +465,7 @@ const pct = (n: number | null) => (n === null ? "" : (n * 100).toFixed(1));
 
 export const REPORT_CSV = {
   machines: (r: Report) => [
-    ["Unit", "Machine", "Type", "Division", "Engine hours", "Idle hours (est.)", "Idle %", "Days used", "Utilization %", "Last used", "Most time at worksite"],
+    ["Unit", "Machine", "Type", "Division", "Engine hours", "Idle hours (est.)", "Idle %", "Days used", "Utilization %", "Last used", "Most time at worksite", "Hour meter hours (engine computer)", "Fuel used (L)", "Average fuel (L/h)"],
     ...r.machines.map((m) => [
       m.unitNumber,
       m.name,
@@ -447,6 +478,9 @@ export const REPORT_CSV = {
       pct(m.utilization),
       m.lastUsed,
       m.topWorksite,
+      m.meterHours === null ? "" : h2(m.meterHours),
+      m.fuelL === null ? "" : h2(m.fuelL),
+      m.fuelL !== null && m.hours > 0 ? h2(m.fuelL / m.hours) : "",
     ]),
   ],
   operators: (r: Report) => [

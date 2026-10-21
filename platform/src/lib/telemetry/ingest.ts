@@ -6,6 +6,7 @@ import { recordEvent as recordNotification } from "@/lib/notifications";
 import { checkMovement, noteContact } from "@/lib/tamper";
 import { checkDwell, updatePresence } from "@/lib/worksites";
 import { checkBattery } from "@/lib/battery";
+import { updateEngineData } from "@/lib/faults";
 import { detectEngine, ENGINE_THRESHOLDS, type EngineReading } from "./engine";
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
@@ -165,6 +166,9 @@ export async function ingestSamples(
     // Engine-on periods (and so engine hours, check-ins and alerts) belong to the machine.
     if (machineId) await updateEngineState(db, machineId, lastReading, now);
   }
+
+  // Engine computer data (J1939): hour meter and fault codes.
+  if (machineId) await sideCheck("Engine data", () => updateEngineData(db, machineId, samples, now));
 
   // Low battery warning (engine-off readings only).
   if (machineId) {

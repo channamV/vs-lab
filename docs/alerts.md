@@ -50,6 +50,7 @@ production portal's notification subscriptions.
   - Entered Worksite / Left Worksite / Stayed Too Long at Worksite: with these, a **Worksites** box lets you
     pick which worksites (empty = all). See [worksites.md](worksites.md).
   - **Low Battery Warning** (replaced production's "Switched to Battery Power", 2026-10-21): see below.
+  - **Engine Fault Code**: the engine computer reported a new fault (J1939 machines; see [can-data.md](can-data.md)).
   - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, equipment
     removed, lock/unlock).
 - **Machines** and **Operators**: search and tick. Leave a list empty for "all". If the company uses divisions,

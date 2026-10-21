@@ -141,6 +141,13 @@
       "when": 1792590840730,
       "tag": "0019_battery_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792593885688,
+      "tag": "0020_engine_data",
+      "breakpoints": true
     }
   ]
 }

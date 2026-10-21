@@ -4,7 +4,7 @@ import { num, type SampleFields } from "@/lib/freematics/protocol";
  * Engine-on ("run state") detection from what the stock Telelogger already sends.
  *
  * Signals, best first:
- *  1. OBD RPM — exact, but many heavy machines have no OBD-II port.
+ *  1. RPM from the engine computer — J1939 (heavy equipment, our firmware fork) or OBD-II. Exact.
  *  2. Supply voltage — when the engine runs, the alternator charges the battery:
  *       12 V systems: ~13.8–14.4 V running, ~12.6 V or less off
  *       24 V systems (common on heavy equipment): ~27.5–28.5 V running, ~25 V or less off
@@ -32,7 +32,7 @@ export interface EngineReading {
 export function detectEngine(fields: SampleFields): EngineReading {
   const t = ENGINE_THRESHOLDS;
 
-  const rpm = num(fields, "obdRpm");
+  const rpm = num(fields, "j1939Rpm") ?? num(fields, "obdRpm");
   if (rpm !== null) return { running: rpm >= t.minRpm, source: "rpm" };
 
   const centivolts = num(fields, "batteryCentivolts");

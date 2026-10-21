@@ -50,9 +50,14 @@ The second rule overstates idle for machines that work standing still (an excava
 a pump), so read idle as "engine on, not travelling" for those. Hours that come from older data without
 reports (e.g. demo history) count as working. Settings: `REPORT_RULES` in `platform/src/lib/reports.ts`.
 
+## Fuel
+
+Machines whose device reads the engine computer (J1939, [can-data.md](can-data.md)) add a **Fuel used** tile
+and column: litres used in the period from the engine's own fuel meter, and the average litres per engine
+hour. The Machines CSV also has the engine's hour meter hours for the period.
+
 ## Later
 
-- Fuel used and idle fuel (estimated from make/model, as in Insights' Telematics page, or measured once we
-  read J1939), DEF, fault codes, engine load: need the engine data connection.
+- Estimated fuel for machines without engine data (from make/model, as in Insights' Telematics page), idle fuel.
 - PDF export of the overview, and emailed weekly reports.
 - Worksite travel times and A/B comparison (Insights' Worksite Analytics).

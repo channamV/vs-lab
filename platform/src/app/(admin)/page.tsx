@@ -4,7 +4,7 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { FleetMap, type MapMarker } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EngineBadge } from "@/components/EngineBadge";
-import { connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, quietMachines, requestTime, worksiteOutlines } from "@/lib/data";
+import { connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, quietMachines, requestTime, worksiteOutlines, activeFaultCounts } from "@/lib/data";
 import { isArmed, isMonitored } from "@/lib/alerts";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, fmt, formatHours, machineLabel, TIER_LABELS, timeAgo } from "@/lib/format";
@@ -41,7 +41,7 @@ async function AddMachineLink() {
 }
 
 async function FleetOverview() {
-  const [machines, now, hoursToday, checkedIn, alerts, quiet, sites] = await Promise.all([
+  const [machines, now, hoursToday, checkedIn, alerts, quiet, sites, faults] = await Promise.all([
     listMachines(),
     requestTime(),
     engineHoursToday(),
@@ -49,6 +49,7 @@ async function FleetOverview() {
     openAlerts(),
     quietMachines(),
     worksiteOutlines(),
+    activeFaultCounts(),
   ]);
   const tz = appTimeZone();
 
@@ -122,6 +123,13 @@ async function FleetOverview() {
                 </td>
                 {showDivision && <td className="px-4 py-2">{d.divisionName ?? <span className="text-slate-500">—</span>}</td>}
                 <td className="px-4 py-2">
+                  {!!faults.get(d.id) && (
+                    <div className="mb-1">
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/50 dark:text-red-300">
+                        ⚠ {faults.get(d.id)} fault code{faults.get(d.id) === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  )}
                   {d.lockedOutAt && (
                     <div className="mb-1">
                       <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/50 dark:text-red-300">

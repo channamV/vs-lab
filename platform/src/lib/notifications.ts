@@ -61,6 +61,10 @@ export const EVENT_TYPES = {
     label: "Equipment Connectivity Status",
     description: "A tracking device went quiet for longer than expected (with how concerning that is), or came back online.",
   },
+  engine_fault: {
+    label: "Engine Fault Code",
+    description: "The machine's engine computer reported a new fault code (J1939; needs a device that reads engine data).",
+  },
   low_battery: {
     label: "Low Battery Warning",
     description: "The machine's battery is low with the engine off (below 11.9 V, or 23.8 V on 24 V machines): it may not start.",

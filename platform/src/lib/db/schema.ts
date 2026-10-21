@@ -219,6 +219,9 @@ export const machines = pgTable(
     batteryLowPendingAt: timestamp("battery_low_pending_at", { withTimezone: true }),
     batteryLowAt: timestamp("battery_low_at", { withTimezone: true }),
     batteryLowVolts: real("battery_low_volts"),
+    /** The engine computer's own hour meter (J1939), when the machine's device reads it, and when it was read. */
+    engineHourMeter: doublePrecision("engine_hour_meter"),
+    engineHourMeterAt: timestamp("engine_hour_meter_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Latest state, from whichever device is paired. Null until a device has reported for this machine.
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
@@ -881,7 +884,37 @@ export const worksiteVisits = pgTable(
   ],
 );
 
+/**
+ * Fault codes reported by a machine's engine computer (J1939 DM1): one row per fault while it's active,
+ * closed (clearedAt) when the engine stops reporting it. src/lib/faults.ts.
+ */
+export const machineFaults = pgTable(
+  "machine_faults",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    /** Suspect parameter number (what) and failure mode identifier (how). */
+    spn: integer("spn").notNull(),
+    fmi: integer("fmi").notNull(),
+    /** DM1 lamp bits when it was last reported (2 = red stop, 4 = amber warning, 1 = malfunction, 8 = protect). */
+    lamps: integer("lamps"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    clearedAt: timestamp("cleared_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("machine_faults_one_active_idx").on(t.machineId, t.spn, t.fmi).where(sql`${t.clearedAt} is null`),
+    index("machine_faults_machine_idx").on(t.machineId, t.firstSeenAt),
+  ],
+);
+
 export type Organization = typeof organizations.$inferSelect;
+export type MachineFault = typeof machineFaults.$inferSelect;
 export type Worksite = typeof worksites.$inferSelect;
 export type WorksiteVisit = typeof worksiteVisits.$inferSelect;
 export type AuditLogEntry = typeof auditLog.$inferSelect;

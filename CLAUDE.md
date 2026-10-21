@@ -133,6 +133,11 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   check-ins linked to sessions; compliance = days run with a check-in ÷ days run; utilization vs org
   `planned_hours_per_day` × `working_days` (Settings); worksite engine hours = sessions ∩ visits). Charts are plain
   HTML in `reports/charts.tsx` (validated blue/orange, one blue ramp; hover + sr-only tables).
+- J1939 engine data (`docs/can-data.md`): our own PIDs 0x301–0x311 in `protocol.ts` (for the future firmware fork;
+  simulator sends them). `detectEngine` prefers `j1939Rpm`. `src/lib/faults.ts` (tested) `updateEngineData` from
+  ingest: `machines.engine_hour_meter`, DM1 faults (SPN×32+FMI) → `machine_faults` (one open per machine+SPN+FMI,
+  cleared when absent from a fault list) + `engine_fault` event; wording in `src/lib/j1939.ts`. Reports: fuel/hours
+  from meter deltas.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

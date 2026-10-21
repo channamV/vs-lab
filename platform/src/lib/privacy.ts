@@ -10,6 +10,7 @@ import {
   deviceEvents,
   deviceIncidents,
   loginTokens,
+  machineFaults,
   machineOperators,
   machines,
   notificationEvents,
@@ -172,6 +173,11 @@ export async function applyRetention(db: Db, now = new Date()): Promise<Retentio
         .where(and(eq(worksiteVisits.organizationId, org.id), isNotNull(worksiteVisits.leftAt), lt(worksiteVisits.leftAt, track)))
         .returning({ id: worksiteVisits.id })
     ).length;
+
+    // Cleared engine fault codes go with the device data.
+    await db
+      .delete(machineFaults)
+      .where(and(eq(machineFaults.organizationId, org.id), isNotNull(machineFaults.clearedAt), lt(machineFaults.clearedAt, track)));
 
     // Alerts, resolved defects and finished check-ins. Open defects and a current check-in always stay.
     r.alertsDeleted += (

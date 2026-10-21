@@ -9,13 +9,16 @@
  *   npm run simulate -- --once             # send one report from each machine and stop
  *   npm run simulate -- --engine on        # engines stay running (e.g. to test unauthorized-use alerts)
  *   npm run simulate -- --obd all          # every machine sends OBD-II engine data (default: machine 1 of every 3)
+ *   npm run simulate -- --j1939 all        # every machine sends J1939 engine data (default: machine 3 of every 3)
+ *   npm run simulate -- --fault            # J1939 machines report a fault code (coolant temperature) after ~1 minute
  *
  * Each machine cycles its engine on and off (a few minutes each, so you can watch it happen),
  * unless --engine on / --engine off holds it in one state.
  * Machine 3 is a 24 V machine, like most heavy equipment, to exercise that detection path.
  * Machines with OBD-II (--obd) also send what the stock Telelogger reads from the engine computer while it
  * runs: RPM, engine load, throttle, coolant and intake temperature, speed, fuel level. Heavy equipment
- * usually speaks J1939 instead, which the stock firmware doesn't read (see docs/can-data.md).
+ * usually speaks J1939 instead, which the stock firmware doesn't read: J1939 machines (--j1939) send what our
+ * firmware fork will (hour meter, fuel rate and total, coolant, RPM, load, DEF, fault codes; docs/can-data.md).
  */
 import { parseArgs } from "node:util";
 import { encodePayload, type SampleFields } from "../src/lib/freematics/protocol";
@@ -28,6 +31,8 @@ const { values: args } = parseArgs({
     once: { type: "boolean", default: false },
     engine: { type: "string", default: "cycle" },
     obd: { type: "string", default: "some" },
+    j1939: { type: "string", default: "some" },
+    fault: { type: "boolean", default: false },
   },
 });
 
@@ -36,9 +41,11 @@ if (!["cycle", "on", "off"].includes(args.engine!)) {
   process.exit(1);
 }
 const engineMode = args.engine as "cycle" | "on" | "off";
-if (!["some", "all", "none"].includes(args.obd!)) {
-  console.error("--obd must be some, all or none");
-  process.exit(1);
+for (const opt of ["obd", "j1939"] as const) {
+  if (!["some", "all", "none"].includes(args[opt]!)) {
+    console.error(`--${opt} must be some, all or none`);
+    process.exit(1);
+  }
 }
 
 const host = args.host!.replace(/\/$/, "");
@@ -71,6 +78,11 @@ interface SimDevice {
   obd: boolean;
   coolantC: number;
   fuelPct: number;
+  /** Sends J1939 engine data (our firmware fork) instead of OBD-II. */
+  j1939: boolean;
+  hourMeter: number;
+  totalFuelL: number;
+  defPct: number;
 }
 
 const minutes = (min: number, max: number) => (min + Math.random() * (max - min)) * 60_000;
@@ -86,10 +98,46 @@ const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => ({
   engineOn: engineMode === "cycle" ? i % 2 === 0 : engineMode === "on",
   nextSwitchAt: Date.now() + minutes(1, 4),
   system24V: i % 3 === 2,
-  obd: args.obd === "all" || (args.obd === "some" && i % 3 === 0),
+  j1939: args.j1939 === "all" || (args.j1939 === "some" && i % 3 === 2),
+  obd: !(args.j1939 === "all" || (args.j1939 === "some" && i % 3 === 2)) && (args.obd === "all" || (args.obd === "some" && i % 3 === 0)),
+  hourMeter: 1200 + i * 731.4,
+  totalFuelL: 18_000 + i * 9_000,
+  defPct: 70 + Math.random() * 25,
   coolantC: 20,
   fuelPct: 60 + Math.random() * 35,
 }));
+
+const simStart = Date.now();
+
+/**
+ * What our firmware fork will send from a J1939 engine computer. The hour meter and fuel totals only move
+ * while the engine runs. With --fault, a coolant temperature fault (SPN 110 FMI 15) appears after a minute
+ * of running and clears two minutes later.
+ */
+function j1939Fields(d: SimDevice, working: boolean): SampleFields {
+  if (!d.j1939) return {};
+  const fields: SampleFields = { j1939EngineHours: Number(d.hourMeter.toFixed(2)), j1939TotalFuelL: Number(d.totalFuelL.toFixed(1)) };
+  if (!d.engineOn) return fields;
+  const fuelRate = working ? 14 + Math.random() * 10 : 2.5 + Math.random();
+  d.hourMeter += intervalS / 3600;
+  d.totalFuelL += (fuelRate * intervalS) / 3600;
+  d.coolantC = Math.min(88 + Math.random() * 4, d.coolantC + intervalS * 0.15);
+  d.defPct = Math.max(3, d.defPct - (working ? 0.0005 : 0.0001) * intervalS);
+  const elapsed = (Date.now() - simStart) / 60_000;
+  const faulty = args.fault && elapsed > 1 && elapsed < 3;
+  return {
+    ...fields,
+    j1939EngineHours: Number(d.hourMeter.toFixed(2)),
+    j1939TotalFuelL: Number(d.totalFuelL.toFixed(1)),
+    j1939FuelRateLph: Number(fuelRate.toFixed(1)),
+    j1939CoolantTempC: Math.round(faulty ? 104 : d.coolantC),
+    j1939Rpm: Math.round(working ? 1600 + Math.random() * 500 : 750 + Math.random() * 100),
+    j1939EngineLoadPct: Math.round(working ? 50 + Math.random() * 35 : 10 + Math.random() * 8),
+    j1939DefLevelPct: Math.round(d.defPct),
+    j1939Faults: faulty ? 110 * 32 + 15 : 0,
+    j1939Lamps: faulty ? 4 : 0,
+  };
+}
 
 /** What the Telelogger polls over OBD-II while the engine runs (the engine computer is off otherwise). */
 function obdFields(d: SimDevice, working: boolean, speedKph: number): SampleFields {
@@ -143,6 +191,7 @@ function nextSample(d: SimDevice): SampleFields {
       d.engineOn ? Number((0.95 + Math.random() * 0.1).toFixed(2)) : 1,
     ],
     ...obdFields(d, working, speedKph),
+    ...j1939Fields(d, working),
   };
 }
 
@@ -161,7 +210,7 @@ async function report(d: SimDevice) {
   const sample = nextSample(d);
   const reply = await send(`/hub/api/post/${d.id}`, { method: "POST", body: encodePayload([sample]) });
   console.log(
-    `${new Date().toLocaleTimeString()}  ${d.id}  engine ${d.engineOn ? "on " : "off"}  ${sample.lat}, ${sample.lng}  ${sample.speedKph} km/h${sample.obdRpm ? `  ${sample.obdRpm} rpm` : ""}  → ${reply}`,
+    `${new Date().toLocaleTimeString()}  ${d.id}  engine ${d.engineOn ? "on " : "off"}  ${sample.lat}, ${sample.lng}  ${sample.speedKph} km/h${sample.obdRpm ? `  ${sample.obdRpm} rpm (OBD)` : ""}${sample.j1939Rpm ? `  ${sample.j1939Rpm} rpm (J1939)${sample.j1939Faults ? "  FAULT" : ""}` : ""}  → ${reply}`,
   );
 }
 
