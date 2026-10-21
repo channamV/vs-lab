@@ -17,6 +17,7 @@ export type RuleValues = {
   machineIds: number[];
   divisionIds: number[];
   operatorIds: number[];
+  worksiteIds: number[];
   weekdays: number[];
   startTime: string;
   endTime: string;
@@ -99,6 +100,7 @@ export function SubscriptionForm({
   machines,
   divisions,
   operators,
+  worksites,
   timeZone,
   email,
   cancelHref,
@@ -111,6 +113,7 @@ export function SubscriptionForm({
   machines: Option[];
   divisions: Option[];
   operators: Option[];
+  worksites: (Option & { color: string })[];
   timeZone: string;
   email: string;
   cancelHref: string;
@@ -219,6 +222,42 @@ export function SubscriptionForm({
           onChange={(ids) => set("operatorIds", ids)}
         />
       </div>
+      {v.eventTypes.some((t) => t.startsWith("worksite_")) && (
+        <div className={card}>
+          <div>
+            <h2 className="font-semibold">Worksites</h2>
+            <p className="text-xs text-slate-500">
+              For the worksite events. Leave empty for any worksite.{" "}
+              {worksites.length === 0 && (
+                <>
+                  No worksites yet:{" "}
+                  <Link href="/worksites" className="text-sky-700 hover:underline dark:text-sky-400">
+                    draw one
+                  </Link>
+                  .
+                </>
+              )}
+            </p>
+          </div>
+          {v.worksiteIds.map((id) => (
+            <input key={id} type="hidden" name="worksite" value={id} />
+          ))}
+          <div className="flex flex-wrap gap-2">
+            {worksites.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                aria-pressed={v.worksiteIds.includes(w.id)}
+                onClick={() => set("worksiteIds", toggle(v.worksiteIds, w.id))}
+                className={`${chip(v.worksiteIds.includes(w.id))} flex items-center gap-1.5`}
+              >
+                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: w.color }} />
+                {w.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {v.operatorIds.length > 0 && (
         <p className="-mt-2 text-xs text-amber-700 dark:text-amber-400">
           With operators selected, events with no operator (e.g. Start Without Checklist, Equipment Updated) won&apos;t match.

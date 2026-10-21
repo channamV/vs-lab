@@ -7,14 +7,16 @@
 import { createDb, defaultDbOptions } from "../src/lib/db";
 import { deliverAlerts, processEvents } from "../src/lib/notifications";
 import { notifyIncidents, watchdog } from "../src/lib/tamper";
+import { checkDwell } from "../src/lib/worksites";
 
 async function main() {
   const db = createDb(defaultDbOptions());
   const result = await watchdog(db);
   const raised = await notifyIncidents(db);
   await deliverAlerts(db, raised);
+  const dwell = await checkDwell(db);
   await processEvents(db, {});
-  console.log(`Checked ${result.checked} paired devices; ${result.changed} incidents opened or escalated; ${raised.length} alerts.`);
+  console.log(`Checked ${result.checked} paired devices; ${result.changed} incidents opened or escalated; ${raised.length} alerts; ${dwell} stayed-too-long.`);
   process.exit(0);
 }
 

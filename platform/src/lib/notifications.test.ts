@@ -30,7 +30,8 @@ let eastMachine: number;
 let westMachine: number;
 let fetchMock: ReturnType<typeof vi.fn>;
 
-const blank: RuleInput = {
+const blank: RuleInput & { worksiteIds: number[] } = {
+  worksiteIds: [],
   name: "Rule",
   eventTypes: ["start"],
   machineIds: [],

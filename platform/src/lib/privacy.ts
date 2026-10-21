@@ -18,6 +18,7 @@ import {
   pinFailures,
   sessions,
   telemetry,
+  worksiteVisits,
   type ChecklistAnswer,
   type Organization,
 } from "@/lib/db/schema";
@@ -93,6 +94,7 @@ export type RetentionResult = {
   telemetryDeleted: number;
   deviceEventsDeleted: number;
   incidentsDeleted: number;
+  visitsDeleted: number;
   checkinsDeleted: number;
   alertsDeleted: number;
   issuesDeleted: number;
@@ -111,6 +113,7 @@ export async function applyRetention(db: Db, now = new Date()): Promise<Retentio
     telemetryDeleted: 0,
     deviceEventsDeleted: 0,
     incidentsDeleted: 0,
+    visitsDeleted: 0,
     checkinsDeleted: 0,
     alertsDeleted: 0,
     issuesDeleted: 0,
@@ -160,6 +163,14 @@ export async function applyRetention(db: Db, now = new Date()): Promise<Retentio
         .delete(deviceIncidents)
         .where(and(eq(deviceIncidents.organizationId, org.id), isNotNull(deviceIncidents.resolvedAt), lt(deviceIncidents.resolvedAt, track)))
         .returning({ id: deviceIncidents.id })
+    ).length;
+
+    // Worksite visits are location history too.
+    r.visitsDeleted += (
+      await db
+        .delete(worksiteVisits)
+        .where(and(eq(worksiteVisits.organizationId, org.id), isNotNull(worksiteVisits.leftAt), lt(worksiteVisits.leftAt, track)))
+        .returning({ id: worksiteVisits.id })
     ).length;
 
     // Alerts, resolved defects and finished check-ins. Open defects and a current check-in always stay.

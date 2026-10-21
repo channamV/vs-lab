@@ -4,6 +4,7 @@ import { deviceAssignments, deviceEvents, devices, engineSessions, machines, tel
 import { num, type SampleFields } from "@/lib/freematics/protocol";
 import { recordEvent as recordNotification } from "@/lib/notifications";
 import { checkMovement, noteContact } from "@/lib/tamper";
+import { checkDwell, updatePresence } from "@/lib/worksites";
 import { detectEngine, ENGINE_THRESHOLDS, type EngineReading } from "./engine";
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
@@ -48,13 +49,15 @@ async function stateBefore(db: Db, deviceId: string) {
 }
 
 /** Tamper checks for a report on a paired device. A problem here must never stop the device getting its HTTP 200. */
-async function tamperChecks(run: () => Promise<void>) {
+/** Tamper and worksite checks must never stop the device's data being saved, or its HTTP 200. */
+async function sideCheck(label: string, run: () => Promise<unknown>) {
   try {
     await run();
   } catch (err) {
-    console.error("Tamper check failed", err);
+    console.error(`${label} failed`, err);
   }
 }
+const tamperChecks = (run: () => Promise<unknown>) => sideCheck("Tamper check", run);
 
 function validFix(lat: number | null, lng: number | null): lat is number {
   return (
@@ -144,6 +147,13 @@ export async function ingestSamples(
   const lastReading = readings.findLast((r) => r.running !== null);
   if (machineId && lastFix) {
     await tamperChecks(() => checkMovement(db, machineId, { lat: lastFix.lat!, lng: lastFix.lng! }, now));
+    // Worksites: entered / left / stayed too long (notifications are sent after the reply, in alert-jobs).
+    await sideCheck("Worksite check", async () => {
+      const [m] = await db.select({ organizationId: machines.organizationId }).from(machines).where(eq(machines.id, machineId));
+      if (!m) return;
+      await updatePresence(db, { id: machineId, organizationId: m.organizationId }, { lat: lastFix.lat!, lng: lastFix.lng!, satellites: lastFix.satellites }, now);
+      await checkDwell(db, now, machineId);
+    });
   }
 
   if (lastReading) {

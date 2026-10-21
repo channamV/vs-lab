@@ -8,6 +8,7 @@ import { deliverAlerts, processEvents, recordEvent } from "@/lib/notifications";
 import { syncCheckins } from "@/lib/operators";
 import { pairedMachineId } from "@/lib/telemetry/ingest";
 import { notifyIncidents, watchdog } from "@/lib/tamper";
+import { checkDwell } from "@/lib/worksites";
 
 /**
  * Runs alert rules after the response has been sent, so devices and operators never wait on them
@@ -76,7 +77,9 @@ export async function runWatchdog(now = new Date()) {
   const result = await watchdog(db, now);
   const raised = await notifyIncidents(db, {}, now);
   await deliverAlerts(db, raised);
-  // Connectivity notifications for every machine with something pending.
+  // Machines that have stayed at a worksite longer than its limit.
+  const dwell = await checkDwell(db, now);
+  // Connectivity and worksite notifications for every machine with something pending.
   await processEvents(db, {}, now);
-  return { ...result, alerts: raised.length };
+  return { ...result, alerts: raised.length, worksiteDwell: dwell };
 }

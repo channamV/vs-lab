@@ -47,6 +47,8 @@ production portal's notification subscriptions.
     Check-in Not at Machine (these four are also listed on the Alerts page)
   - Equipment Created / Updated, Operator Assigned / Revoked (someone added a machine, changed one, or changed
     its approved operators)
+  - Entered Worksite / Left Worksite / Stayed Too Long at Worksite: with these, a **Worksites** box lets you
+    pick which worksites (empty = all). See [worksites.md](worksites.md).
   - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, battery power,
     connectivity, lock/unlock).
 - **Machines** and **Operators**: search and tick. Leave a list empty for "all". If the company uses divisions,

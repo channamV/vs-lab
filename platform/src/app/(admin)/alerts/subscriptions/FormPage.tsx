@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { subscriptionForm } from "@/lib/data";
 import { EVENT_TYPES, LATER_EVENT_TYPES } from "@/lib/notifications";
 import { machineLabel } from "@/lib/format";
+import { worksiteColor } from "@/lib/worksite-types";
 import { SubscriptionForm, type RuleValues } from "./SubscriptionForm";
 
 /** Shared by /alerts/subscriptions/new and /alerts/subscriptions/<id>. `?user=` lets owners manage someone else's. */
@@ -19,11 +20,12 @@ export async function FormPage({ ruleId, userParam }: { ruleId: number | null; u
         machineIds: rule.machineIds,
         divisionIds: rule.divisionIds,
         operatorIds: rule.operatorIds,
+        worksiteIds: rule.worksiteIds,
         weekdays: rule.weekdays,
         startTime: rule.startTime,
         endTime: rule.endTime,
       }
-    : { name: "", eventTypes: [], machineIds: [], divisionIds: [], operatorIds: [], weekdays: [], startTime: "", endTime: "" };
+    : { name: "", eventTypes: [], machineIds: [], divisionIds: [], operatorIds: [], worksiteIds: [], weekdays: [], startTime: "", endTime: "" };
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -46,6 +48,7 @@ export async function FormPage({ ruleId, userParam }: { ruleId: number | null; u
         laterEventTypes={LATER_EVENT_TYPES}
         machines={choices.machines.map((m) => ({ id: m.id, label: machineLabel(m) }))}
         divisions={choices.divisions.map((d) => ({ id: d.id, label: d.name }))}
+        worksites={choices.worksites.map((w) => ({ id: w.id, label: w.name, color: worksiteColor(w.type) }))}
         operators={choices.operators.map((o) => ({
           id: o.id,
           label: o.name,

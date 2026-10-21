@@ -4,7 +4,7 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { FleetMap, type MapMarker } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EngineBadge } from "@/components/EngineBadge";
-import { connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, quietMachines, requestTime } from "@/lib/data";
+import { connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, quietMachines, requestTime, worksiteOutlines } from "@/lib/data";
 import { isArmed, isMonitored } from "@/lib/alerts";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, fmt, formatHours, machineLabel, TIER_LABELS, timeAgo } from "@/lib/format";
@@ -41,13 +41,14 @@ async function AddMachineLink() {
 }
 
 async function FleetOverview() {
-  const [machines, now, hoursToday, checkedIn, alerts, quiet] = await Promise.all([
+  const [machines, now, hoursToday, checkedIn, alerts, quiet, sites] = await Promise.all([
     listMachines(),
     requestTime(),
     engineHoursToday(),
     currentCheckins(),
     openAlerts(),
     quietMachines(),
+    worksiteOutlines(),
   ]);
   const tz = appTimeZone();
 
@@ -92,7 +93,7 @@ async function FleetOverview() {
           {unauthorized > 0 && ` (${unauthorized} unauthorized use)`}. View alerts →
         </Link>
       )}
-      <FleetMap markers={markers} />
+      <FleetMap markers={markers} sites={sites} />
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-slate-200 text-xs uppercase text-slate-500 dark:border-slate-800">

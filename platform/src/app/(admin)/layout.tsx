@@ -38,6 +38,9 @@ async function NavLinks() {
       <Link href="/" className={linkClass}>
         Fleet
       </Link>
+      <Link href="/worksites" className={linkClass}>
+        Worksites
+      </Link>
       <Link href="/operators" className={linkClass}>
         Operators
       </Link>

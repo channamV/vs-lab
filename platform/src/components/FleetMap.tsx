@@ -5,6 +5,7 @@ import type { Map as LeafletMap, LayerGroup } from "leaflet";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import type { ConnectionStatus } from "@/lib/data";
+import { WORKSITE_TYPES, worksiteColor, type WorksiteType } from "@/lib/worksite-types";
 
 export interface MapMarker {
   /** Machine ID: clicking the marker opens the machine. */
@@ -13,6 +14,14 @@ export interface MapMarker {
   lat: number;
   lng: number;
   status: ConnectionStatus;
+}
+
+/** A worksite outline drawn under the machines (see /worksites). */
+export interface MapSite {
+  id: number;
+  name: string;
+  type: string;
+  polygon: [number, number][];
 }
 
 const STATUS_COLORS: Record<ConnectionStatus, string> = {
@@ -28,10 +37,12 @@ const STATUS_COLORS: Record<ConnectionStatus, string> = {
 export function FleetMap({
   markers,
   track,
+  sites = [],
   height = 420,
 }: {
   markers: MapMarker[];
   track?: { lat: number; lng: number }[];
+  sites?: MapSite[];
   height?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,6 +70,12 @@ export function FleetMap({
       layer.clearLayers();
 
       const bounds: [number, number][] = [];
+      for (const site of sites) {
+        L.polygon(site.polygon, { color: worksiteColor(site.type), weight: 1.5, fillOpacity: 0.12 })
+          .bindTooltip(`${site.name} · ${WORKSITE_TYPES[site.type as WorksiteType]?.label ?? site.type}`, { sticky: true })
+          .on("click", () => router.push("/worksites"))
+          .addTo(layer);
+      }
       if (track && track.length > 1) {
         const line = track.map((p) => [p.lat, p.lng] as [number, number]);
         L.polyline(line, { color: "#0284c7", weight: 3, opacity: 0.8 }).addTo(layer);
@@ -89,7 +106,7 @@ export function FleetMap({
     return () => {
       cancelled = true;
     };
-  }, [markers, track, router]);
+  }, [markers, track, sites, router]);
 
   useEffect(
     () => () => {

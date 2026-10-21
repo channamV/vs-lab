@@ -118,6 +118,13 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   `noteContact` (ends a quiet spell; VIN change; restart without sign-off) and `checkMovement` (moved while
   quiet). `notifyIncidents` raises `tamper` / `tamper-escalated` alerts (medium+) and `equipment_offline`
   notifications. Both jobs are in `crons` in `platform/vercel.json` (the team is on Vercel Pro since 2026-10-21).
+- Worksites / "geo-lock" (`src/lib/worksites.ts` + `src/lib/worksite-types.ts` (geometry, types; browser-safe), tested;
+  `docs/worksites.md`; UI modelled on Veristart Insights' Worksites). Org-wide polygons (`[lat,lng][]`, unclosed),
+  edited at `/worksites` by whole-org managers/owners (`canEditWorksites`). Ingest calls `updatePresence` on each fix
+  (`worksite_visits`, one open per machine+site; leave needs `WORKSITE_RULES.exitBufferM` outside; <4 satellites
+  ignored; overlaps allowed) and `checkDwell` (also in `runWatchdog`). Events `worksite_enter/leave/dwell` carry
+  `worksite_id` + `worksite_visit_id` (unique per type+visit); rules' `worksite_ids` filter only worksite events.
+  Visits are deleted with the telemetry retention.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`
   (limits in `src/lib/privacy-limits.ts`, edited on the owner-only `/settings` page). `applyRetention` (Vercel Cron
   daily → `/api/jobs/retention`; `npm run retention`) clears phone locations, deletes photos (files via `deletePhotos`

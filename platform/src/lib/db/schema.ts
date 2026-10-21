@@ -611,6 +611,8 @@ export const notificationRules = pgTable(
     divisionIds: bigint("division_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
     /** Empty = any operator. When set, events without an operator don't match. */
     operatorIds: bigint("operator_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
+    /** For worksite events only: empty = any worksite. Other event types ignore it. */
+    worksiteIds: bigint("worksite_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
     /** 0 = Sunday … 6 = Saturday. Empty = every day. */
     weekdays: integer("weekdays").array().notNull().default(sql`'{}'`),
     /** "HH:mm", or "" for any time. A window like 18:00–06:00 runs overnight. */
@@ -646,6 +648,9 @@ export const notificationEvents = pgTable(
     operatorId: bigint("operator_id", { mode: "number" }).references(() => operators.id, { onDelete: "set null" }),
     engineSessionId: bigint("engine_session_id", { mode: "number" }).references(() => engineSessions.id, { onDelete: "set null" }),
     alertId: bigint("alert_id", { mode: "number" }).references(() => alerts.id, { onDelete: "set null" }),
+    /** Worksite events: the worksite and the visit (one enter / leave / stayed-too-long event per visit). */
+    worksiteId: bigint("worksite_id", { mode: "number" }).references(() => worksites.id, { onDelete: "set null" }),
+    worksiteVisitId: bigint("worksite_visit_id", { mode: "number" }).references(() => worksiteVisits.id, { onDelete: "set null" }),
     /** Extra detail for the message, e.g. what changed. */
     detail: text("detail"),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
@@ -657,6 +662,7 @@ export const notificationEvents = pgTable(
     index("notification_events_pending_idx").on(t.machineId).where(sql`${t.processedAt} is null`),
     uniqueIndex("notification_events_one_per_session_idx").on(t.type, t.engineSessionId),
     uniqueIndex("notification_events_one_per_alert_idx").on(t.alertId),
+    uniqueIndex("notification_events_one_per_visit_idx").on(t.type, t.worksiteVisitId),
   ],
 );
 
@@ -805,7 +811,65 @@ export const deviceIncidents = pgTable(
   ],
 );
 
+/**
+ * Places drawn on the map ("geo-lock"): jobsites, yards, offices, customer sites. Machines are matched to
+ * them by GPS position (src/lib/worksites.ts); entering, leaving and staying too long are notification events.
+ */
+export const worksites = pgTable(
+  "worksites",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Keys of WORKSITE_TYPES in src/lib/worksite-types.ts (worksite, company_facility, yard_storage…). */
+    type: text("type").notNull(),
+    notes: text("notes"),
+    /** The boundary: [lat, lng] corners in order (not closed; at least 3). */
+    polygon: jsonb("polygon").$type<[number, number][]>().notNull(),
+    centerLat: doublePrecision("center_lat").notNull(),
+    centerLng: doublePrecision("center_lng").notNull(),
+    /** "Stays too long": a notification when a machine has been here longer than this. Null = no limit. */
+    dwellLimitMinutes: integer("dwell_limit_minutes"),
+    createdByUserId: bigint("created_by_user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("worksites_org_name_idx").on(t.organizationId, t.name)],
+);
+
+/** A machine's time inside a worksite: open (no leftAt) while it's there. At most one open visit per machine and site. */
+export const worksiteVisits = pgTable(
+  "worksite_visits",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    worksiteId: bigint("worksite_id", { mode: "number" })
+      .notNull()
+      .references(() => worksites.id, { onDelete: "cascade" }),
+    enteredAt: timestamp("entered_at", { withTimezone: true }).notNull(),
+    /** The last GPS position inside (a visit ends at this time when the machine is seen leaving). */
+    lastInsideAt: timestamp("last_inside_at", { withTimezone: true }).notNull(),
+    leftAt: timestamp("left_at", { withTimezone: true }),
+    /** When the "stayed too long" notification was recorded for this visit. */
+    dwellNotifiedAt: timestamp("dwell_notified_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("worksite_visits_one_open_idx").on(t.machineId, t.worksiteId).where(sql`${t.leftAt} is null`),
+    index("worksite_visits_machine_idx").on(t.machineId, t.enteredAt),
+    index("worksite_visits_site_idx").on(t.worksiteId, t.enteredAt),
+  ],
+);
+
 export type Organization = typeof organizations.$inferSelect;
+export type Worksite = typeof worksites.$inferSelect;
+export type WorksiteVisit = typeof worksiteVisits.$inferSelect;
 export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type DeviceIncident = typeof deviceIncidents.$inferSelect;
 export type CheckinPhoto = typeof checkinPhotos.$inferSelect;

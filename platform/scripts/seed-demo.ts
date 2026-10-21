@@ -4,7 +4,8 @@
  *
  * Each SIM device that isn't on a machine yet gets a demo machine in the first organization
  * ("Veristart Lab") and is paired with it. Also adds three demo operators (PINs 1111, 2222, 3333)
- * and a check-in with the pre-start checklist before each engine start.
+ * and a check-in with the pre-start checklist before each engine start, and demo worksites drawn around
+ * the places the simulator drives (see scripts/simulate.ts).
  *
  *   npm run demo:seed                  # 3 machines
  *   npm run demo:seed -- --devices 5
@@ -14,9 +15,10 @@
 import { parseArgs } from "node:util";
 import { and, asc, eq, inArray, lt } from "drizzle-orm";
 import { createDb, defaultDbOptions, migrateDb } from "../src/lib/db";
-import { checkins, devices, engineSessions, operators, organizations, type ChecklistAnswer } from "../src/lib/db/schema";
+import { checkins, devices, engineSessions, operators, organizations, worksites, type ChecklistAnswer } from "../src/lib/db/schema";
 import { createMachine, pairDevice } from "../src/lib/machines";
 import { pairedMachineId } from "../src/lib/telemetry/ingest";
+import { createWorksite } from "../src/lib/worksites";
 import { DEFAULT_CONFIRMATION, DEFAULT_SECTIONS, DEFAULT_TEMPLATE_NAME } from "../src/lib/checklists";
 import { hashPin } from "../src/lib/operators";
 import { appTimeZone, startOfLocalDay } from "../src/lib/telemetry/engine";
@@ -47,6 +49,24 @@ async function main() {
   let [org] = await db.select().from(organizations).orderBy(asc(organizations.id)).limit(1);
   if (!org) [org] = await db.insert(organizations).values({ name: "Veristart Lab" }).returning();
   const organizationId = org.id;
+
+  // Demo worksites: squares around the simulator's first sites (machines circle within ~150 m of them).
+  const square = (lat: number, lng: number, halfM: number): [number, number][] => {
+    const dLat = halfM / 111_320;
+    const dLng = halfM / (111_320 * Math.cos((lat * Math.PI) / 180));
+    return [[lat - dLat, lng - dLng], [lat + dLat, lng - dLng], [lat + dLat, lng + dLng], [lat - dLat, lng + dLng]];
+  };
+  const demoSites = [
+    { name: "Demo · King St Tower", type: "worksite", at: [43.6532, -79.3832], dwellLimitMinutes: 600 },
+    { name: "Demo · Hwy 400 Interchange", type: "worksite", at: [43.7735, -79.5019], dwellLimitMinutes: null },
+    { name: "Demo · Mississauga Yard", type: "yard_storage", at: [43.589, -79.6441], dwellLimitMinutes: null },
+  ] as const;
+  for (const site of demoSites) {
+    const [exists] = await db.select({ id: worksites.id }).from(worksites).where(and(eq(worksites.organizationId, organizationId), eq(worksites.name, site.name)));
+    if (!exists) {
+      await createWorksite(db, organizationId, null, { ...site, notes: "Demo worksite", polygon: square(site.at[0], site.at[1], 250) });
+    }
+  }
 
   // Demo operators: reuse them if they already exist (same PIN in this organization).
   const demoOperators = [];

@@ -11,6 +11,7 @@ import {
   operators,
   userDivisions,
   users,
+  worksites,
   type Alert,
   type NotificationEvent,
   type NotificationRule,
@@ -60,6 +61,12 @@ export const EVENT_TYPES = {
     label: "Equipment Connectivity Status",
     description: "A tracking device went quiet for longer than expected (with how concerning that is), or came back online.",
   },
+  worksite_enter: { label: "Entered Worksite", description: "A machine moved into one of the chosen worksites." },
+  worksite_leave: { label: "Left Worksite", description: "A machine moved out of one of the chosen worksites." },
+  worksite_dwell: {
+    label: "Stayed Too Long at Worksite",
+    description: "A machine has been at a worksite longer than the time limit set for that site.",
+  },
   possible_tamper: {
     label: "Possible Tamper",
     description:
@@ -94,6 +101,9 @@ export const CHANNELS = { email: "Email" } as const;
 
 export const isEventType = (value: string): value is EventType => value in EVENT_TYPES;
 
+/** Event types a rule's worksite filter applies to. */
+export const WORKSITE_EVENT_TYPES: string[] = ["worksite_enter", "worksite_leave", "worksite_dwell"] satisfies EventType[];
+
 // ---------- Rules ----------
 
 export type RuleInput = {
@@ -102,6 +112,8 @@ export type RuleInput = {
   machineIds: number[];
   divisionIds: number[];
   operatorIds: number[];
+  /** Only used by worksite events; empty = any worksite. */
+  worksiteIds?: number[];
   weekdays: number[];
   startTime: string;
   endTime: string;
@@ -158,6 +170,15 @@ async function cleanRule(db: Db, organizationId: number, userId: number, input: 
       .where(and(eq(operators.organizationId, organizationId), inArray(operators.id, operatorIds)));
     if (found.length !== operatorIds.length) throw new NotificationError("Operator not found.");
   }
+  // The worksite filter only means something with a worksite event; otherwise it's cleared.
+  const worksiteIds = eventTypes.some((t) => WORKSITE_EVENT_TYPES.includes(t)) ? [...new Set(input.worksiteIds ?? [])] : [];
+  if (worksiteIds.length) {
+    const found = await db
+      .select({ id: worksites.id })
+      .from(worksites)
+      .where(and(eq(worksites.organizationId, organizationId), inArray(worksites.id, worksiteIds)));
+    if (found.length !== worksiteIds.length) throw new NotificationError("Worksite not found.");
+  }
   const weekdays = [...new Set(input.weekdays)].sort();
   if (!weekdays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) throw new NotificationError("Unknown weekday.");
   const startTime = input.startTime.trim();
@@ -166,7 +187,7 @@ async function cleanRule(db: Db, organizationId: number, userId: number, input: 
     throw new NotificationError("Set both From and To times (or neither).");
   }
   if (startTime && startTime === endTime) throw new NotificationError("From and To can't be the same time.");
-  return { name, eventTypes, machineIds, divisionIds, operatorIds, weekdays, startTime, endTime, timezone: appTimeZone() };
+  return { name, eventTypes, machineIds, divisionIds, operatorIds, worksiteIds, weekdays, startTime, endTime, timezone: appTimeZone() };
 }
 
 export async function createRule(db: Db, organizationId: number, userId: number, input: RuleInput) {
@@ -259,10 +280,13 @@ export function inSchedule(rule: Pick<NotificationRule, "weekdays" | "startTime"
   return false;
 }
 
-/** Whether a rule wants this event (type, machine/division, operator, schedule). Visibility is checked separately. */
+/** Whether a rule wants this event (type, machine/division, operator, worksite, schedule). Visibility is checked separately. */
 export function ruleMatches(
-  rule: Pick<NotificationRule, "enabled" | "eventTypes" | "machineIds" | "divisionIds" | "operatorIds" | "weekdays" | "startTime" | "endTime" | "timezone">,
-  event: { type: string; operatorId: number | null; occurredAt: Date },
+  rule: Pick<
+    NotificationRule,
+    "enabled" | "eventTypes" | "machineIds" | "divisionIds" | "operatorIds" | "worksiteIds" | "weekdays" | "startTime" | "endTime" | "timezone"
+  >,
+  event: { type: string; operatorId: number | null; worksiteId?: number | null; occurredAt: Date },
   machine: { id: number; divisionId: number | null },
 ): boolean {
   if (!rule.enabled || !rule.eventTypes.includes(event.type)) return false;
@@ -271,6 +295,9 @@ export function ruleMatches(
     if (!rule.machineIds.includes(machine.id) && !inDivision) return false;
   }
   if (rule.operatorIds.length && (event.operatorId === null || !rule.operatorIds.includes(event.operatorId))) return false;
+  if (rule.worksiteIds.length && WORKSITE_EVENT_TYPES.includes(event.type)) {
+    if (event.worksiteId == null || !rule.worksiteIds.includes(event.worksiteId)) return false;
+  }
   return inSchedule(rule, event.occurredAt);
 }
 
@@ -283,6 +310,8 @@ export type NewEvent = {
   operatorId?: number | null;
   engineSessionId?: number | null;
   alertId?: number | null;
+  worksiteId?: number | null;
+  worksiteVisitId?: number | null;
   detail?: string | null;
   occurredAt?: Date;
 };

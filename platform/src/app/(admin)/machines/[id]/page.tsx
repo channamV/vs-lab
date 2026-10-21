@@ -25,7 +25,9 @@ import {
   recentCheckins,
   recentEngineSessions,
   requestTime,
+  worksiteOutlines,
 } from "@/lib/data";
+import { WorksiteVisits } from "./WorksiteVisits";
 import { appTimeZone, effectiveEnd } from "@/lib/telemetry/engine";
 import { PID_NAMES } from "@/lib/freematics/protocol";
 import { clockTime, fmt, formatHours, machineLabel, timeAgo } from "@/lib/format";
@@ -57,7 +59,7 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
   const machine = await getMachine(id);
   if (!machine) notFound();
 
-  const [track, [latest], events, now, hours, sessions, current, history, operators, allowed, alerts, pairings, auth, divisions] = await Promise.all([
+  const [track, [latest], events, now, hours, sessions, current, history, operators, allowed, alerts, pairings, auth, divisions, sites] = await Promise.all([
     getTrack(id),
     getRecentTelemetry(id, 1),
     getRecentEvents(id),
@@ -72,6 +74,7 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
     machineDevices(id),
     currentUser(),
     listDivisions(),
+    worksiteOutlines(),
   ]);
   const tz = appTimeZone();
   const engine = engineStatus(machine, now);
@@ -122,7 +125,11 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
           <FleetMap
             markers={[{ id: machine.id, label: machineLabel(machine), lat: machine.lastLat, lng: machine.lastLng, status }]}
             track={track}
+            sites={sites}
           />
+          <Suspense>
+            <WorksiteVisits machineId={machine.id} />
+          </Suspense>
         </section>
       ) : (
         <p className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-500 dark:border-slate-700">

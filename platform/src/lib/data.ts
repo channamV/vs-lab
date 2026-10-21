@@ -23,6 +23,8 @@ import {
   telemetry,
   userDivisions,
   users,
+  worksites,
+  worksiteVisits,
 } from "@/lib/db/schema";
 import { machineScope, type Scope } from "@/lib/divisions";
 import { getRule, listRules, recentActivity, scopeOfUser } from "@/lib/notifications";
@@ -441,6 +443,58 @@ export async function canEditChecklists() {
   return hasRole(auth, "manager") && auth.divisionIds === null;
 }
 
+// ---------- Worksites ----------
+
+/** Drawing and changing worksites: managers and owners who see the whole organization (sites are org-wide). */
+export const canEditWorksites = canEditChecklists;
+
+/** Worksites with the machines in them right now (only machines the user can see). */
+export async function listWorksites() {
+  const auth = await requireSession();
+  const db = getDb();
+  const [sites, inside, fleet] = await Promise.all([
+    db.select().from(worksites).where(eq(worksites.organizationId, auth.organizationId)).orderBy(asc(worksites.name)),
+    db
+      .select({ worksiteId: worksiteVisits.worksiteId, enteredAt: worksiteVisits.enteredAt, machine: machines })
+      .from(worksiteVisits)
+      .innerJoin(machines, eq(machines.id, worksiteVisits.machineId))
+      .where(and(isNull(worksiteVisits.leftAt), machineScope(auth))),
+    db
+      .select({ id: machines.id, name: machines.name, unitNumber: machines.unitNumber, lat: machines.lastLat, lng: machines.lastLng, lastSeenAt: machines.lastSeenAt })
+      .from(machines)
+      .where(and(machineScope(auth), isNotNull(machines.lastLat))),
+  ]);
+  const insideBySite = Map.groupBy(inside, (v) => v.worksiteId);
+  return {
+    sites: sites.map((site) => ({
+      ...site,
+      machinesInside: (insideBySite.get(site.id) ?? []).map((v) => ({ id: v.machine.id, name: v.machine.name, unitNumber: v.machine.unitNumber, since: v.enteredAt })),
+    })),
+    machines: fleet,
+  };
+}
+
+/** Outlines for the fleet and machine maps. */
+export async function worksiteOutlines() {
+  const auth = await requireSession();
+  return getDb()
+    .select({ id: worksites.id, name: worksites.name, type: worksites.type, polygon: worksites.polygon })
+    .from(worksites)
+    .where(eq(worksites.organizationId, auth.organizationId));
+}
+
+/** The worksites a machine is in now, and its recent visits. */
+export async function machineWorksiteVisits(machineId: number, limit = 8) {
+  await requireMachine(machineId);
+  return getDb()
+    .select({ visit: worksiteVisits, name: worksites.name, type: worksites.type })
+    .from(worksiteVisits)
+    .innerJoin(worksites, eq(worksites.id, worksiteVisits.worksiteId))
+    .where(eq(worksiteVisits.machineId, machineId))
+    .orderBy(desc(worksiteVisits.enteredAt))
+    .limit(limit);
+}
+
 /** Exporting and erasing operators' data: the same people as checklists (they see every machine an operator used). */
 export const canManageOperatorData = canEditChecklists;
 
@@ -615,7 +669,7 @@ export async function subscriptionForm(ruleId: number | null, userId?: number) {
 async function subscriptionChoices(user: { id: number; organizationId: number; role: (typeof users.$inferSelect)["role"] }) {
   const db = getDb();
   const scope = await scopeOfUser(db, user);
-  const [divisionRows, machineRows, operatorRows] = await Promise.all([
+  const [divisionRows, machineRows, operatorRows, worksiteRows] = await Promise.all([
     db
       .select({ id: divisions.id, name: divisions.name })
       .from(divisions)
@@ -633,8 +687,13 @@ async function subscriptionChoices(user: { id: number; organizationId: number; r
       .from(operators)
       .where(eq(operators.organizationId, user.organizationId))
       .orderBy(desc(operators.active), asc(operators.name)),
+    db
+      .select({ id: worksites.id, name: worksites.name, type: worksites.type })
+      .from(worksites)
+      .where(eq(worksites.organizationId, user.organizationId))
+      .orderBy(asc(worksites.name)),
   ]);
-  return { divisions: divisionRows, machines: machineRows, operators: operatorRows, timeZone: appTimeZone() };
+  return { divisions: divisionRows, machines: machineRows, operators: operatorRows, worksites: worksiteRows, timeZone: appTimeZone() };
 }
 
 // ---------- Organization users (owners manage them) ----------
