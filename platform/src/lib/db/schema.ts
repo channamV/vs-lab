@@ -192,6 +192,8 @@ export const machines = pgTable(
     year: integer("year"),
     /** Serial number or VIN. */
     serialNumber: text("serial_number"),
+    /** Fuel tank size in litres (optional): turns fuel-level drops into litres for the fuel theft alert. */
+    fuelTankLitres: real("fuel_tank_litres"),
     tier: tierEnum("tier").notNull().default("gps"),
     /**
      * Safety & Access Monitoring machines are armed unless disarmed (e.g. during a service visit).
@@ -365,6 +367,12 @@ export const engineSessions = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
     /** Which signal detected it: rpm, voltage or vibration. */
     source: text("source"),
+    /**
+     * Fuel theft check (src/lib/fuel.ts): the tank level settled after this start (%), and when the
+     * comparison with the level before it (at the previous stop) was made. Null = not checked yet.
+     */
+    fuelStartPct: real("fuel_start_pct"),
+    fuelCheckedAt: timestamp("fuel_checked_at", { withTimezone: true }),
   },
   (t) => [
     index("engine_sessions_machine_start_idx").on(t.machineId, t.startedAt),

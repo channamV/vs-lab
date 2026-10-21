@@ -21,7 +21,7 @@ tested steps:
 3. BLE beacon scanning, adding nearby beacon IDs to each report
 4. Over-the-air firmware updates
 5. Device authentication
-6. Read J1939 (heavy equipment) and send the fields listed in [docs/can-data.md](../docs/can-data.md) (the
+6. Add OBD-II fuel level (PID 2F) to the polled list (for the fuel theft alert), and read J1939 (heavy equipment) and send the fields listed in [docs/can-data.md](../docs/can-data.md) (the
    platform side is built and tested with the simulator)
 7. Include the battery voltage in the 15-minute standby check-ins, so the low battery warning sees the
    battery while the machine is parked (stock firmware only reports it while awake)

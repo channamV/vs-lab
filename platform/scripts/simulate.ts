@@ -11,6 +11,7 @@
  *   npm run simulate -- --obd all          # every machine sends OBD-II engine data (default: machine 1 of every 3)
  *   npm run simulate -- --j1939 all        # every machine sends J1939 engine data (default: machine 3 of every 3)
  *   npm run simulate -- --fault            # J1939 machines report a fault code (coolant temperature) after ~1 minute
+ *   npm run simulate -- --fuel-theft       # 15% of the fuel disappears while each engine is off (fuel theft alert)
  *
  * Each machine cycles its engine on and off (a few minutes each, so you can watch it happen),
  * unless --engine on / --engine off holds it in one state.
@@ -33,6 +34,7 @@ const { values: args } = parseArgs({
     obd: { type: "string", default: "some" },
     j1939: { type: "string", default: "some" },
     fault: { type: "boolean", default: false },
+    "fuel-theft": { type: "boolean", default: false },
   },
 });
 
@@ -137,6 +139,7 @@ function j1939Fields(d: SimDevice, working: boolean): SampleFields {
   }
   d.coolantC = Math.min(88 + Math.random() * 4, d.coolantC + intervalS * 0.15);
   d.defPct = Math.max(3, d.defPct - (working ? 0.0005 : 0.0001) * intervalS);
+  d.fuelPct = Math.max(5, d.fuelPct - (working ? 0.004 : 0.001) * intervalS);
   const elapsed = (Date.now() - simStart) / 60_000;
   const faulty = args.fault && elapsed > 1 && elapsed < 3;
   return {
@@ -147,6 +150,7 @@ function j1939Fields(d: SimDevice, working: boolean): SampleFields {
     j1939Rpm: Math.round(working ? 1600 + Math.random() * 500 : 750 + Math.random() * 100),
     j1939EngineLoadPct: Math.round(working ? 50 + Math.random() * 35 : 10 + Math.random() * 8),
     j1939DefLevelPct: Math.round(d.defPct),
+    j1939FuelLevelPct: Number(d.fuelPct.toFixed(1)),
     j1939Faults: faulty ? 110 * 32 + 15 : 0,
     j1939Lamps: faulty ? 4 : 0,
   };
@@ -172,6 +176,11 @@ function obdFields(d: SimDevice, working: boolean, speedKph: number): SampleFiel
 function nextSample(d: SimDevice): SampleFields {
   if (engineMode === "cycle" && Date.now() >= d.nextSwitchAt) {
     d.engineOn = !d.engineOn;
+    // Someone siphons fuel while the machine is parked: the level is lower when the engine starts again.
+    if (d.engineOn && args["fuel-theft"] && (d.obd || d.j1939)) {
+      d.fuelPct = Math.max(5, d.fuelPct - 15);
+      console.log(`${d.id}: fuel siphoned while parked (now ${Math.round(d.fuelPct)}%)`);
+    }
     d.nextSwitchAt = Date.now() + (d.engineOn ? minutes(3, 8) : minutes(1, 3));
     console.log(`${d.id}: engine ${d.engineOn ? "ON" : "OFF"}`);
   }

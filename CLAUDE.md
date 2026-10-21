@@ -139,6 +139,10 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   ingest: `machines.engine_hour_meter`, DM1 faults (SPN×32+FMI) → `machine_faults` (one open per machine+SPN+FMI,
   cleared when absent from a fault list) + `engine_fault` event; wording in `src/lib/j1939.ts`. Reports: fuel/hours
   from meter deltas.
+- Fuel theft (`src/lib/fuel.ts`, tested): `checkFuelTheft` in `afterDeviceReport` — once per engine session, after
+  `FUEL_RULES.settleMinutes`, median of first readings after start vs last readings before it (J1939 `j1939FuelLevelPct`
+  or `obdFuelLevelPct`); drop ≥ 5% (and ≥ 20 L with `machines.fuel_tank_litres`) → `fuel-theft` alert (any tier) →
+  `possible_fuel_theft` event. `engine_sessions.fuel_start_pct/fuel_checked_at` record the check.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

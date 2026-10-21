@@ -17,6 +17,7 @@ export async function EngineData({ machineId, hourMeter }: { machineId: number; 
   const past = faults.filter((x) => x.clearedAt);
   const tz = appTimeZone();
   const readings: [string, string][] = [
+    ["Fuel level", value("j1939FuelLevelPct", 0, "%")],
     ["Hour meter", hourMeter === null ? "—" : `${hourMeter.toLocaleString("en-CA", { maximumFractionDigits: 1 })} h`],
     ["Fuel rate", value("j1939FuelRateLph", 1, " L/h")],
     ["Total fuel used", value("j1939TotalFuelL", 0, " L")],
@@ -30,7 +31,7 @@ export async function EngineData({ machineId, hourMeter }: { machineId: number; 
         <h2 className="font-semibold">Engine computer (J1939)</h2>
         {latest && <span className="text-xs text-slate-500">Last reading {timeAgo(latest.receivedAt, now)}</span>}
       </div>
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {readings.map(([label, v]) => (
           <div key={label}>
             <dt className="text-xs uppercase text-slate-500">{label}</dt>

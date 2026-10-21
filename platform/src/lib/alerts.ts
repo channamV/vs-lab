@@ -23,6 +23,8 @@ export const ALERT_LABELS = {
   /** Raised by the tamper watchdog (src/lib/tamper.ts); escalated = the same incident became high concern. */
   tamper: "Possible tamper",
   "tamper-escalated": "Possible tamper (escalated)",
+  /** Raised by the fuel check (src/lib/fuel.ts): the tank level dropped while the engine was off. */
+  "fuel-theft": "Possible fuel theft",
 } as const;
 
 export type AlertType = keyof typeof ALERT_LABELS;

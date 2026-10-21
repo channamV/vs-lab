@@ -12,7 +12,8 @@ The stock Telelogger firmware reads **OBD-II** from the vehicle's diagnostic por
 | Engine load %, throttle %, coolant and intake temperature, speed, fuel level % | Stored and shown; not used in reports or alerts yet |
 
 The firmware polls RPM, speed, throttle and engine load about every second, coolant and intake temperature
-less often. Machines without OBD fall back to battery voltage and vibration to tell the engine is running.
+less often. **Fuel level (PID 2F) isn't in the stock firmware's list**: our firmware version needs to add it
+(one line) for the fuel theft alert on OBD-II machines. Machines without OBD fall back to battery voltage and vibration to tell the engine is running.
 
 ## What we don't receive yet: J1939
 
@@ -61,6 +62,7 @@ Extra fields in the normal Telelogger report (`PID:value`), in a range the stock
 | 307 | DEF tank level (%) | SPN 1761 |
 | 308 | Total idle hours (h) | SPN 235 |
 | 309 | Total idle fuel used (L) | SPN 236 |
+| 30A | Fuel tank level (%) | SPN 96 |
 | 310 | Active faults: SPN × 32 + FMI each, `;`-separated; `0` = none | DM1 |
 | 311 | Lamps: 1 malfunction, 2 red stop, 4 amber warning, 8 protect | DM1 |
 
@@ -74,6 +76,8 @@ faults as they are. Parser: `platform/src/lib/freematics/protocol.ts`; fault wor
   coolant warming up to ~90 °C, intake temperature, speed, fuel level slowly dropping;
 - machine 3 of every 3 (the 24 V one) sends **J1939**: hour meter and total fuel counting up while running,
   fuel rate (~15–24 L/h working, ~3 L/h idle), idle hours and idle fuel meters, coolant, RPM, load, DEF level;
+- `--fuel-theft` takes 15% of the fuel while each OBD-II / J1939 machine is parked (needs engines cycling, the
+  default), so the next start raises a fuel theft alert;
 - `--fault` makes the J1939 machines report a coolant temperature fault (SPN 110 FMI 15, amber lamp) after a
   minute of running, clearing two minutes later;
 - `--obd all|none` and `--j1939 all|none` change who sends what.

@@ -75,6 +75,10 @@ export const EVENT_TYPES = {
     label: "Stayed Too Long at Worksite",
     description: "A machine has been at a worksite longer than the time limit set for that site.",
   },
+  possible_fuel_theft: {
+    label: "Possible Fuel Theft",
+    description: "The fuel level dropped between the engine stopping and starting again (machines that report fuel level).",
+  },
   possible_tamper: {
     label: "Possible Tamper",
     description:
@@ -100,6 +104,7 @@ export const ALERT_EVENT: Record<AlertType, EventType> = {
   "not-at-machine": "not_at_machine",
   tamper: "possible_tamper",
   "tamper-escalated": "possible_tamper",
+  "fuel-theft": "possible_fuel_theft",
 };
 
 export const ALERT_EVENT_TYPES = [...new Set(Object.values(ALERT_EVENT))];

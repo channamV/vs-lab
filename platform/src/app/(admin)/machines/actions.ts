@@ -16,7 +16,7 @@ export type MachineFields = Record<(typeof FIELDS)[number], string>;
 /** `version` changes on every submit so the form re-renders with the saved or typed values. */
 export type MachineFormState = { error: string | null; version: number; values?: MachineFields };
 
-const FIELDS = ["name", "unitNumber", "machineType", "make", "model", "year", "serialNumber", "tier", "divisionId"] as const;
+const FIELDS = ["name", "unitNumber", "machineType", "make", "model", "year", "serialNumber", "fuelTankLitres", "tier", "divisionId"] as const;
 
 const MachineInput = z.object({
   name: z.string().max(80),
@@ -26,6 +26,7 @@ const MachineInput = z.object({
   model: z.string().max(40),
   year: z.string().trim().max(4),
   serialNumber: z.string().max(40),
+  fuelTankLitres: z.string().trim().max(8),
   tier: z.enum(tierEnum.enumValues),
   divisionId: z.string().regex(/^\d*$/),
 });
@@ -38,7 +39,9 @@ function toInput(values: MachineFields) {
   const input = MachineInput.parse({ ...values, tier: values.tier || "gps" });
   const year = input.year ? Number(input.year) : null;
   if (year !== null && !Number.isInteger(year)) throw new MachineError("Enter a valid model year.");
-  return { ...input, year, divisionId: input.divisionId ? Number(input.divisionId) : null };
+  const fuelTankLitres = input.fuelTankLitres ? Number(input.fuelTankLitres) : null;
+  if (fuelTankLitres !== null && !Number.isFinite(fuelTankLitres)) throw new MachineError("Enter the fuel tank size in litres.");
+  return { ...input, year, fuelTankLitres, divisionId: input.divisionId ? Number(input.divisionId) : null };
 }
 
 export async function addMachineAction(prev: MachineFormState, formData: FormData): Promise<MachineFormState> {

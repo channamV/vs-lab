@@ -51,6 +51,7 @@ production portal's notification subscriptions.
     pick which worksites (empty = all). See [worksites.md](worksites.md).
   - **Low Battery Warning** (replaced production's "Switched to Battery Power", 2026-10-21): see below.
   - **Engine Fault Code**: the engine computer reported a new fault (J1939 machines; see [can-data.md](can-data.md)).
+  - **Possible Fuel Theft**: also an alert; see below.
   - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, equipment
     removed, lock/unlock).
 - **Machines** and **Operators**: search and tick. Leave a list empty for "all". If the company uses divisions,
@@ -74,6 +75,28 @@ your subscriptions it matched and whether it was emailed.
 - One email per person per event, listing which of their subscriptions matched. Every email links back to the
   subscriptions page.
 - Editing a paused subscription leaves it paused.
+
+## Possible fuel theft
+
+On machines that report their **fuel level** (from the engine computer: J1939 on most heavy equipment, OBD-II on
+light vehicles), VS Lab compares the tank level when the engine **stops** with the level when it **starts
+again**. If it's lower, fuel was taken while the machine was parked: a **Possible fuel theft** alert (Alerts
+page, email to *All alerts* subscribers, event type *Possible Fuel Theft*). It applies to every machine with
+fuel data, whatever its service level.
+
+How it decides:
+- Fuel level only comes in while the ignition is on, so it uses the last readings before the stop and the first
+  readings after the start, once the level has settled (2 minutes).
+- It takes the **median** of 5 readings each side, so fuel sloshing or one odd reading doesn't count.
+- The drop must be at least **5% of the tank** and, if you've entered the machine's **fuel tank size** (Edit
+  machine → Fuel tank size), at least **20 litres**. With the tank size, the alert also says roughly how many
+  litres went missing.
+- Refuelling (the level goes up) and normal running don't trigger it. One check per engine start.
+
+Sensor accuracy varies with the machine and with parking on a slope, so treat it as "go and check". Settings:
+`FUEL_RULES` in `platform/src/lib/fuel.ts`. Ideas for later: a refuelling log (level jumps up), and, on J1939
+machines with a tank size, "fuel lost while running" (the tank drops more than the engine's fuel meter says it
+burned).
 
 ## Low battery warning
 

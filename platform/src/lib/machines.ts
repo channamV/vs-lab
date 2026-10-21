@@ -27,6 +27,8 @@ export type MachineInput = {
   model?: string;
   year?: number | null;
   serialNumber?: string;
+  /** Litres; null = unknown. Left out = unchanged. */
+  fuelTankLitres?: number | null;
   tier?: Tier;
   /** Null = no division. Left out = unchanged (edit) / none (new). */
   divisionId?: number | null;
@@ -55,6 +57,10 @@ async function cleanInput(db: Db, organizationId: number, input: MachineInput, e
   if (year !== null && (!Number.isInteger(year) || year < 1950 || year > new Date().getFullYear() + 1)) {
     throw new MachineError("Enter a valid model year.");
   }
+  const tank = input.fuelTankLitres;
+  if (tank !== undefined && tank !== null && (!Number.isFinite(tank) || tank < 5 || tank > 10_000)) {
+    throw new MachineError("Fuel tank size must be between 5 and 10,000 litres.");
+  }
   if (input.divisionId) {
     const [division] = await db
       .select({ id: divisions.id })
@@ -70,6 +76,7 @@ async function cleanInput(db: Db, organizationId: number, input: MachineInput, e
     model: clean(input.model),
     year,
     serialNumber: clean(input.serialNumber),
+    ...(tank !== undefined && { fuelTankLitres: tank }),
     ...(input.tier && { tier: input.tier }),
     ...(input.divisionId !== undefined && { divisionId: input.divisionId }),
   };
