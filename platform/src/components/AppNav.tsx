@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  BarChart3,
   Bell,
   BellRing,
   Building2,
@@ -36,6 +37,7 @@ const ICONS = {
   worksites: MapPinned,
   alerts: Bell,
   subscriptions: BellRing,
+  reports: BarChart3,
   operators: HardHat,
   checklists: ClipboardCheck,
   users: UserCog,

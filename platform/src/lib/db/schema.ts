@@ -43,6 +43,12 @@ export const organizations = pgTable("organizations", {
   retainTelemetryDays: integer("retain_telemetry_days").notNull().default(730),
   retainCheckinDays: integer("retain_checkin_days").notNull().default(1095),
   retainNotificationDays: integer("retain_notification_days").notNull().default(365),
+  /**
+   * Reports: the hours a machine is expected to work per working day, and which days are working days
+   * (0 = Sunday … 6 = Saturday). Utilization = engine hours ÷ planned hours.
+   */
+  plannedHoursPerDay: real("planned_hours_per_day").notNull().default(8),
+  workingDays: integer("working_days").array().notNull().default(sql`'{1,2,3,4,5}'`),
 });
 
 /**
@@ -205,6 +211,14 @@ export const machines = pgTable(
     lockedOutAt: timestamp("locked_out_at", { withTimezone: true }),
     lockedOutReason: text("locked_out_reason"),
     lockedOutCheckinId: bigint("locked_out_checkin_id", { mode: "number" }),
+    /**
+     * Low battery warning (src/lib/battery.ts): the first low engine-off reading of a possible low spell,
+     * then (confirmed by a second reading a few minutes later) when the warning was raised and the voltage.
+     * Cleared when an engine-off reading is healthy again.
+     */
+    batteryLowPendingAt: timestamp("battery_low_pending_at", { withTimezone: true }),
+    batteryLowAt: timestamp("battery_low_at", { withTimezone: true }),
+    batteryLowVolts: real("battery_low_volts"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Latest state, from whichever device is paired. Null until a device has reported for this machine.
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),

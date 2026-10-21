@@ -98,7 +98,7 @@ function zoneOffset(ms: number, timeZone: string): number {
 }
 
 /** The UTC instant of local midnight for a calendar date in the zone. */
-function midnightInZone(y: number, m: number, d: number, timeZone: string): number {
+export function midnightInZone(y: number, m: number, d: number, timeZone: string): number {
   const guess = Date.UTC(y, m - 1, d);
   let result = guess - zoneOffset(guess, timeZone);
   result = guess - zoneOffset(result, timeZone); // second pass handles DST changes

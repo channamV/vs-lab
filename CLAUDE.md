@@ -127,6 +127,14 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   ignored; overlaps allowed) and `checkDwell` (also in `runWatchdog`). Events `worksite_enter/leave/dwell` carry
   `worksite_id` + `worksite_visit_id` (unique per type+visit); rules' `worksite_ids` filter only worksite events.
   Visits are deleted with the telemetry retention.
+- Reports (`src/lib/reports.ts`, tested; `docs/reports.md`; `/reports` + CSV at `/reports/export?report=`): `reportRange`
+  (presets/custom, company time zone, ≤92 days), `buildReport` (engine sessions clipped per local day; idle = share
+  of engine-on telemetry with RPM < `REPORT_RULES.idleRpm` or, without RPM, speed < 1 km/h; operator hours via
+  check-ins linked to sessions; compliance = days run with a check-in ÷ days run; utilization vs org
+  `planned_hours_per_day` × `working_days` (Settings); worksite engine hours = sessions ∩ visits). Charts are plain
+  HTML in `reports/charts.tsx` (validated blue/orange, one blue ramp; hover + sr-only tables).
+- Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
+  `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`
   (limits in `src/lib/privacy-limits.ts`, edited on the owner-only `/settings` page). `applyRetention` (Vercel Cron
   daily → `/api/jobs/retention`; `npm run retention`) clears phone locations, deletes photos (files via `deletePhotos`

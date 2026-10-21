@@ -115,7 +115,10 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
         <Stat label="Hours today" value={formatHours(hours.at(-1)?.hours ?? 0)} />
         <Stat label="Last report" value={timeAgo(machine.lastSeenAt, now)} />
         <Stat label="Last GPS fix" value={timeAgo(machine.lastFixAt, now)} />
-        <Stat label="Battery" value={fmt(machine.lastBatteryV, 1, " V")} />
+        <Stat
+          label="Battery"
+          value={machine.batteryLowAt ? `⚠ Low · ${fmt(machine.batteryLowVolts, 1, " V")}` : fmt(machine.lastBatteryV, 1, " V")}
+        />
         <Stat label="Signal" value={machine.lastRssi === null ? "—" : `${machine.lastRssi} dBm`} />
       </div>
 

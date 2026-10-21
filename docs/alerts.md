@@ -49,8 +49,9 @@ production portal's notification subscriptions.
     its approved operators)
   - Entered Worksite / Left Worksite / Stayed Too Long at Worksite: with these, a **Worksites** box lets you
     pick which worksites (empty = all). See [worksites.md](worksites.md).
-  - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, battery power,
-    connectivity, lock/unlock).
+  - **Low Battery Warning** (replaced production's "Switched to Battery Power", 2026-10-21): see below.
+  - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, equipment
+    removed, lock/unlock).
 - **Machines** and **Operators**: search and tick. Leave a list empty for "all". If the company uses divisions,
   you can also pick whole divisions.
   - With operators ticked, events without an operator (e.g. Start Without Checklist) don't match.
@@ -72,6 +73,21 @@ your subscriptions it matched and whether it was emailed.
 - One email per person per event, listing which of their subscriptions matched. Every email links back to the
   subscriptions page.
 - Editing a paused subscription leaves it paused.
+
+## Low battery warning
+
+With the engine off, a healthy battery rests at about 12.6 V (25.2 V on 24 V machines). Below **11.9 V**
+(**23.8 V**) it's roughly a quarter charged and the machine may not start. VS Lab:
+- only uses readings taken with the **engine off** (running readings are lifted by the alternator);
+- needs the low reading to still be low **3 minutes later**, so the dip while cranking doesn't count;
+- sends **one warning per low spell** (event type *Low Battery Warning*, subscribe under Notifications), and
+  shows "⚠ Low battery" on the fleet list and machine page;
+- clears it once an engine-off reading is at least 0.4 V above the warning level (e.g. after charging).
+
+Limitation with the stock firmware: the device sleeps a few minutes after the engine stops and its
+15-minute check-ins don't include the voltage, so readings come from just after stopping and just before
+starting. Adding the voltage to the check-ins is on the firmware list (`firmware/README.md`). Settings:
+`BATTERY_RULES` in `platform/src/lib/battery.ts`.
 
 ## Setting up email (Resend, free)
 

@@ -61,6 +61,10 @@ export const EVENT_TYPES = {
     label: "Equipment Connectivity Status",
     description: "A tracking device went quiet for longer than expected (with how concerning that is), or came back online.",
   },
+  low_battery: {
+    label: "Low Battery Warning",
+    description: "The machine's battery is low with the engine off (below 11.9 V, or 23.8 V on 24 V machines): it may not start.",
+  },
   worksite_enter: { label: "Entered Worksite", description: "A machine moved into one of the chosen worksites." },
   worksite_leave: { label: "Left Worksite", description: "A machine moved out of one of the chosen worksites." },
   worksite_dwell: {
@@ -79,7 +83,6 @@ export type EventType = keyof typeof EVENT_TYPES;
 /** Production event types we can't detect yet (they need firmware or hardware we don't have). */
 export const LATER_EVENT_TYPES = [
   "Unauthorized Machine Movement",
-  "Switched to Battery Power",
   "Equipment Removed",
   "Equipment Unlock / Operator Bypass",
   "Equipment Access Control",

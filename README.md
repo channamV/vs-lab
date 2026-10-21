@@ -30,6 +30,7 @@ sticker on the machine, entering a PIN and completing the pre-start checklist, a
 10. [Tamper and connectivity alerts](docs/tamper.md) — quiet devices, concern levels, the 5-minute watchdog
 11. [Privacy (GDPR)](docs/privacy.md) — retention, operator data download and erasure, privacy notice, access log
 12. [Worksites (geo-lock)](docs/worksites.md) — draw sites on a map; enter, leave and stayed-too-long notifications
+13. [Reports](docs/reports.md) — engine hours, idle, utilization, operators, checklist compliance, worksites; CSV
 
 ## Quick start
 

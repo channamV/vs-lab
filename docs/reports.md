@@ -1,0 +1,58 @@
+# Reports
+
+**Reports** in the menu: how the equipment is used, by whom, whether pre-start checklists are being done,
+and time at worksites. Ideas taken from the Dashboard, Telematics and Worksite Analytics pages in Veristart
+Insights, limited to what VS Lab's devices actually measure (no fuel, DEF or fault codes yet).
+
+## Choosing what to look at
+
+- **Period:** Today, Last 7 / 14 / 30 / 90 days, This month, Last month, or your own dates (up to 92 days).
+  Days are counted in the company's time zone, and the current day counts up to now.
+- **Division:** if the company uses divisions. People limited to some divisions only ever see their machines.
+- The choices are in the page address, so a report can be bookmarked or sent to a colleague.
+- Every table has **Download CSV** (opens in Excel).
+
+## Tabs
+
+**Overview**
+- Tiles:
+  - **Engine hours**, with the average per machine that ran.
+  - **Utilization**: engine hours ÷ planned hours. Planned hours = hours per working day × working days in the
+    period × machines. The plan is set by owners under **Settings → Reports** (default 8 h, Monday–Friday).
+  - **Idle (estimated)**: see below.
+  - **Active machines** (ran at least a minute) out of all machines, and **active operators**.
+  - **Checklist compliance**: days a machine ran that had a pre-start check-in ÷ days it ran (the same
+    measure as production). 90% or more is good, 50–90% needs attention, below 50% is poor.
+- **Engine hours per day**, split into working and idle.
+- **Hours by machine** and **hours by operator** (top 15). Hours count for the operator checked in when the
+  engine ran; time with nobody checked in is shown underneath.
+- **Daily activity**: machines × days, darker = more hours (periods up to 31 days).
+- **Not used in this period**: machines that could move to another job, be rented out or sold.
+
+**Machines**: engine hours, idle, days used, utilization, last used, and the worksite where it spent most time.
+
+**Operators**: engine hours, check-ins, machines, days, and check-ins that reported defects.
+
+**Checklist compliance**: per machine, compliance, hours with a checked-in operator, starts without a
+check-in (the unauthorized-use alert, on armed Safety & Access Monitoring machines), check-ins and defects,
+and the days it ran without a check-in.
+
+**Worksites**: per worksite, engine hours on site, time on site, visits, machines and average visit.
+
+## How idle is estimated
+
+Construction machines usually don't report true idle (that comes from the engine computer, J1939, which we
+can't read yet). VS Lab estimates it from each report while the engine runs:
+- if the machine reports **RPM** (OBD): idle = below 1,000 rpm;
+- otherwise: idle = **not moving** (under 1 km/h).
+
+The second rule overstates idle for machines that work standing still (an excavator digging, a generator,
+a pump), so read idle as "engine on, not travelling" for those. Hours that come from older data without
+reports (e.g. demo history) count as working. Settings: `REPORT_RULES` in `platform/src/lib/reports.ts`.
+
+## Later
+
+- Fuel used and idle fuel (estimated from make/model, as in Insights' Telematics page, or measured once we
+  read J1939), DEF, fault codes, engine load: need the engine data connection.
+- PDF export of the overview, and emailed weekly reports.
+- Worksite travel times and A/B comparison (Insights' Worksite Analytics).

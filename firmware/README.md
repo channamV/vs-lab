@@ -21,6 +21,8 @@ tested steps:
 3. BLE beacon scanning, adding nearby beacon IDs to each report
 4. Over-the-air firmware updates
 5. Device authentication
+6. Include the battery voltage in the 15-minute standby check-ins, so the low battery warning sees the
+   battery while the machine is parked (stock firmware only reports it while awake)
 
 Each change follows the same loop: Claude edits → builds → flashes over USB → reads the serial log → fixes.
 This must run on your PC (Claude Code with the device plugged in), not in a cloud session.

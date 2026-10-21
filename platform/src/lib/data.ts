@@ -30,6 +30,7 @@ import { machineScope, type Scope } from "@/lib/divisions";
 import { getRule, listRules, recentActivity, scopeOfUser } from "@/lib/notifications";
 import { ensureChecklistDefaults } from "@/lib/checklists";
 import { auditEntries } from "@/lib/privacy";
+import { buildReport, reportRange } from "@/lib/reports";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -441,6 +442,24 @@ export async function openAlertCountIfSignedIn(): Promise<number | null> {
 export async function canEditChecklists() {
   const auth = await requireSession();
   return hasRole(auth, "manager") && auth.divisionIds === null;
+}
+
+// ---------- Reports ----------
+
+/** Report data for the Reports page and CSV downloads: the signed-in user's machines (optionally one division). */
+export async function reportData(params: { range?: string; from?: string; to?: string; division?: string }) {
+  const auth = await requireSession();
+  const db = getDb();
+  const tz = appTimeZone();
+  const divisionChoices = await db
+    .select({ id: divisions.id, name: divisions.name })
+    .from(divisions)
+    .where(and(eq(divisions.organizationId, auth.organizationId), auth.divisionIds ? inArray(divisions.id, auth.divisionIds) : undefined))
+    .orderBy(asc(divisions.name));
+  const divisionId = divisionChoices.find((d) => String(d.id) === params.division)?.id ?? null;
+  const now = Date.now();
+  const report = await buildReport(db, auth, reportRange(params, now, tz), tz, { divisionId, now });
+  return { report, divisions: divisionChoices, divisionId, timeZone: tz, now };
 }
 
 // ---------- Worksites ----------

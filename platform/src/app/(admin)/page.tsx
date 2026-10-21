@@ -166,7 +166,14 @@ async function FleetOverview() {
                 </td>
                 <td className="px-4 py-2">{timeAgo(d.lastSeenAt, now)}</td>
                 <td className="px-4 py-2 text-right">{fmt(d.lastSpeedKph, 0, " km/h")}</td>
-                <td className="px-4 py-2 text-right">{fmt(d.lastBatteryV, 1, " V")}</td>
+                <td className="px-4 py-2 text-right">
+                  {fmt(d.lastBatteryV, 1, " V")}
+                  {d.batteryLowAt && (
+                    <div className="text-xs font-medium text-red-700 dark:text-red-400" title={`Low with the engine off: ${fmt(d.batteryLowVolts, 1, " V")}`}>
+                      ⚠ Low battery
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-2 text-right">{d.lastRssi === null ? "—" : `${d.lastRssi} dBm`}</td>
               </tr>
             ))}
