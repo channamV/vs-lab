@@ -41,7 +41,8 @@ RPM, engine load and DEF level, which come in the same messages).
   SPN 110 FMI 0") with the dash lamps that are on, and recently cleared faults.
 - **Fleet list**: a "⚠ 1 fault code" badge.
 - **Notifications**: new event type **Engine Fault Code**, once each time a fault appears.
-- **Reports**: "Fuel used" tile and a Fuel used column (L and L/h), from the engine's own fuel meter; the
+- **Reports**: "Fuel used" tile and a Fuel used column (L and L/h), from the engine's own fuel meter; idle
+  hours and idle fuel from the engine's idle meters (the most accurate idle figure; see reports.md); the
   Machines CSV also has the hour meter hours for the period.
 - Cleared fault history is deleted with the GPS track (retention, [privacy.md](privacy.md)).
 
@@ -58,6 +59,8 @@ Extra fields in the normal Telelogger report (`PID:value`), in a range the stock
 | 305 | Engine speed (rpm) | SPN 190 |
 | 306 | Engine load (%) | SPN 92 |
 | 307 | DEF tank level (%) | SPN 1761 |
+| 308 | Total idle hours (h) | SPN 235 |
+| 309 | Total idle fuel used (L) | SPN 236 |
 | 310 | Active faults: SPN × 32 + FMI each, `;`-separated; `0` = none | DM1 |
 | 311 | Lamps: 1 malfunction, 2 red stop, 4 amber warning, 8 protect | DM1 |
 
@@ -70,7 +73,7 @@ faults as they are. Parser: `platform/src/lib/freematics/protocol.ts`; fault wor
 - machine 1 of every 3 sends **OBD-II**: RPM (working ~1,500–2,100, idle ~750–850), engine load, throttle,
   coolant warming up to ~90 °C, intake temperature, speed, fuel level slowly dropping;
 - machine 3 of every 3 (the 24 V one) sends **J1939**: hour meter and total fuel counting up while running,
-  fuel rate (~15–24 L/h working, ~3 L/h idle), coolant, RPM, load, DEF level;
+  fuel rate (~15–24 L/h working, ~3 L/h idle), idle hours and idle fuel meters, coolant, RPM, load, DEF level;
 - `--fault` makes the J1939 machines report a coolant temperature fault (SPN 110 FMI 15, amber lamp) after a
   minute of running, clearing two minutes later;
 - `--obd all|none` and `--j1939 all|none` change who sends what.

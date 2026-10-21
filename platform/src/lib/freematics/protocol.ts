@@ -59,6 +59,8 @@ export const PID_NAMES: Record<number, string> = {
   0x305: "j1939Rpm", // SPN 190
   0x306: "j1939EngineLoadPct", // SPN 92
   0x307: "j1939DefLevelPct", // SPN 1761, DEF (AdBlue) tank level
+  0x308: "j1939IdleHours", // SPN 235, total idle hours (h)
+  0x309: "j1939IdleFuelL", // SPN 236, total idle fuel used (L)
   0x310: "j1939Faults", // DM1 active faults: SPN × 32 + FMI each, ";"-separated; 0 = none active
   0x311: "j1939Lamps", // DM1 lamps: 1 = malfunction, 2 = red stop, 4 = amber warning, 8 = protect
 };

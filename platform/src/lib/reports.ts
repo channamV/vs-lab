@@ -12,7 +12,10 @@ import { effectiveEnd, localDateKey, midnightInZone, type SessionSpan } from "@/
  */
 
 export const REPORT_RULES = {
-  /** Engine running below this RPM counts as idle (diesel idle is typically 650–900 rpm). */
+  /**
+   * Idle, best source first: the engine computer's idle meter (J1939), else engine running below this RPM
+   * (diesel idle is typically 650–900 rpm), else engine running and not moving (estimated).
+   */
   idleRpm: 1000,
   /** Without RPM: engine running and moving slower than this counts as idle. */
   idleSpeedKph: 1,
@@ -160,7 +163,34 @@ export type MachineReport = {
   /** From the engine computer's own meters (J1939), when the machine reports them. */
   meterHours: number | null;
   fuelL: number | null;
+  /** Fuel burned while idling, from the engine's idle fuel meter (J1939 SPN 236). */
+  idleFuelL: number | null;
+  /** Where the idle figure comes from (see IdleSource). Null when the machine didn't run. */
+  idleSource: IdleSource | "mixed" | null;
 };
+
+/**
+ * How idle was worked out: the engine computer's idle meter (J1939), engine RPM (measured), or not moving
+ * with the engine on (estimated: no engine data), or nothing to go on (hours with no device reports).
+ */
+export type IdleSource = "meter" | "rpm" | "motion" | "none";
+export const IDLE_SOURCE_LABELS: Record<IdleSource | "mixed", string> = {
+  meter: "engine idle meter",
+  rpm: "engine RPM",
+  motion: "estimated from movement",
+  none: "no data",
+  mixed: "mixed sources",
+};
+/** Measured sources; anything else is an estimate. */
+export const isMeasuredIdle = (s: IdleSource | "mixed" | null) => s === "meter" || s === "rpm";
+
+function idleSourceOf(sources: Set<IdleSource>): IdleSource | "mixed" | null {
+  const real = [...sources].filter((s) => s !== "none");
+  if (real.length === 0) return sources.size ? "none" : null;
+  if (real.length === 1) return real[0];
+  // Meter on some days and RPM on others: both measured, so call it the meter.
+  return real.every((s) => s === "meter" || s === "rpm") ? "meter" : "mixed";
+}
 
 export type OperatorReport = { id: number; name: string; hours: number; checkins: number; machines: number; days: number; defects: number };
 export type WorksiteReport = {
@@ -198,6 +228,10 @@ export type Report = {
     /** Machines reporting fuel (J1939), and their total. */
     fuelMachines: number;
     fuelL: number;
+    idleFuelL: number;
+    /** Engine hours whose idle was measured (meter or RPM) vs estimated, to label the fleet figure. */
+    idleMeasuredHours: number;
+    idleEstimatedHours: number;
   };
 };
 
@@ -240,10 +274,14 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
             machineId: telemetry.machineId,
             day: sql<string>`to_char(${telemetry.receivedAt} at time zone ${tz}, 'YYYY-MM-DD')`,
             on: sql<number>`count(*) filter (where ${telemetry.engineOn})`.mapWith(Number),
-            idle: sql<number>`count(*) filter (where ${telemetry.engineOn} and case
-              when coalesce(${telemetry.fields}->>'j1939Rpm', ${telemetry.fields}->>'obdRpm') is not null
-                then coalesce(${telemetry.fields}->>'j1939Rpm', ${telemetry.fields}->>'obdRpm')::float < ${REPORT_RULES.idleRpm}
-              else coalesce(${telemetry.speedKph}, 0) < ${REPORT_RULES.idleSpeedKph} end)`.mapWith(Number),
+            // With coalesce(${telemetry.fields}->>'j1939Rpm', ${telemetry.fields}->>'obdRpm') (engine computer): idle = below REPORT_RULES.idleRpm. Measured.
+            onRpm: sql<number>`count(*) filter (where ${telemetry.engineOn} and coalesce(${telemetry.fields}->>'j1939Rpm', ${telemetry.fields}->>'obdRpm') is not null)`.mapWith(Number),
+            idleRpm: sql<number>`count(*) filter (where ${telemetry.engineOn} and (coalesce(${telemetry.fields}->>'j1939Rpm', ${telemetry.fields}->>'obdRpm'))::float < ${REPORT_RULES.idleRpm})`.mapWith(Number),
+            // Without coalesce(${telemetry.fields}->>'j1939Rpm', ${telemetry.fields}->>'obdRpm'): idle = not moving. Estimated.
+            idleMotion: sql<number>`count(*) filter (where ${telemetry.engineOn} and coalesce(${telemetry.speedKph}, 0) < ${REPORT_RULES.idleSpeedKph})`.mapWith(Number),
+            // The engine computer's own idle meter (J1939 SPN 235): idle hours that day = last − first reading.
+            idleMeter: sql<number | null>`max((${telemetry.fields}->>'j1939IdleHours')::float) - min((${telemetry.fields}->>'j1939IdleHours')::float)`,
+            idleMeterReadings: sql<number>`count(${telemetry.fields}->>'j1939IdleHours')`.mapWith(Number),
           })
           .from(telemetry)
           .where(and(inArray(telemetry.machineId, ids), gte(telemetry.receivedAt, from), lt(telemetry.receivedAt, to)))
@@ -283,6 +321,7 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
             machineId: telemetry.machineId,
             hours: sql<number | null>`max((${telemetry.fields}->>'j1939EngineHours')::float) - min((${telemetry.fields}->>'j1939EngineHours')::float)`,
             fuel: sql<number | null>`max((${telemetry.fields}->>'j1939TotalFuelL')::float) - min((${telemetry.fields}->>'j1939TotalFuelL')::float)`,
+            idleFuel: sql<number | null>`max((${telemetry.fields}->>'j1939IdleFuelL')::float) - min((${telemetry.fields}->>'j1939IdleFuelL')::float)`,
           })
           .from(telemetry)
           .where(
@@ -290,7 +329,7 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
               inArray(telemetry.machineId, ids),
               gte(telemetry.receivedAt, from),
               lt(telemetry.receivedAt, to),
-              sql`(${telemetry.fields} ? 'j1939EngineHours' or ${telemetry.fields} ? 'j1939TotalFuelL')`,
+              sql`(${telemetry.fields} ? 'j1939EngineHours' or ${telemetry.fields} ? 'j1939TotalFuelL' or ${telemetry.fields} ? 'j1939IdleFuelL')`,
             ),
           )
           .groupBy(telemetry.machineId),
@@ -305,7 +344,8 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
     (c) => c.checkin.machineId,
   );
   const unauthorizedBy = new Map(unauthorized.map((u) => [u.machineId, u.count]));
-  const ecuBy = new Map(ecuRows.map((r) => [r.machineId, { hours: r.hours === null ? null : Number(r.hours), fuel: r.fuel === null ? null : Number(r.fuel) }]));
+  const orNull = (v: number | null) => (v === null ? null : Number(v));
+  const ecuBy = new Map(ecuRows.map((r) => [r.machineId, { hours: orNull(r.hours), fuel: orNull(r.fuel), idleFuel: orNull(r.idleFuel) }]));
   const visitsBy = Map.groupBy(visits, (v) => v.visit.machineId);
   /** Which operator each engine session belongs to (the latest check-in linked to it). */
   const sessionOperator = new Map<number, { id: number; name: string }>();
@@ -340,14 +380,30 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
         for (const day of splitByDay(start, end, range, tz).keys()) entry.days.add(day);
       }
     }
-    const idleFraction = new Map((idleBy.get(machine.id) ?? []).map((r) => [r.day, r.on > 0 ? r.idle / r.on : 0]));
+    // Idle per day, from the best source that day: the engine's idle meter, else RPM, else not moving.
+    const idleDays = new Map((idleBy.get(machine.id) ?? []).map((r) => [r.day, r]));
     const hoursByDay: Record<string, number> = {};
     const idleByDay: Record<string, number> = {};
+    const sources = new Set<IdleSource>();
     let idleMs = 0;
     for (const [day, ms] of byDay) {
+      const r = idleDays.get(day);
+      let idle = 0;
+      if (r && r.idleMeterReadings >= 2 && r.idleMeter !== null) {
+        idle = Math.min(ms, Number(r.idleMeter) * 3_600_000);
+        sources.add("meter");
+      } else if (r && r.onRpm > 0) {
+        idle = (ms * r.idleRpm) / r.onRpm;
+        sources.add("rpm");
+      } else if (r && r.on > 0) {
+        idle = (ms * r.idleMotion) / r.on;
+        sources.add("motion");
+      } else if (ms > 0) {
+        sources.add("none");
+      }
       hoursByDay[day] = hoursOf(ms);
-      idleByDay[day] = hoursOf(ms * (idleFraction.get(day) ?? 0));
-      idleMs += ms * (idleFraction.get(day) ?? 0);
+      idleByDay[day] = hoursOf(idle);
+      idleMs += idle;
     }
     const machineCheckins = checkinsBy.get(machine.id) ?? [];
     const checkinDays = new Set(machineCheckins.map((c) => localDateKey(c.checkin.startedAt.getTime(), tz)));
@@ -388,6 +444,8 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
       topWorksite: [...siteTime].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
       meterHours: ecuBy.get(machine.id)?.hours ?? null,
       fuelL: ecuBy.get(machine.id)?.fuel ?? null,
+      idleFuelL: ecuBy.get(machine.id)?.idleFuel ?? null,
+      idleSource: idleSourceOf(sources),
     };
   });
 
@@ -446,6 +504,9 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
       startsWithoutCheckin: sum((m) => m.startsWithoutCheckin),
       fuelMachines: machineReports.filter((m) => m.fuelL !== null).length,
       fuelL: sum((m) => m.fuelL ?? 0),
+      idleFuelL: sum((m) => m.idleFuelL ?? 0),
+      idleMeasuredHours: sum((m) => (isMeasuredIdle(m.idleSource) ? m.hours : 0)),
+      idleEstimatedHours: sum((m) => (isMeasuredIdle(m.idleSource) ? 0 : m.hours)),
     },
   };
 }
@@ -465,7 +526,7 @@ const pct = (n: number | null) => (n === null ? "" : (n * 100).toFixed(1));
 
 export const REPORT_CSV = {
   machines: (r: Report) => [
-    ["Unit", "Machine", "Type", "Division", "Engine hours", "Idle hours (est.)", "Idle %", "Days used", "Utilization %", "Last used", "Most time at worksite", "Hour meter hours (engine computer)", "Fuel used (L)", "Average fuel (L/h)"],
+    ["Unit", "Machine", "Type", "Division", "Engine hours", "Idle hours", "Idle %", "Idle from", "Days used", "Utilization %", "Last used", "Most time at worksite", "Hour meter hours (engine computer)", "Fuel used (L)", "Average fuel (L/h)", "Idle fuel (L)"],
     ...r.machines.map((m) => [
       m.unitNumber,
       m.name,
@@ -474,6 +535,7 @@ export const REPORT_CSV = {
       h2(m.hours),
       h2(m.idleHours),
       m.hours ? pct(m.idleHours / m.hours) : "",
+      m.idleSource ? IDLE_SOURCE_LABELS[m.idleSource] : "",
       m.daysUsed,
       pct(m.utilization),
       m.lastUsed,
@@ -481,6 +543,7 @@ export const REPORT_CSV = {
       m.meterHours === null ? "" : h2(m.meterHours),
       m.fuelL === null ? "" : h2(m.fuelL),
       m.fuelL !== null && m.hours > 0 ? h2(m.fuelL / m.hours) : "",
+      m.idleFuelL === null ? "" : h2(m.idleFuelL),
     ]),
   ],
   operators: (r: Report) => [

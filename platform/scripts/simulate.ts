@@ -82,6 +82,8 @@ interface SimDevice {
   j1939: boolean;
   hourMeter: number;
   totalFuelL: number;
+  idleHours: number;
+  idleFuelL: number;
   defPct: number;
 }
 
@@ -102,6 +104,8 @@ const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => ({
   obd: !(args.j1939 === "all" || (args.j1939 === "some" && i % 3 === 2)) && (args.obd === "all" || (args.obd === "some" && i % 3 === 0)),
   hourMeter: 1200 + i * 731.4,
   totalFuelL: 18_000 + i * 9_000,
+  idleHours: 300 + i * 150.2,
+  idleFuelL: 900 + i * 450,
   defPct: 70 + Math.random() * 25,
   coolantC: 20,
   fuelPct: 60 + Math.random() * 35,
@@ -116,19 +120,28 @@ const simStart = Date.now();
  */
 function j1939Fields(d: SimDevice, working: boolean): SampleFields {
   if (!d.j1939) return {};
-  const fields: SampleFields = { j1939EngineHours: Number(d.hourMeter.toFixed(2)), j1939TotalFuelL: Number(d.totalFuelL.toFixed(1)) };
+  const meters = () => ({
+    j1939EngineHours: Number(d.hourMeter.toFixed(2)),
+    j1939TotalFuelL: Number(d.totalFuelL.toFixed(1)),
+    j1939IdleHours: Number(d.idleHours.toFixed(2)),
+    j1939IdleFuelL: Number(d.idleFuelL.toFixed(1)),
+  });
+  const fields: SampleFields = meters();
   if (!d.engineOn) return fields;
   const fuelRate = working ? 14 + Math.random() * 10 : 2.5 + Math.random();
   d.hourMeter += intervalS / 3600;
   d.totalFuelL += (fuelRate * intervalS) / 3600;
+  if (!working) {
+    d.idleHours += intervalS / 3600;
+    d.idleFuelL += (fuelRate * intervalS) / 3600;
+  }
   d.coolantC = Math.min(88 + Math.random() * 4, d.coolantC + intervalS * 0.15);
   d.defPct = Math.max(3, d.defPct - (working ? 0.0005 : 0.0001) * intervalS);
   const elapsed = (Date.now() - simStart) / 60_000;
   const faulty = args.fault && elapsed > 1 && elapsed < 3;
   return {
     ...fields,
-    j1939EngineHours: Number(d.hourMeter.toFixed(2)),
-    j1939TotalFuelL: Number(d.totalFuelL.toFixed(1)),
+    ...meters(),
     j1939FuelRateLph: Number(fuelRate.toFixed(1)),
     j1939CoolantTempC: Math.round(faulty ? 104 : d.coolantC),
     j1939Rpm: Math.round(working ? 1600 + Math.random() * 500 : 750 + Math.random() * 100),

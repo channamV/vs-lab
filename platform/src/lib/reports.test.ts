@@ -113,6 +113,7 @@ describe("report", () => {
       startsWithoutCheckin: 1,
       topWorksite: "Yard",
       utilization: 6 / 40,
+      idleSource: "motion",
     });
     expect(exc.hoursByDay).toEqual({ "2026-10-19": 4, "2026-10-20": 2 });
     expect(r.machines.find((m) => m.id === b)).toMatchObject({ hours: 0, daysUsed: 0, lastUsed: null });
@@ -133,6 +134,25 @@ describe("report", () => {
     expect(byDivision.machines).toHaveLength(2);
   });
 
+  it("measures idle from engine RPM, or the engine's idle meter, before estimating it from movement", async () => {
+    // Loader on Tue 20 Oct 08:00–12:00: RPM says 3 of 4 readings were idle, though the machine never moved.
+    await db.insert(engineSessions).values({ machineId: b, startedAt: toronto("2026-10-20T08:00"), endedAt: toronto("2026-10-20T12:00"), lastSeenAt: toronto("2026-10-20T12:00") });
+    await db.insert(telemetry).values(
+      [800, 800, 800, 1800].map((rpm) => ({ deviceId: "D1", machineId: b, receivedAt: toronto("2026-10-20T09:00"), speedKph: 0, engineOn: true, fields: { obdRpm: rpm } })),
+    );
+    let r = await buildReport(db, { organizationId: org, divisionIds: null }, reportRange({}, now, tz), tz, { now });
+    expect(r.machines.find((m) => m.id === b)).toMatchObject({ idleHours: 3, idleSource: "rpm" });
+    expect(r.totals).toMatchObject({ idleMeasuredHours: 4, idleEstimatedHours: 16 }); // excavator 6 h + dozer 10 h estimated
+
+    // With the engine's idle meter (J1939), that wins: 0.5 h idle and 12 L idle fuel that day.
+    await db.insert(telemetry).values([
+      { deviceId: "D1", machineId: b, receivedAt: toronto("2026-10-20T08:05"), engineOn: true, fields: { j1939IdleHours: 300.0, j1939IdleFuelL: 900 } },
+      { deviceId: "D1", machineId: b, receivedAt: toronto("2026-10-20T11:55"), engineOn: true, fields: { j1939IdleHours: 300.5, j1939IdleFuelL: 912 } },
+    ]);
+    r = await buildReport(db, { organizationId: org, divisionIds: null }, reportRange({}, now, tz), tz, { now });
+    expect(r.machines.find((m) => m.id === b)).toMatchObject({ idleHours: 0.5, idleSource: "meter", idleFuelL: 12 });
+  });
+
   it("reads fuel and hours from the engine computer's meters", async () => {
     await db.insert(telemetry).values([
       { deviceId: "D1", machineId: a, receivedAt: toronto("2026-10-19T08:00"), engineOn: true, fields: { j1939EngineHours: 1500.0, j1939TotalFuelL: 20000 } },
@@ -147,8 +167,8 @@ describe("report", () => {
   it("exports CSV safely", async () => {
     const r = await buildReport(db, { organizationId: org, divisionIds: null }, reportRange({}, now, tz), tz, { now });
     const csv = toCsv(REPORT_CSV.machines(r));
-    expect(csv.split("\r\n")[0]).toMatch(/^Unit,Machine,Type,Division,Engine hours,Idle hours \(est.\),Idle %,Days used,Utilization %,Last used,Most time at worksite,Hour meter/);
-    expect(csv).toContain("1,Excavator,,East,6.00,1.00,16.7,2,15.0,");
+    expect(csv.split("\r\n")[0]).toMatch(/^Unit,Machine,Type,Division,Engine hours,Idle hours,Idle %,Idle from,Days used,Utilization %,Last used,Most time at worksite,Hour meter/);
+    expect(csv).toContain("1,Excavator,,East,6.00,1.00,16.7,estimated from movement,2,15.0,");
     expect(toCsv([["=HYPERLINK(1)", 'say "hi", ok']])).toBe(`'=HYPERLINK(1),"say ""hi"", ok"\r\n`);
   });
 });

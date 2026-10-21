@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { reportData, requestTime } from "@/lib/data";
 import { formatHours, machineLabel, timeAgo } from "@/lib/format";
-import { RANGE_PRESETS, REPORT_RULES, type Report } from "@/lib/reports";
+import { IDLE_SOURCE_LABELS, isMeasuredIdle, RANGE_PRESETS, REPORT_RULES, type Report } from "@/lib/reports";
 import { WORKSITE_TYPES, worksiteColor, type WorksiteType } from "@/lib/worksite-types";
 import { ActivityHeatmap, DailyHoursChart, HoursBars, Meter, dayLabel } from "./charts";
 
@@ -149,6 +149,16 @@ function Filters({
   );
 }
 
+const IDLE_HELP =
+  `Best source first: the engine computer's own idle meter (J1939); else engine running below ${REPORT_RULES.idleRpm} rpm; ` +
+  "else (no engine data) engine running and not moving, an estimate that overstates idle for machines working standing still.";
+
+/** "Idle", "Idle (estimated)" or "Idle (partly estimated)", depending on the sources behind the fleet figure. */
+function idleLabel(t: Report["totals"]) {
+  if (t.idleEstimatedHours <= 0) return "Idle";
+  return t.idleMeasuredHours > 0 ? "Idle (partly estimated)" : "Idle (estimated)";
+}
+
 function Tile({ label, value, sub, help }: { label: string; value: string; sub?: React.ReactNode; help?: string }) {
   return (
     <div className={`${card} p-4`} title={help}>
@@ -198,10 +208,18 @@ function Overview({ report }: { report: Report }) {
           help="Engine hours ÷ planned hours (hours per working day × working days × machines). Set the plan under Settings."
         />
         <Tile
-          label="Idle (estimated)"
+          label={idleLabel(t)}
           value={t.hours ? pct(t.idleHours / t.hours) : "—"}
-          sub={formatHours(t.idleHours)}
-          help={`Engine running below ${REPORT_RULES.idleRpm} rpm or, where RPM isn't available, not moving. Machines that work standing still (excavators) look idler than they are.`}
+          sub={
+            <>
+              {formatHours(t.idleHours)}
+              {t.idleFuelL > 0 && ` · ${Math.round(t.idleFuelL).toLocaleString("en-CA")} L fuel`}
+              {t.idleMeasuredHours > 0 && t.idleEstimatedHours > 0 && (
+                <div>{pct(t.idleMeasuredHours / (t.idleMeasuredHours + t.idleEstimatedHours))} of hours measured</div>
+              )}
+            </>
+          }
+          help={IDLE_HELP}
         />
         <Tile label="Active machines" value={`${t.activeMachines} / ${t.machines}`} sub={unused.length ? `${unused.length} not used` : "all used"} />
         <Tile label="Active operators" value={String(t.activeOperators)} sub={`${t.checkins} check-ins`} />
@@ -223,7 +241,7 @@ function Overview({ report }: { report: Report }) {
 
       <section className={`${card} space-y-3 p-4`}>
         <h2 className="font-semibold">Engine hours per day</h2>
-        <DailyHoursChart days={days} />
+        <DailyHoursChart days={days} idleLabel={idleLabel(t)} />
       </section>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -302,7 +320,7 @@ function Machines({ report, csv, now }: { report: Report; csv: string; now: numb
           <tr>
             <th className={th}>Machine</th>
             <th className={th}>Engine hours</th>
-            <th className={th}>Idle (est.)</th>
+            <th className={th}>Idle</th>
             <th className={th}>Days used</th>
             <th className={th}>Utilization</th>
             <th className={th}>Last used</th>
@@ -320,7 +338,19 @@ function Machines({ report, csv, now }: { report: Report; csv: string; now: numb
                 {(m.machineType || m.divisionName) && <div className="text-xs text-slate-500">{[m.machineType, m.divisionName].filter(Boolean).join(" · ")}</div>}
               </td>
               <td className={td}>{formatHours(m.hours)}</td>
-              <td className={td}>{m.hours ? `${formatHours(m.idleHours)} (${pct(m.idleHours / m.hours)})` : "—"}</td>
+              <td className={td}>
+                {m.hours ? (
+                  <>
+                    {formatHours(m.idleHours)} ({pct(m.idleHours / m.hours)})
+                    <div className={`text-xs ${isMeasuredIdle(m.idleSource) ? "text-slate-500" : "text-amber-700 dark:text-amber-400"}`}>
+                      {m.idleSource ? IDLE_SOURCE_LABELS[m.idleSource] : ""}
+                      {m.idleFuelL !== null && m.idleFuelL > 0 && ` · ${Math.round(m.idleFuelL)} L fuel`}
+                    </div>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </td>
               <td className={td}>
                 {m.daysUsed} / {report.range.days.length}
               </td>

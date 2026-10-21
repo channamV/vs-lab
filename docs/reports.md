@@ -39,25 +39,29 @@ and the days it ran without a check-in.
 
 **Worksites**: per worksite, engine hours on site, time on site, visits, machines and average visit.
 
-## How idle is estimated
+## How idle is worked out
 
-Construction machines usually don't report true idle (that comes from the engine computer, J1939, which we
-can't read yet). VS Lab estimates it from each report while the engine runs:
-- if the machine reports **RPM** (OBD): idle = below 1,000 rpm;
-- otherwise: idle = **not moving** (under 1 km/h).
+For each machine and day, the report uses the best source available, and says which:
 
-The second rule overstates idle for machines that work standing still (an excavator digging, a generator,
-a pump), so read idle as "engine on, not travelling" for those. Hours that come from older data without
-reports (e.g. demo history) count as working. Settings: `REPORT_RULES` in `platform/src/lib/reports.ts`.
+| Source | Shown as | How |
+|---|---|---|
+| The engine computer's own **idle meter** (J1939, SPN 235) | *engine idle meter* | Idle hours that day straight from the engine: the same figure a dealer reads. Also gives **idle fuel** (SPN 236). |
+| **Engine RPM** (J1939 or OBD-II) | *engine RPM* | Share of engine-running reports below 1,000 rpm, applied to the day's engine hours. Measured. |
+| Neither (no engine data) | *estimated from movement* (in amber) | Share of engine-running reports where the machine wasn't moving (under 1 km/h). An **estimate**, like Veristart Insights': it overstates idle for machines that work standing still (an excavator digging, a pump). |
+
+The Overview tile is called **Idle** when every machine's figure is measured, **Idle (partly estimated)** (with
+the share of hours measured) when some are estimated, and **Idle (estimated)** when none are measured. Days
+with engine hours but no device reports (e.g. demo history) count as working. Settings: `REPORT_RULES` in
+`platform/src/lib/reports.ts`.
 
 ## Fuel
 
 Machines whose device reads the engine computer (J1939, [can-data.md](can-data.md)) add a **Fuel used** tile
 and column: litres used in the period from the engine's own fuel meter, and the average litres per engine
-hour. The Machines CSV also has the engine's hour meter hours for the period.
+hour. With the engine's idle fuel meter, the idle figures also show **idle fuel** (litres burned idling). The Machines CSV also has the engine's hour meter hours for the period.
 
 ## Later
 
-- Estimated fuel for machines without engine data (from make/model, as in Insights' Telematics page), idle fuel.
+- Estimated fuel for machines without engine data (from make/model, as in Insights' Telematics page).
 - PDF export of the overview, and emailed weekly reports.
 - Worksite travel times and A/B comparison (Insights' Worksite Analytics).

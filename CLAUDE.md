@@ -128,12 +128,13 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   `worksite_id` + `worksite_visit_id` (unique per type+visit); rules' `worksite_ids` filter only worksite events.
   Visits are deleted with the telemetry retention.
 - Reports (`src/lib/reports.ts`, tested; `docs/reports.md`; `/reports` + CSV at `/reports/export?report=`): `reportRange`
-  (presets/custom, company time zone, ≤92 days), `buildReport` (engine sessions clipped per local day; idle = share
-  of engine-on telemetry with RPM < `REPORT_RULES.idleRpm` or, without RPM, speed < 1 km/h; operator hours via
+  (presets/custom, company time zone, ≤92 days), `buildReport` (engine sessions clipped per local day; idle per day
+  from the best source, reported as `idleSource`: J1939 idle meter delta, else share of engine-on telemetry with RPM <
+  `REPORT_RULES.idleRpm` (measured), else speed < 1 km/h (estimated, labelled so); operator hours via
   check-ins linked to sessions; compliance = days run with a check-in ÷ days run; utilization vs org
   `planned_hours_per_day` × `working_days` (Settings); worksite engine hours = sessions ∩ visits). Charts are plain
   HTML in `reports/charts.tsx` (validated blue/orange, one blue ramp; hover + sr-only tables).
-- J1939 engine data (`docs/can-data.md`): our own PIDs 0x301–0x311 in `protocol.ts` (for the future firmware fork;
+- J1939 engine data (`docs/can-data.md`): our own PIDs 0x301–0x311 (0x308/0x309 idle hours/fuel) in `protocol.ts` (for the future firmware fork;
   simulator sends them). `detectEngine` prefers `j1939Rpm`. `src/lib/faults.ts` (tested) `updateEngineData` from
   ingest: `machines.engine_hour_meter`, DM1 faults (SPN×32+FMI) → `machine_faults` (one open per machine+SPN+FMI,
   cleared when absent from a fault list) + `engine_fault` event; wording in `src/lib/j1939.ts`. Reports: fuel/hours

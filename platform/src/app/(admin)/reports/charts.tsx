@@ -38,12 +38,12 @@ function Legend({ items }: { items: [string, string][] }) {
 }
 
 /** Engine hours per day, split into working and idle (stacked columns). */
-export function DailyHoursChart({ days }: { days: { date: string; working: number; idle: number }[] }) {
+export function DailyHoursChart({ days, idleLabel = "Idle" }: { days: { date: string; working: number; idle: number }[]; idleLabel?: string }) {
   const top = niceMax(Math.max(0, ...days.map((d) => d.working + d.idle)));
   const showEvery = days.length > 31 ? 7 : days.length > 14 ? 2 : 1;
   return (
     <figure className="space-y-3">
-      <Legend items={[["Working", WORKING], ["Idle (estimated)", IDLE]]} />
+      <Legend items={[["Working", WORKING], [idleLabel, IDLE]]} />
       <div className="relative h-48 border-b border-slate-300 dark:border-slate-700" aria-hidden>
         <div className="absolute inset-x-0 top-0 border-t border-slate-200 dark:border-slate-800" />
         <div className="absolute inset-x-0 top-1/2 border-t border-slate-100 dark:border-slate-800/60" />
