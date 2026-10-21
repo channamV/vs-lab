@@ -142,7 +142,10 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
 - Fuel theft (`src/lib/fuel.ts`, tested): `checkFuelTheft` in `afterDeviceReport` — once per engine session, after
   `FUEL_RULES.settleMinutes`, median of first readings after start vs last readings before it (J1939 `j1939FuelLevelPct`
   or `obdFuelLevelPct`); drop ≥ 5% (and ≥ 20 L with `machines.fuel_tank_litres`) → `fuel-theft` alert (any tier) →
-  `possible_fuel_theft` event. `engine_sessions.fuel_start_pct/fuel_checked_at` record the check.
+  `possible_fuel_theft` event. `engine_sessions.fuel_start_pct/fuel_checked_at` record the check; a rise is a parked
+  refuel. `checkFuelWhileRunning` (every 5 min, anchor `engine_sessions.fuel_anchor_*`, renewed hourly): rise → running
+  refuel; J1939 + tank size: tank drop − meter burn ≥ 5%/20 L → `fuel-loss` alert. Refuels/thefts → `fuel_events`
+  (machine page Fuel section, Reports → Fuel tab + CSV; `refuel` notification event).
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

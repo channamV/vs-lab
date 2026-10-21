@@ -51,7 +51,7 @@ production portal's notification subscriptions.
     pick which worksites (empty = all). See [worksites.md](worksites.md).
   - **Low Battery Warning** (replaced production's "Switched to Battery Power", 2026-10-21): see below.
   - **Engine Fault Code**: the engine computer reported a new fault (J1939 machines; see [can-data.md](can-data.md)).
-  - **Possible Fuel Theft**: also an alert; see below.
+  - **Possible Fuel Theft** (also an alert) and **Refuelled**: see "Fuel" below.
   - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, equipment
     removed, lock/unlock).
 - **Machines** and **Operators**: search and tick. Leave a list empty for "all". If the company uses divisions,
@@ -76,27 +76,35 @@ your subscriptions it matched and whether it was emailed.
   subscriptions page.
 - Editing a paused subscription leaves it paused.
 
-## Possible fuel theft
+## Fuel: theft alerts and the refuelling log
 
-On machines that report their **fuel level** (from the engine computer: J1939 on most heavy equipment, OBD-II on
-light vehicles), VS Lab compares the tank level when the engine **stops** with the level when it **starts
-again**. If it's lower, fuel was taken while the machine was parked: a **Possible fuel theft** alert (Alerts
-page, email to *All alerts* subscribers, event type *Possible Fuel Theft*). It applies to every machine with
-fuel data, whatever its service level.
+Machines that report their **fuel level** (from the engine computer: J1939 on most heavy equipment, OBD-II on
+light vehicles) get three checks. They apply to every machine with fuel data, whatever its service level.
+Enter each machine's **fuel tank size** (Edit machine) to get litres, and the third check.
 
-How it decides:
-- Fuel level only comes in while the ignition is on, so it uses the last readings before the stop and the first
-  readings after the start, once the level has settled (2 minutes).
-- It takes the **median** of 5 readings each side, so fuel sloshing or one odd reading doesn't count.
-- The drop must be at least **5% of the tank** and, if you've entered the machine's **fuel tank size** (Edit
-  machine → Fuel tank size), at least **20 litres**. With the tank size, the alert also says roughly how many
-  litres went missing.
-- Refuelling (the level goes up) and normal running don't trigger it. One check per engine start.
+**1. Fuel taken while parked → "Possible fuel theft" alert.** The tank level when the engine **starts** is
+lower than when it last **stopped**:
+- fuel level only comes in while the ignition is on, so it compares the last readings before the stop with the
+  first readings after the start, once the level has settled (2 minutes);
+- the **median** of 5 readings each side, so sloshing or one odd reading doesn't count;
+- at least **5% of the tank** and, with the tank size, at least **20 L**. One check per engine start.
 
-Sensor accuracy varies with the machine and with parking on a slope, so treat it as "go and check". Settings:
-`FUEL_RULES` in `platform/src/lib/fuel.ts`. Ideas for later: a refuelling log (level jumps up), and, on J1939
-machines with a tank size, "fuel lost while running" (the tank drops more than the engine's fuel meter says it
-burned).
+**2. Refuels → the fuel log** (and the *Refuelled* notification, if you subscribe). The level went **up** by at
+least 8% of the tank (and 20 L with the tank size): while parked (compared at the next start) or while running
+(checked every 5 minutes). With the tank size, the litres added.
+
+**3. Fuel lost while running → "Possible fuel theft (while running)" alert.** On J1939 machines with a tank
+size: every 5 minutes, the drop in the tank since a reference point (renewed at least hourly) is compared with
+the fuel the **engine's own meter** says it burned. If the tank lost at least 5% (and 20 L) more than the engine
+burned, fuel is going somewhere else: siphoning while the machine idles, or a leak. Once per engine-on period.
+OBD-II machines don't report fuel burned, so this check needs J1939.
+
+Both alerts go to the Alerts page and to *Possible Fuel Theft* subscribers (included in "All alerts"). Every
+refuel and suspected theft is in the machine's **Fuel** section and in **Reports → Fuel** (per machine, plus
+the full fuel log, both downloadable as CSV).
+
+Sensor accuracy varies with the machine and with parking on a slope, so treat the alerts as "go and check".
+Settings: `FUEL_RULES` in `platform/src/lib/fuel.ts`.
 
 ## Low battery warning
 

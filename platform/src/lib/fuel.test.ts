@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { devices, engineSessions, machines, organizations } from "@/lib/db/schema";
+import { devices, engineSessions, fuelEvents, machines, notificationEvents, organizations } from "@/lib/db/schema";
 import { createMachine, pairDevice } from "@/lib/machines";
 import { ingestSamples } from "@/lib/telemetry/ingest";
-import { checkFuelTheft, median } from "./fuel";
+import { checkFuelTheft, checkFuelWhileRunning, median } from "./fuel";
 
 let db: Db;
 let machineId: number;
@@ -52,6 +52,15 @@ describe("fuel theft", () => {
     expect(session.fuelStartPct).toBe(52);
   });
 
+  it("logs a refuel while parked", async () => {
+    await run([30, 30, 30, 30, 30], 0);
+    await stopped(10);
+    await run([92, 92, 92, 92, 92], 600);
+    const [refuel] = await db.select().from(fuelEvents);
+    expect(refuel).toMatchObject({ kind: "refuel", when: "parked", fromPct: 30, toPct: 92, litres: 248 });
+    expect((await db.select().from(notificationEvents)).find((e) => e.type === "refuel")?.detail).toBe("Refuelled: 30% → 92%, about 248 L.");
+  });
+
   it("ignores normal use, refuelling, small drops, and waits for the level to settle", async () => {
     await run([70, 70, 70, 70, 70], 0);
     await stopped(10);
@@ -80,5 +89,47 @@ describe("fuel theft", () => {
     for (let m = 0; m <= 16; m += 2) await running(null, m);
     expect(await checkFuelTheft(db, machineId, at(16))).toEqual([]);
     expect((await db.select().from(engineSessions))[0].fuelCheckedAt).toEqual(at(16));
+  });
+});
+
+describe("while running", () => {
+  /** A J1939 report: RPM, tank level and the engine's total fuel meter. */
+  const j1939 = (level: number, totalL: number, min: number) =>
+    ingestSamples(db, "DEV1", [{ j1939Rpm: 1500, j1939FuelLevelPct: level, j1939TotalFuelL: totalL }], { now: at(min) });
+  /** Reports every minute from `from` to `to`, with the level and meter given by functions of the minute. */
+  async function drive(from: number, to: number, level: (m: number) => number, total: (m: number) => number) {
+    const raised = [];
+    for (let m = from; m <= to; m++) {
+      await j1939(level(m), total(m), m);
+      raised.push(...(await checkFuelTheft(db, machineId, at(m))), ...(await checkFuelWhileRunning(db, machineId, at(m))));
+    }
+    return raised;
+  }
+
+  it("doesn't alert when the tank drops by what the engine burned", async () => {
+    // 400 L tank, burning 24 L/h: 0.1% of the tank a minute.
+    expect(await drive(0, 90, (m) => 80 - m * 0.1, (m) => 10_000 + m * 0.4)).toEqual([]);
+    expect(await db.select().from(fuelEvents)).toEqual([]);
+  });
+
+  it("alerts when the tank drops more than the engine burned (siphoning while idling)", async () => {
+    // Normal for 20 minutes, then 15% (60 L) disappears in 5 minutes while the meter says ~2 L were burned.
+    const level = (m: number) => (m < 20 ? 80 : m < 25 ? 80 - (m - 20) * 3 : 65);
+    const raised = await drive(0, 40, level, (m) => 10_000 + m * 0.4);
+    expect(raised).toHaveLength(1);
+    expect(raised[0]).toMatchObject({ type: "fuel-loss", title: "Possible fuel theft (while running): Unit 7 · Loader" });
+    expect(raised[0].detail).toMatch(/the tank dropped from 80% to 65% \(about 60 L\), but the engine only burned \d+ L: about 5\d L is unaccounted for/);
+    expect(await db.select().from(fuelEvents)).toMatchObject([{ kind: "loss", when: "running", alertId: raised[0].id }]);
+  });
+
+  it("logs a refuel while running, and needs the fuel meter and tank size for the loss check", async () => {
+    // OBD machine (no fuel meter): refuel detected, but a drop can't be compared with fuel burned.
+    const raised = [];
+    for (let m = 0; m <= 30; m++) {
+      await running(m < 10 ? 40 : m < 20 ? 90 : 70, m);
+      raised.push(...(await checkFuelTheft(db, machineId, at(m))), ...(await checkFuelWhileRunning(db, machineId, at(m))));
+    }
+    expect(raised).toEqual([]);
+    expect(await db.select().from(fuelEvents)).toMatchObject([{ kind: "refuel", when: "running", fromPct: 40, toPct: 90 }]);
   });
 });

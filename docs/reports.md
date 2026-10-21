@@ -37,6 +37,10 @@ Insights, limited to what VS Lab's devices actually measure (no fuel, DEF or fau
 check-in (the unauthorized-use alert, on armed Safety & Access Monitoring machines), check-ins and defects,
 and the days it ran without a check-in.
 
+**Fuel**: per machine, fuel used and average L/h (engine fuel meter, J1939), idle fuel, refuels (count and
+litres) and suspected thefts; then the **fuel log**: every refuel and suspected theft in the period. Both
+download as CSV. See [alerts.md](alerts.md#fuel-theft-alerts-and-the-refuelling-log).
+
 **Worksites**: per worksite, engine hours on site, time on site, visits, machines and average visit.
 
 ## How idle is worked out

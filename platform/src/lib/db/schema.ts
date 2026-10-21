@@ -373,6 +373,14 @@ export const engineSessions = pgTable(
      */
     fuelStartPct: real("fuel_start_pct"),
     fuelCheckedAt: timestamp("fuel_checked_at", { withTimezone: true }),
+    /**
+     * While running (src/lib/fuel.ts): the reference point the tank level and the engine's fuel meter are
+     * compared against (refuels, fuel lost while running), and when that was last checked.
+     */
+    fuelAnchorPct: real("fuel_anchor_pct"),
+    fuelAnchorTotalL: doublePrecision("fuel_anchor_total_l"),
+    fuelAnchorAt: timestamp("fuel_anchor_at", { withTimezone: true }),
+    fuelRunCheckedAt: timestamp("fuel_run_checked_at", { withTimezone: true }),
   },
   (t) => [
     index("engine_sessions_machine_start_idx").on(t.machineId, t.startedAt),
@@ -921,7 +929,37 @@ export const machineFaults = pgTable(
   ],
 );
 
+/**
+ * The fuel log (src/lib/fuel.ts): refuels, and suspected thefts (while parked, or while running) that also
+ * raised an alert. Worked out from the tank level and, on J1939 machines, the engine's fuel meter.
+ */
+export const fuelEvents = pgTable(
+  "fuel_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    engineSessionId: bigint("engine_session_id", { mode: "number" }).references(() => engineSessions.id, { onDelete: "set null" }),
+    /** refuel, theft (dropped while parked), loss (dropped while running, more than the engine burned) */
+    kind: text("kind").notNull(),
+    /** refuel: parked or running */
+    when: text("when").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    fromPct: real("from_pct").notNull(),
+    toPct: real("to_pct").notNull(),
+    /** Litres added or missing, when the tank size is known. */
+    litres: real("litres"),
+    alertId: bigint("alert_id", { mode: "number" }).references(() => alerts.id, { onDelete: "set null" }),
+  },
+  (t) => [index("fuel_events_machine_idx").on(t.machineId, t.at), index("fuel_events_org_idx").on(t.organizationId, t.at)],
+);
+
 export type Organization = typeof organizations.$inferSelect;
+export type FuelEvent = typeof fuelEvents.$inferSelect;
 export type MachineFault = typeof machineFaults.$inferSelect;
 export type Worksite = typeof worksites.$inferSelect;
 export type WorksiteVisit = typeof worksiteVisits.$inferSelect;

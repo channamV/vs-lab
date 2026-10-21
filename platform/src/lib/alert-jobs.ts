@@ -9,7 +9,7 @@ import { syncCheckins } from "@/lib/operators";
 import { pairedMachineId } from "@/lib/telemetry/ingest";
 import { notifyIncidents, watchdog } from "@/lib/tamper";
 import { checkDwell } from "@/lib/worksites";
-import { checkFuelTheft } from "@/lib/fuel";
+import { checkFuelTheft, checkFuelWhileRunning } from "@/lib/fuel";
 
 /**
  * Runs alert rules after the response has been sent, so devices and operators never wait on them
@@ -28,6 +28,8 @@ export function afterDeviceReport(deviceId: string) {
       await deliverAlerts(db, await checkUnauthorizedUse(db, machineId));
       // Fuel level lower at this start than at the last stop.
       await deliverAlerts(db, await checkFuelTheft(db, machineId));
+      // Refuels and fuel lost while running (every few minutes).
+      await deliverAlerts(db, await checkFuelWhileRunning(db, machineId));
       // Tamper: quiet spell ended, moved while quiet, different vehicle, power interrupted.
       await deliverAlerts(db, await notifyIncidents(db, { machineId }));
       // Engine starts/stops and connectivity changes recorded by this report.

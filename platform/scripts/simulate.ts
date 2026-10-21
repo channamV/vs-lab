@@ -12,6 +12,11 @@
  *   npm run simulate -- --j1939 all        # every machine sends J1939 engine data (default: machine 3 of every 3)
  *   npm run simulate -- --fault            # J1939 machines report a fault code (coolant temperature) after ~1 minute
  *   npm run simulate -- --fuel-theft       # 15% of the fuel disappears while each engine is off (fuel theft alert)
+ *   npm run simulate -- --refuel           # machines below half a tank are filled up while parked (fuel log)
+ *   npm run simulate -- --siphon           # J1939 machines lose 15% of the tank while running, after ~4 minutes
+ *
+ * Simulated tanks are 400 L: set the machines' fuel tank size to 400 (npm run demo:seed does) so litres and
+ * the "fuel lost while running" check work.
  *
  * Each machine cycles its engine on and off (a few minutes each, so you can watch it happen),
  * unless --engine on / --engine off holds it in one state.
@@ -35,6 +40,8 @@ const { values: args } = parseArgs({
     j1939: { type: "string", default: "some" },
     fault: { type: "boolean", default: false },
     "fuel-theft": { type: "boolean", default: false },
+    refuel: { type: "boolean", default: false },
+    siphon: { type: "boolean", default: false },
   },
 });
 
@@ -87,6 +94,9 @@ interface SimDevice {
   idleHours: number;
   idleFuelL: number;
   defPct: number;
+  /** --siphon: percentage points still to be taken while running. */
+  siphonLeft: number;
+  siphoned: boolean;
 }
 
 const minutes = (min: number, max: number) => (min + Math.random() * (max - min)) * 60_000;
@@ -108,12 +118,16 @@ const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => ({
   totalFuelL: 18_000 + i * 9_000,
   idleHours: 300 + i * 150.2,
   idleFuelL: 900 + i * 450,
+  siphonLeft: 0,
+  siphoned: false,
   defPct: 70 + Math.random() * 25,
   coolantC: 20,
   fuelPct: 60 + Math.random() * 35,
 }));
 
 const simStart = Date.now();
+/** Simulated tank size: the level falls by exactly what the engine burns. */
+const TANK_L = 400;
 
 /**
  * What our firmware fork will send from a J1939 engine computer. The hour meter and fuel totals only move
@@ -133,13 +147,23 @@ function j1939Fields(d: SimDevice, working: boolean): SampleFields {
   const fuelRate = working ? 14 + Math.random() * 10 : 2.5 + Math.random();
   d.hourMeter += intervalS / 3600;
   d.totalFuelL += (fuelRate * intervalS) / 3600;
+  d.fuelPct = Math.max(5, d.fuelPct - ((fuelRate * intervalS) / 3600 / TANK_L) * 100);
+  if (args.siphon && !d.siphoned && Date.now() - simStart > 4 * 60_000) {
+    d.siphoned = true;
+    d.siphonLeft = 15;
+    console.log(`${d.id}: fuel being siphoned while running`);
+  }
+  if (d.siphonLeft > 0) {
+    const take = Math.min(1.5, d.siphonLeft);
+    d.siphonLeft -= take;
+    d.fuelPct = Math.max(5, d.fuelPct - take);
+  }
   if (!working) {
     d.idleHours += intervalS / 3600;
     d.idleFuelL += (fuelRate * intervalS) / 3600;
   }
   d.coolantC = Math.min(88 + Math.random() * 4, d.coolantC + intervalS * 0.15);
   d.defPct = Math.max(3, d.defPct - (working ? 0.0005 : 0.0001) * intervalS);
-  d.fuelPct = Math.max(5, d.fuelPct - (working ? 0.004 : 0.001) * intervalS);
   const elapsed = (Date.now() - simStart) / 60_000;
   const faulty = args.fault && elapsed > 1 && elapsed < 3;
   return {
@@ -176,6 +200,10 @@ function obdFields(d: SimDevice, working: boolean, speedKph: number): SampleFiel
 function nextSample(d: SimDevice): SampleFields {
   if (engineMode === "cycle" && Date.now() >= d.nextSwitchAt) {
     d.engineOn = !d.engineOn;
+    if (d.engineOn && args.refuel && (d.obd || d.j1939) && d.fuelPct < 50) {
+      console.log(`${d.id}: refuelled while parked (${Math.round(d.fuelPct)}% → 95%)`);
+      d.fuelPct = 95;
+    }
     // Someone siphons fuel while the machine is parked: the level is lower when the engine starts again.
     if (d.engineOn && args["fuel-theft"] && (d.obd || d.j1939)) {
       d.fuelPct = Math.max(5, d.fuelPct - 15);

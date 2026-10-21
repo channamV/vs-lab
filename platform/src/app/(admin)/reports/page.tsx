@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { reportData, requestTime } from "@/lib/data";
-import { formatHours, machineLabel, timeAgo } from "@/lib/format";
+import { clockTime, formatHours, machineLabel, timeAgo } from "@/lib/format";
 import { IDLE_SOURCE_LABELS, isMeasuredIdle, RANGE_PRESETS, REPORT_RULES, type Report } from "@/lib/reports";
 import { WORKSITE_TYPES, worksiteColor, type WorksiteType } from "@/lib/worksite-types";
 import { ActivityHeatmap, DailyHoursChart, HoursBars, Meter, dayLabel } from "./charts";
@@ -11,7 +11,14 @@ import { ActivityHeatmap, DailyHoursChart, HoursBars, Meter, dayLabel } from "./
  * Filters live in the URL (?range=7d&division=…&tab=…), so a report can be bookmarked or shared.
  */
 
-const TABS = { overview: "Overview", machines: "Machines", operators: "Operators", compliance: "Checklist compliance", worksites: "Worksites" } as const;
+const TABS = {
+  overview: "Overview",
+  machines: "Machines",
+  operators: "Operators",
+  compliance: "Checklist compliance",
+  fuel: "Fuel",
+  worksites: "Worksites",
+} as const;
 type Tab = keyof typeof TABS;
 type Params = { [key: string]: string | string[] | undefined };
 
@@ -81,6 +88,8 @@ async function Reports({ searchParams }: { searchParams: Promise<Params> }) {
         <Operators report={report} csv={csv("operators")} />
       ) : tab === "compliance" ? (
         <Compliance report={report} csv={csv("compliance")} />
+      ) : tab === "fuel" ? (
+        <Fuel report={report} csv={csv("fuel")} logCsv={csv("fuel-log")} timeZone={timeZone} now={now} />
       ) : (
         <Worksites report={report} csv={csv("worksites")} />
       )}
@@ -466,6 +475,102 @@ function Compliance({ report, csv }: { report: Report; csv: string }) {
         </table>
       )}
     </TableCard>
+  );
+}
+
+function Fuel({ report, csv, logCsv, timeZone, now }: { report: Report; csv: string; logCsv: string; timeZone: string; now: number }) {
+  const rows = report.machines.filter((m) => m.fuelL !== null || m.refuels > 0 || m.thefts > 0);
+  const litres = (v: number | null) => (v === null ? "" : ` · about ${Math.round(v).toLocaleString("en-CA")} L`);
+  return (
+    <div className="space-y-5">
+      <TableCard
+        title="Fuel by machine"
+        csv={csv}
+        note="Fuel used comes from the engine's fuel meter (J1939). Refuels and suspected thefts come from the tank level (J1939 or OBD-II)."
+      >
+        {rows.length === 0 ? (
+          <p className="p-4 text-sm text-slate-500">No machine reported fuel data in this period.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className={thead}>
+              <tr>
+                <th className={th}>Machine</th>
+                <th className={th}>Fuel used</th>
+                <th className={th}>Idle fuel</th>
+                <th className={th}>Refuels</th>
+                <th className={th}>Suspected thefts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((m) => (
+                <tr key={m.id} className={row}>
+                  <td className="px-3 py-2">
+                    <Link href={`/machines/${m.id}`} className="font-medium text-sky-700 hover:underline dark:text-sky-400">
+                      {machineLabel(m)}
+                    </Link>
+                  </td>
+                  <td className={td}>
+                    {m.fuelL === null ? "—" : `${Math.round(m.fuelL).toLocaleString("en-CA")} L`}
+                    {m.fuelL !== null && m.hours > 0 && <div className="text-xs text-slate-500">{(m.fuelL / m.hours).toFixed(1)} L/h</div>}
+                  </td>
+                  <td className={td}>{m.idleFuelL === null ? "—" : `${Math.round(m.idleFuelL)} L`}</td>
+                  <td className={td}>
+                    {m.refuels || "—"}
+                    {m.refuels > 0 && <span className="text-slate-500">{litres(m.refuelL)}</span>}
+                  </td>
+                  <td className={td}>
+                    {m.thefts ? (
+                      <span className="font-medium text-red-700 dark:text-red-400">
+                        ⚠ {m.thefts}
+                        <span className="font-normal">{litres(m.theftL)}</span>
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </TableCard>
+      <TableCard title="Fuel log" csv={logCsv} note="Every refuel and suspected theft in the period.">
+        {report.fuelLog.length === 0 ? (
+          <p className="p-4 text-sm text-slate-500">Nothing in this period.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className={thead}>
+              <tr>
+                <th className={th}>When</th>
+                <th className={th}>Machine</th>
+                <th className={th}>What</th>
+                <th className={th}>Level</th>
+                <th className={th}>Litres</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...report.fuelLog].reverse().map((e) => (
+                <tr key={e.id} className={row}>
+                  <td className={td}>{clockTime(e.at, timeZone, now)}</td>
+                  <td className="px-3 py-2">{e.machine}</td>
+                  <td className="px-3 py-2">
+                    {e.kind === "refuel" ? (
+                      <>⛽ Refuel{e.when === "running" && <span className="text-slate-500"> (engine running)</span>}</>
+                    ) : (
+                      <span className="font-medium text-red-700 dark:text-red-400">⚠ {e.kind === "theft" ? "Dropped while parked" : "Lost while running"}</span>
+                    )}
+                  </td>
+                  <td className={td}>
+                    {Math.round(e.fromPct)}% → {Math.round(e.toPct)}%
+                  </td>
+                  <td className={td}>{e.litres === null ? "—" : Math.round(e.litres)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </TableCard>
+    </div>
   );
 }
 

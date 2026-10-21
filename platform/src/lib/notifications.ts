@@ -77,7 +77,12 @@ export const EVENT_TYPES = {
   },
   possible_fuel_theft: {
     label: "Possible Fuel Theft",
-    description: "The fuel level dropped between the engine stopping and starting again (machines that report fuel level).",
+    description:
+      "The fuel level dropped between the engine stopping and starting again, or (J1939 machines with a tank size) dropped while running by more than the engine burned.",
+  },
+  refuel: {
+    label: "Refuelled",
+    description: "The fuel level went up: a refuel, while parked or running (machines that report fuel level). Also in the fuel log.",
   },
   possible_tamper: {
     label: "Possible Tamper",
@@ -105,6 +110,7 @@ export const ALERT_EVENT: Record<AlertType, EventType> = {
   tamper: "possible_tamper",
   "tamper-escalated": "possible_tamper",
   "fuel-theft": "possible_fuel_theft",
+  "fuel-loss": "possible_fuel_theft",
 };
 
 export const ALERT_EVENT_TYPES = [...new Set(Object.values(ALERT_EVENT))];

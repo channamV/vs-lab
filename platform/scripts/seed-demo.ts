@@ -13,9 +13,9 @@
  * Works against whichever database the platform uses (DATABASE_URL, or the embedded one).
  */
 import { parseArgs } from "node:util";
-import { and, asc, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt } from "drizzle-orm";
 import { createDb, defaultDbOptions, migrateDb } from "../src/lib/db";
-import { checkins, devices, engineSessions, operators, organizations, worksites, type ChecklistAnswer } from "../src/lib/db/schema";
+import { checkins, devices, engineSessions, machines, operators, organizations, worksites, type ChecklistAnswer } from "../src/lib/db/schema";
 import { createMachine, pairDevice } from "../src/lib/machines";
 import { pairedMachineId } from "../src/lib/telemetry/ingest";
 import { createWorksite } from "../src/lib/worksites";
@@ -101,6 +101,8 @@ async function main() {
       }
       await pairDevice(db, id, machineId, new Date(startOfLocalDay(now, tz, 7)));
     }
+    // The simulator's tanks are 400 L (for litres and the fuel lost while running check).
+    await db.update(machines).set({ fuelTankLitres: 400 }).where(and(eq(machines.id, machineId), isNull(machines.fuelTankLitres)));
     // Replace earlier demo history (before today) so re-running doesn't double up.
     await db.delete(engineSessions).where(and(eq(engineSessions.machineId, machineId), lt(engineSessions.startedAt, new Date(todayStart))));
     await db

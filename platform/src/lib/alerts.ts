@@ -25,6 +25,8 @@ export const ALERT_LABELS = {
   "tamper-escalated": "Possible tamper (escalated)",
   /** Raised by the fuel check (src/lib/fuel.ts): the tank level dropped while the engine was off. */
   "fuel-theft": "Possible fuel theft",
+  /** The tank dropped while running, more than the engine burned (J1939 machines with a tank size). */
+  "fuel-loss": "Possible fuel theft (while running)",
 } as const;
 
 export type AlertType = keyof typeof ALERT_LABELS;

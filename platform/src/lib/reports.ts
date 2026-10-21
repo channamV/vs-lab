@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { alerts, checkins, divisions, engineSessions, machines, operators, organizations, telemetry, worksites, worksiteVisits } from "@/lib/db/schema";
+import { alerts, checkins, divisions, engineSessions, fuelEvents, machines, operators, organizations, telemetry, worksites, worksiteVisits, type FuelEvent } from "@/lib/db/schema";
 import { machineScope, type Scope } from "@/lib/divisions";
 import { effectiveEnd, localDateKey, midnightInZone, type SessionSpan } from "@/lib/telemetry/engine";
 
@@ -165,6 +165,11 @@ export type MachineReport = {
   fuelL: number | null;
   /** Fuel burned while idling, from the engine's idle fuel meter (J1939 SPN 236). */
   idleFuelL: number | null;
+  /** The fuel log in the period: refuels, and suspected thefts (parked or while running). */
+  refuels: number;
+  refuelL: number | null;
+  thefts: number;
+  theftL: number | null;
   /** Where the idle figure comes from (see IdleSource). Null when the machine didn't run. */
   idleSource: IdleSource | "mixed" | null;
 };
@@ -183,6 +188,13 @@ export const IDLE_SOURCE_LABELS: Record<IdleSource | "mixed", string> = {
 };
 /** Measured sources; anything else is an estimate. */
 export const isMeasuredIdle = (s: IdleSource | "mixed" | null) => s === "meter" || s === "rpm";
+
+function fuelSummary(events: FuelEvent[]) {
+  const refuels = events.filter((e) => e.kind === "refuel");
+  const thefts = events.filter((e) => e.kind !== "refuel");
+  const litres = (list: FuelEvent[]) => (list.some((e) => e.litres !== null) ? list.reduce((s, e) => s + (e.litres ?? 0), 0) : null);
+  return { refuels: refuels.length, refuelL: litres(refuels), thefts: thefts.length, theftL: litres(thefts) };
+}
 
 function idleSourceOf(sources: Set<IdleSource>): IdleSource | "mixed" | null {
   const real = [...sources].filter((s) => s !== "none");
@@ -212,6 +224,8 @@ export type Report = {
   machines: MachineReport[];
   operators: OperatorReport[];
   worksites: WorksiteReport[];
+  /** Every fuel log entry in the period, oldest first. */
+  fuelLog: (FuelEvent & { machine: string })[];
   totals: {
     hours: number;
     idleHours: number;
@@ -254,7 +268,7 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
   const to = new Date(range.to);
   const none = ids.length === 0;
 
-  const [sessions, idleRows, checkinRows, unauthorized, visits, ecuRows] = await Promise.all([
+  const [sessions, idleRows, checkinRows, unauthorized, visits, ecuRows, fuelRows] = await Promise.all([
     none
       ? []
       : db
@@ -333,6 +347,14 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
             ),
           )
           .groupBy(telemetry.machineId),
+    // The fuel log: refuels and suspected thefts.
+    none
+      ? []
+      : db
+          .select()
+          .from(fuelEvents)
+          .where(and(inArray(fuelEvents.machineId, ids), gte(fuelEvents.at, from), lt(fuelEvents.at, to)))
+          .orderBy(asc(fuelEvents.at)),
   ]);
 
   const plannedPerMachine = plannedHours(range, org?.plannedHoursPerDay ?? 8, org?.workingDays ?? [1, 2, 3, 4, 5]);
@@ -345,6 +367,7 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
   );
   const unauthorizedBy = new Map(unauthorized.map((u) => [u.machineId, u.count]));
   const orNull = (v: number | null) => (v === null ? null : Number(v));
+  const fuelBy = Map.groupBy(fuelRows, (f) => f.machineId);
   const ecuBy = new Map(ecuRows.map((r) => [r.machineId, { hours: orNull(r.hours), fuel: orNull(r.fuel), idleFuel: orNull(r.idleFuel) }]));
   const visitsBy = Map.groupBy(visits, (v) => v.visit.machineId);
   /** Which operator each engine session belongs to (the latest check-in linked to it). */
@@ -446,6 +469,7 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
       fuelL: ecuBy.get(machine.id)?.fuel ?? null,
       idleFuelL: ecuBy.get(machine.id)?.idleFuel ?? null,
       idleSource: idleSourceOf(sources),
+      ...fuelSummary(fuelBy.get(machine.id) ?? []),
     };
   });
 
@@ -489,6 +513,10 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
     machines: machineReports,
     operators: operatorReports,
     worksites: worksiteReports,
+    fuelLog: fuelRows.map((f) => {
+      const m = fleet.find((x) => x.machine.id === f.machineId)!.machine;
+      return { ...f, machine: m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name };
+    }),
     totals: {
       hours: totalHours,
       idleHours: sum((m) => m.idleHours),
@@ -564,6 +592,31 @@ export const REPORT_CSV = {
       m.checkins,
       m.checkinsWithDefects,
       m.missedDays.join(" "),
+    ]),
+  ],
+  fuel: (r: Report) => [
+    ["Unit", "Machine", "Fuel used (L)", "Average (L/h)", "Idle fuel (L)", "Refuels", "Refuelled (L)", "Suspected thefts", "Missing (L)"],
+    ...r.machines.map((m) => [
+      m.unitNumber,
+      m.name,
+      m.fuelL === null ? "" : h2(m.fuelL),
+      m.fuelL !== null && m.hours > 0 ? h2(m.fuelL / m.hours) : "",
+      m.idleFuelL === null ? "" : h2(m.idleFuelL),
+      m.refuels,
+      m.refuelL === null ? "" : h2(m.refuelL),
+      m.thefts,
+      m.theftL === null ? "" : h2(m.theftL),
+    ]),
+  ],
+  "fuel-log": (r: Report) => [
+    ["When", "Machine", "What", "From %", "To %", "Litres"],
+    ...r.fuelLog.map((e) => [
+      e.at,
+      e.machine,
+      e.kind === "refuel" ? `Refuel (${e.when})` : e.kind === "theft" ? "Fuel dropped while parked" : "Fuel lost while running",
+      Math.round(e.fromPct),
+      Math.round(e.toPct),
+      e.litres === null ? "" : h2(e.litres),
     ]),
   ],
   worksites: (r: Report) => [

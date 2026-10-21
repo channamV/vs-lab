@@ -29,6 +29,7 @@ import {
 } from "@/lib/data";
 import { WorksiteVisits } from "./WorksiteVisits";
 import { EngineData } from "./EngineData";
+import { FuelLog } from "./FuelLog";
 import { appTimeZone, effectiveEnd } from "@/lib/telemetry/engine";
 import { PID_NAMES } from "@/lib/freematics/protocol";
 import { clockTime, fmt, formatHours, machineLabel, timeAgo } from "@/lib/format";
@@ -145,6 +146,9 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
 
       <Suspense>
         <EngineData machineId={machine.id} hourMeter={machine.engineHourMeter} />
+      </Suspense>
+      <Suspense>
+        <FuelLog machineId={machine.id} tankLitres={machine.fuelTankLitres} />
       </Suspense>
 
       <div className="grid gap-6 lg:grid-cols-2">

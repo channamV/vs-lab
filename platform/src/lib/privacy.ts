@@ -9,6 +9,7 @@ import {
   checklistIssues,
   deviceEvents,
   deviceIncidents,
+  fuelEvents,
   loginTokens,
   machineFaults,
   machineOperators,
@@ -178,6 +179,9 @@ export async function applyRetention(db: Db, now = new Date()): Promise<Retentio
     await db
       .delete(machineFaults)
       .where(and(eq(machineFaults.organizationId, org.id), isNotNull(machineFaults.clearedAt), lt(machineFaults.clearedAt, track)));
+
+    // The fuel log goes with the alerts.
+    await db.delete(fuelEvents).where(and(eq(fuelEvents.organizationId, org.id), lt(fuelEvents.at, checkinCutoff)));
 
     // Alerts, resolved defects and finished check-ins. Open defects and a current check-in always stay.
     r.alertsDeleted += (

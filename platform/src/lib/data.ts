@@ -16,6 +16,7 @@ import {
   devices,
   divisions,
   engineSessions,
+  fuelEvents,
   machineFaults,
   machineOperators,
   machines,
@@ -466,6 +467,23 @@ export async function machineEngineData(machineId: number) {
       .limit(15),
   ]);
   return { latest: latest ?? null, faults };
+}
+
+/** The latest tank level and the fuel log (refuels, suspected thefts) for a machine. */
+export async function machineFuel(machineId: number, limit = 12) {
+  await requireMachine(machineId);
+  const db = getDb();
+  const level = sql<number>`coalesce(${telemetry.fields}->>'j1939FuelLevelPct', ${telemetry.fields}->>'obdFuelLevelPct')::float`;
+  const [[latest], log] = await Promise.all([
+    db
+      .select({ pct: level, at: telemetry.receivedAt })
+      .from(telemetry)
+      .where(and(eq(telemetry.machineId, machineId), sql`(${telemetry.fields} ? 'j1939FuelLevelPct' or ${telemetry.fields} ? 'obdFuelLevelPct')`))
+      .orderBy(desc(telemetry.receivedAt))
+      .limit(1),
+    db.select().from(fuelEvents).where(eq(fuelEvents.machineId, machineId)).orderBy(desc(fuelEvents.at)).limit(limit),
+  ]);
+  return { latest: latest ? { pct: Number(latest.pct), at: latest.at } : null, log };
 }
 
 /** Active fault code counts per machine (fleet list). */
