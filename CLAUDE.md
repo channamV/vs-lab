@@ -69,7 +69,7 @@ github.com/stanleyhuangyc/Freematics.
 
 ```
 npm run dev          # migrate DB + start at http://localhost:3000
-npm run simulate     # fake devices sending real Telelogger-format data (engines cycle on/off)
+npm run simulate     # fake devices sending real Telelogger-format data (engines cycle on/off; --obd some|all|none)
 npm run demo:seed    # demo machines paired with the SIM* devices + a week of engine/check-in history
 npm run retention    # privacy clean-up once (Vercel runs it nightly)
 npm run check        # lint + typecheck + tests — run before every commit
