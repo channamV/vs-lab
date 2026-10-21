@@ -10,7 +10,7 @@ export default function WorksitesPage() {
         <h1 className="text-2xl font-semibold">Worksites</h1>
         <p className="text-sm text-slate-500">
           Draw your jobsites, yards, offices and customer sites. Machines are matched to them by GPS: subscribe to “Entered Worksite”, “Left
-          Worksite” or “Stayed Too Long at Worksite” under Alerts → Subscriptions.
+          Worksite” or “Stayed Too Long at Worksite” under Notifications.
         </p>
       </div>
       <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>

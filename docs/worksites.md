@@ -30,7 +30,7 @@ divisions only see their own machines in them.
 
 ## Notifications
 
-Under **Alerts → Subscriptions**, three event types:
+Under **Notifications** (in the menu), three event types:
 
 | Event | When |
 |---|---|

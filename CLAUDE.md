@@ -61,7 +61,9 @@ github.com/stanleyhuangyc/Freematics.
   `src/app/checkin/`). The check-in page reads only through `src/lib/checkin-page.ts` (machine name, unit # +
   current operator); its actions accept just a machine code, PIN and checklist answers. PINs are unique per
   organization; the machine identifies the organization.
-- Admin pages live in `src/app/(admin)/` (with the nav bar); check-in pages have their own layout.
+- Admin pages live in `src/app/(admin)/`; its layout builds the menu (groups/roles) and `src/components/AppNav.tsx` draws it
+  (desktop sidebar collapsible to icons, cookie `vs-nav`; phones: top bar + slide-in menu). Add new pages there.
+  Check-in pages have their own layout.
 
 ## Commands (run from `platform/`)
 

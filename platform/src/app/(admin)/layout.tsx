@@ -1,101 +1,80 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { AppNav, type NavGroup } from "@/components/AppNav";
+import { NAV_COOKIE } from "@/lib/nav";
 import { currentUser, listOrganizationsForSwitcher, openAlertCountIfSignedIn } from "@/lib/data";
 import { hasRole } from "@/lib/auth";
-import { signOutAction } from "./login/actions";
-import { switchOrganizationAction } from "./platform/actions";
 
-/** Fleet manager pages: navigation bar on top. (Operator check-in pages have their own layout.) */
+/**
+ * Fleet manager pages: sidebar menu on desktop, top bar + slide-in menu on phones (src/components/AppNav.tsx).
+ * Signed out (sign-in pages): just the logo. Operator check-in pages have their own layout.
+ */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
-      <header className="bg-slate-900 text-white">
-        <nav className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-          <Link href="/" className="text-lg font-semibold tracking-tight">
-            VS <span className="text-sky-400">Lab</span>
-          </Link>
-          <Suspense>
-            <NavLinks />
-          </Suspense>
-        </nav>
-      </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
-    </>
+    <div className="flex-1 lg:has-[aside]:flex">
+      <Suspense>
+        <Navigation />
+      </Suspense>
+      <main className="mx-auto w-full max-w-6xl min-w-0 flex-1 px-4 py-6">{children}</main>
+    </div>
   );
 }
 
-const linkClass = "text-sm text-slate-300 hover:text-white";
-
-async function NavLinks() {
+async function Navigation() {
   const auth = await currentUser();
-  if (!auth) return null; // sign-in pages
-  const [alertCount, orgs] = await Promise.all([
+  if (!auth) {
+    return (
+      <header className="bg-slate-900 px-4 py-3 text-lg font-semibold tracking-tight text-white">
+        <Link href="/">
+          VS <span className="text-sky-400">Lab</span>
+        </Link>
+      </header>
+    );
+  }
+  const [alertCount, orgs, cookieStore] = await Promise.all([
     openAlertCountIfSignedIn(),
-    auth.isPlatformAdmin ? listOrganizationsForSwitcher() : Promise.resolve([]),
+    auth.isPlatformAdmin ? listOrganizationsForSwitcher() : Promise.resolve(null),
+    cookies(),
   ]);
+  const groups: NavGroup[] = [
+    {
+      label: "Operations",
+      items: [
+        { href: "/", label: "Fleet", icon: "fleet" },
+        { href: "/worksites", label: "Worksites", icon: "worksites" },
+        { href: "/alerts", label: "Alerts", icon: "alerts", badge: alertCount },
+        { href: "/alerts/subscriptions", label: "Notifications", icon: "subscriptions" },
+      ],
+    },
+    {
+      label: "Safety",
+      items: [
+        { href: "/operators", label: "Operators", icon: "operators" },
+        ...(hasRole(auth, "manager") ? [{ href: "/checklists", label: "Checklists", icon: "checklists" } as const] : []),
+      ],
+    },
+    ...(hasRole(auth, "owner")
+      ? [
+          {
+            label: "Company",
+            items: [
+              { href: "/users", label: "Users", icon: "users" },
+              { href: "/settings", label: "Settings", icon: "settings" },
+            ],
+          } satisfies NavGroup,
+        ]
+      : []),
+    ...(auth.isPlatformAdmin
+      ? [{ label: "Veristart staff", items: [{ href: "/platform", label: "Platform", icon: "platform" }] } satisfies NavGroup]
+      : []),
+  ];
   return (
-    <>
-      <Link href="/" className={linkClass}>
-        Fleet
-      </Link>
-      <Link href="/worksites" className={linkClass}>
-        Worksites
-      </Link>
-      <Link href="/operators" className={linkClass}>
-        Operators
-      </Link>
-      {hasRole(auth, "manager") && (
-        <Link href="/checklists" className={linkClass}>
-          Checklists
-        </Link>
-      )}
-      <Link href="/alerts" className={`flex items-center gap-1.5 ${linkClass}`}>
-        Alerts
-        {!!alertCount && <span className="rounded-full bg-red-600 px-1.5 text-xs font-semibold text-white">{alertCount}</span>}
-      </Link>
-      {hasRole(auth, "owner") && (
-        <>
-          <Link href="/users" className={linkClass}>
-            Users
-          </Link>
-          <Link href="/settings" className={linkClass}>
-            Settings
-          </Link>
-        </>
-      )}
-      {auth.isPlatformAdmin && (
-        <Link href="/platform" className={linkClass}>
-          Platform
-        </Link>
-      )}
-      <div className="ml-auto flex flex-wrap items-center gap-3 text-sm text-slate-300">
-        {auth.isPlatformAdmin ? (
-          <form action={switchOrganizationAction} className="flex items-center gap-1">
-            <label htmlFor="org-switch" className="sr-only">
-              Organization
-            </label>
-            <select
-              id="org-switch"
-              name="organizationId"
-              defaultValue={auth.organizationId}
-              className="rounded bg-slate-800 px-2 py-1 text-white"
-            >
-              {orgs.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-            <button className="rounded border border-slate-600 px-2 py-1 hover:bg-slate-800">View</button>
-          </form>
-        ) : (
-          <span className="font-medium text-white">{auth.organizationName}</span>
-        )}
-        <span className="hidden sm:inline">{auth.email}</span>
-        <form action={signOutAction}>
-          <button className="hover:text-white">Sign out</button>
-        </form>
-      </div>
-    </>
+    <AppNav
+      groups={groups}
+      alertCount={alertCount}
+      initiallyCollapsed={cookieStore.get(NAV_COOKIE)?.value === "collapsed"}
+      account={{ email: auth.email, organizationId: auth.organizationId, organizationName: auth.organizationName, organizations: orgs }}
+    />
   );
 }

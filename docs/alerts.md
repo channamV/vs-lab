@@ -36,7 +36,7 @@ On the Alerts page, add a note if useful (e.g. "mechanic testing hydraulics") an
 
 ## Who gets emails: subscriptions
 
-Each person chooses what they're emailed about: **Alerts → My subscriptions**. The page works like the
+Each person chooses what they're emailed about: **Notifications** in the menu (the *My subscriptions* page). The page works like the
 production portal's notification subscriptions.
 
 **A subscription has:**

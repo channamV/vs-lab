@@ -77,7 +77,7 @@ A company that doesn't need them simply doesn't create any.
 
 ## Alert emails
 
-Each person chooses what they're emailed about (**Alerts → My subscriptions**; owners can set anyone's from the
+Each person chooses what they're emailed about (**Notifications** in the menu; owners can set anyone's from the
 Users page). Owners and managers start with every alert. People are only emailed about machines they can see.
 Details: [alerts.md](alerts.md#who-gets-emails-subscriptions). `ALERT_EMAIL_TO` in Vercel is now
 optional: those addresses get every organization's alerts (for Veristart staff).
