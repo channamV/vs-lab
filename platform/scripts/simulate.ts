@@ -278,15 +278,37 @@ async function login(d: SimDevice) {
   await handleReply(d, await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=&FW=${encodeURIComponent(d.firmware)}`));
 }
 
-/** UPDATE=<version>\t<bytes>\t<sha256>\t<path>: download, check size and fingerprint, "install", restart. */
+/**
+ * UPDATE=<version>\t<bytes>\t<sha256>\t<path>: download in pieces (as our firmware will: the modem fails on
+ * the whole file at once), retrying a piece and making pieces smaller when transfers fail; then check the
+ * whole file's size and fingerprint before "installing" and restarting.
+ */
 async function update(d: SimDevice, value: string): Promise<[boolean, string]> {
   const [version, bytes, sha256, path] = value.split("\t");
-  const res = await fetch(`${host}${path}`);
-  if (!res.ok) return [false, `download failed: HTTP ${res.status}`];
-  const data = new Uint8Array(await res.arrayBuffer());
-  if (data.length !== Number(bytes)) return [false, `size mismatch: got ${data.length} bytes`];
+  const size = Number(bytes);
+  const data = new Uint8Array(size);
+  let piece = 16_384;
+  let pieces = 0;
+  for (let offset = 0; offset < size; ) {
+    const end = Math.min(offset + piece, size) - 1;
+    let got: Uint8Array | null = null;
+    for (let attempt = 0; attempt < 3 && !got; attempt++) {
+      const res = await fetch(`${host}${path}`, { headers: { Range: `bytes=${offset}-${end}` } }).catch(() => null);
+      if (res?.status === 403) return [false, "download refused (403)"];
+      const body = res?.status === 206 ? new Uint8Array(await res.arrayBuffer()) : null;
+      if (body && body.length === end - offset + 1) got = body;
+    }
+    if (!got) {
+      if (piece <= 4096) return [false, `download failed at byte ${offset}`];
+      piece /= 2;
+      continue;
+    }
+    data.set(got, offset);
+    offset += got.length;
+    pieces++;
+  }
   if (createHash("sha256").update(data).digest("hex") !== sha256) return [false, "SHA-256 mismatch: not installed"];
-  console.log(`${d.id}: ⬇ downloaded ${version} (${(data.length / 1e6).toFixed(2)} MB, fingerprint OK), installing and restarting`);
+  console.log(`${d.id}: ⬇ downloaded ${version} in ${pieces} pieces (${(size / 1e6).toFixed(2)} MB, fingerprint OK), installing and restarting`);
   d.firmware = version;
   await send(`/hub/api/notify/${d.id}?EV=2&SSI=${d.rssi}`);
   await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=&FW=${encodeURIComponent(d.firmware)}`);

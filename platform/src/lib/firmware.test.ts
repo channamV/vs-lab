@@ -10,6 +10,7 @@ import { commandsForReply, recordAnswer } from "@/lib/commands";
 import {
   afterUpdateAnswer,
   authorizeDownload,
+  byteRange,
   cancelUpdates,
   createRelease,
   downloadSignature,
@@ -122,6 +123,21 @@ describe("rollout", () => {
     expect(await authorizeDownload(db, r.id, "DEV1", "-")).toBeNull();
     const [cmd] = await db.select().from(deviceCommands);
     expect(cmd.status).toBe("cancelled");
+  });
+});
+
+describe("downloading in pieces", () => {
+  it("reads Range headers and offset/length on the URL", () => {
+    expect(byteRange(1000, null, null, null)).toBeNull();
+    expect(byteRange(1000, "bytes=0-99", null, null)).toEqual({ start: 0, end: 99 });
+    expect(byteRange(1000, "bytes=900-", null, null)).toEqual({ start: 900, end: 999 });
+    expect(byteRange(1000, "bytes=950-2000", null, null)).toEqual({ start: 950, end: 999 }); // last piece is shorter
+    expect(byteRange(1000, "bytes=-100", null, null)).toEqual({ start: 900, end: 999 });
+    expect(byteRange(1000, null, "16", "8")).toEqual({ start: 16, end: 23 });
+    expect(byteRange(1000, "bytes=0-99", "500", "10")).toEqual({ start: 500, end: 509 }); // URL wins
+    for (const bad of ["bytes=1000-", "bytes=5-2", "bytes=-", "items=0-5", "bytes=0-5,10-20"]) expect(byteRange(1000, bad, null, null)).toBe("invalid");
+    expect(byteRange(1000, null, "-1", "5")).toBe("invalid");
+    expect(byteRange(1000, null, "0", "0")).toBe("invalid");
   });
 });
 

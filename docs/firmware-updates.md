@@ -48,6 +48,14 @@ An update waits up to **7 days** for a device that's switched off.
 
 ## Safety of an update (what our firmware will do)
 
+- **Download in pieces, always.**
+  - Cellular modems' built-in web commands (SIM7600, SIM7670) often fail on a ~1.5 MB file in one go. The production
+    firmware hit this, and falls back to small pieces.
+  - Ours goes straight to pieces: about 16 KB each, retrying a failed piece, and making pieces smaller when
+    transfers keep failing.
+  - Pieces are plain bytes (standard HTTP range requests), not Base64 text, which would use about a third more
+    cellular data.
+
 - **Download only through the platform.** Each device gets its own download link, valid only for devices that
   were sent the update. With `DEVICE_KEY_SECRET` set, the link is also signed for that device, like commands.
 - **Check before installing.** The device checks the size and the SHA-256 fingerprint from the command. A
@@ -70,7 +78,12 @@ An update waits up to **7 days** for a device that's switched off.
 - **Path:** `/hub/api/firmware/<release id>?d=<deviceId>&s=<signature>`.
   - Signature: first 16 hex characters of HMAC-SHA256(device key, `fw\n<deviceId>\n<release id>`), or `-` when
     signing is off.
-  - The response is the binary.
+  - The response is the binary. **Download it in pieces:** send `Range: bytes=<start>-<end>`, or, if the modem's
+    HTTP commands can't set headers, add `&o=<offset>&n=<length>` to the path. Either way the answer is
+    `206` with that part and `Content-Range`. A range past the end of the file gets `416`.
+  - Suggested piece size: 16 KB, halved after 3 failed tries (down to 4 KB). Keep pieces in flash as they arrive
+    (`Update.write`), so a long download doesn't need the whole file in memory.
+  - When every piece is in, compare the whole file's SHA-256 with the command's before finishing the install.
   - Headers `X-Firmware-Version` and `X-Firmware-SHA256` are included.
   - A device that wasn't sent the update gets 403.
 - **Answer** (`/hub/api/ack`):
@@ -81,4 +94,20 @@ An update waits up to **7 days** for a device that's switched off.
 - **Version:** add `&FW=<version>` to the login notify (`EV=1`).
 - **Code:** `platform/src/lib/firmware.ts` (tested).
 - **Simulator:** `npm run simulate` behaves like this. It reports `--firmware` (default `sim-1.0.0`), and on
-  UPDATE it downloads, checks the fingerprint, "restarts" and answers.
+  UPDATE it downloads in 16 KB pieces, checks the whole file's fingerprint, "restarts" and answers.
+
+## Compared with the production firmware (reviewed 2026-10-22)
+
+`veristart-hardware-device` `src/ota_manager.cpp` (SIM7600) tries the whole file first. If that fails, it
+downloads Base64 pieces from a custom endpoint (18 KB, shrinking to 6 KB), checks each piece's SHA-256 and
+watches for the file changing mid-download. That is careful and the right idea.
+
+What we do differently:
+- **Pieces from the start, as raw bytes** (standard ranges): no failed first attempt, and no Base64 overhead (+33%
+  cellular data).
+- **The whole file's fingerprint**, from the signed command, is checked before install. The production firmware
+  checks each piece against fingerprints from the same server.
+- **Automatic rollback:** the new version must reach the server before it confirms itself; otherwise the ESP32
+  goes back to the old one after a restart. No rollback call was found in the production code.
+- **Later:** signed firmware images (ESP32 Secure Boot), so even a compromised server can't install its own
+  firmware.

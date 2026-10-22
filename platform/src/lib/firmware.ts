@@ -48,14 +48,56 @@ async function saveFile(key: string, data: Uint8Array) {
   await writeFile(full, data);
 }
 
-export async function readFirmwareFile(key: string): Promise<ReadableStream<Uint8Array> | Uint8Array | null> {
-  if (process.env.BLOB_READ_WRITE_TOKEN) return (await get(key, { access: "private" }))?.stream ?? null;
-  if (key.includes("..")) return null;
-  try {
-    return new Uint8Array(await readFile(path.join(localDir(), key)));
-  } catch {
-    return null;
+/**
+ * A release's file. Devices download in pieces (see byteRange), so the last file read is kept in memory:
+ * one update means dozens of requests for the same ~1.5 MB file, and a warm server instance reuses it.
+ */
+let cached: { key: string; data: Uint8Array } | null = null;
+
+export async function readFirmwareFile(key: string): Promise<Uint8Array | null> {
+  if (cached?.key === key) return cached.data;
+  let data: Uint8Array | null = null;
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const stream = (await get(key, { access: "private" }))?.stream;
+    if (stream) data = new Uint8Array(await new Response(stream).arrayBuffer());
+  } else if (!key.includes("..")) {
+    try {
+      data = new Uint8Array(await readFile(path.join(localDir(), key)));
+    } catch {
+      data = null;
+    }
   }
+  if (data) cached = { key, data };
+  return data;
+}
+
+/**
+ * Which part of the file a device asked for: a standard `Range: bytes=<start>-<end>` header, or, for modems
+ * whose built-in HTTP can't set headers, `&o=<offset>&n=<length>` on the URL. Returns null for the whole
+ * file, "invalid" when the range can't be served (HTTP 416).
+ */
+export function byteRange(size: number, rangeHeader: string | null, offset: string | null, length: string | null): { start: number; end: number } | null | "invalid" {
+  let start: number;
+  let end: number;
+  if (offset !== null || length !== null) {
+    start = Number(offset ?? 0);
+    const n = Number(length ?? size - start);
+    if (!Number.isInteger(start) || !Number.isInteger(n) || start < 0 || n <= 0) return "invalid";
+    end = start + n - 1;
+  } else if (rangeHeader) {
+    const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+    if (!m || (m[1] === "" && m[2] === "")) return "invalid";
+    if (m[1] === "") {
+      // "bytes=-500": the last 500 bytes.
+      start = Math.max(0, size - Number(m[2]));
+      end = size - 1;
+    } else {
+      start = Number(m[1]);
+      end = m[2] === "" ? size - 1 : Number(m[2]);
+    }
+  } else return null;
+  if (start >= size || end < start) return "invalid";
+  return { start, end: Math.min(end, size - 1) };
 }
 
 // ---------- Releases ----------

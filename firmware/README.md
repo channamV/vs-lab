@@ -20,7 +20,7 @@ tested steps:
 2. Read commands from the server's reply to each upload and check-in, check their signature, run them and answer
    (format in [docs/device-commands.md](../docs/device-commands.md); the server side and a simulated device are built)
 3. BLE beacon scanning, adding nearby beacon IDs to each report
-4. Over-the-air firmware updates: download, check SHA-256, install into the spare slot, roll back if the new
+4. Over-the-air firmware updates: download in 16 KB range pieces, check the whole file's SHA-256, install into the spare slot, roll back if the new
    version doesn't reach the server, wait for engine off; report `FW=` on login
    ([docs/firmware-updates.md](../docs/firmware-updates.md); the platform side and a simulated device are built)
 5. Device authentication
