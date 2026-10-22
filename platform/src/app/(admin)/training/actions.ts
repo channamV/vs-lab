@@ -6,6 +6,9 @@ import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { deletePhotos, photoStorageAvailable, saveDocument } from "@/lib/photos";
 import { requireAuth } from "@/lib/session";
+import { and, eq } from "drizzle-orm";
+import { certificationTypes, operators } from "@/lib/db/schema";
+import { sameName, scanAvailable, ScanError, scanTrainingCertificate, type TrainingFields } from "@/lib/scan";
 import {
   addCategory,
   addTrainingRecord,
@@ -146,4 +149,35 @@ export async function deleteTrainingRecordAction(formData: FormData) {
   const auth = await requireAuth("manager");
   await deleteTrainingRecord(getDb(), auth.organizationId, id.parse(formData.get("id")));
   refresh();
+}
+
+export type ScanResult = { ok: true; fields: TrainingFields; nameWarning: string | null } | { ok: false; error: string };
+
+/**
+ * Scan to fill: reads a certificate photo for the record form (managers). Saves nothing: the form shows the details
+ * for the manager to check, and the photo is only kept if they save the record with it attached.
+ */
+export async function scanCertificateAction(formData: FormData): Promise<ScanResult> {
+  const auth = await requireAuth("manager");
+  if (!scanAvailable()) return { ok: false, error: "Scanning isn't set up yet (ANTHROPIC_API_KEY)." };
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choose a photo of the certificate." };
+  const db = getDb();
+  const [types, [op]] = await Promise.all([
+    db.select({ id: certificationTypes.id, name: certificationTypes.name }).from(certificationTypes).where(eq(certificationTypes.organizationId, auth.organizationId)),
+    db
+      .select({ name: operators.name })
+      .from(operators)
+      .where(and(eq(operators.id, id.parse(formData.get("operatorId"))), eq(operators.organizationId, auth.organizationId))),
+  ]);
+  if (!op) return { ok: false, error: "Operator not found." };
+  try {
+    const fields = await scanTrainingCertificate({ data: new Uint8Array(await file.arrayBuffer()), contentType: file.type }, types);
+    const nameWarning =
+      fields.holderName && !sameName(fields.holderName, op.name) ? `The card is in the name of "${fields.holderName}", not ${op.name}. Check it's the right person.` : null;
+    return { ok: true, fields, nameWarning };
+  } catch (err) {
+    if (err instanceof ScanError) return { ok: false, error: err.message };
+    throw err;
+  }
 }

@@ -44,6 +44,7 @@ import { allowedActions, canManageSchedule, listSchedules } from "@/lib/schedule
 import { currentMode } from "@/lib/mode-types";
 import { ensureTrainingDefaults, latestRecords, recordStatus } from "@/lib/training";
 import { todayIn } from "@/lib/schedule-time";
+import { scanAvailable } from "@/lib/scan";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -1081,7 +1082,7 @@ export async function operatorTraining(operatorId: number) {
       .from(trainingRecords)
       .where(and(eq(trainingRecords.operatorId, operatorId), eq(trainingRecords.organizationId, auth.organizationId)))
       .orderBy(desc(trainingRecords.issuedOn)),
-    db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, auth.organizationId)),
+    db.select({ timezone: organizations.timezone, retainScanImages: organizations.retainScanImages }).from(organizations).where(eq(organizations.id, auth.organizationId)),
   ]);
   const today = todayIn(settings?.timezone ?? "America/Toronto");
   const typeById = new Map(types.map((t) => [t.id, t]));
@@ -1094,5 +1095,13 @@ export async function operatorTraining(operatorId: number) {
       return { ...r, typeName: type.name, replaced: !current.has(r.id), ...recordStatus(r, type, today) };
     }),
     canEdit: hasRole(auth, "manager"),
+    /** Scan to fill (src/lib/scan.ts), when set up; keep the photo by default per the company setting. */
+    scan: scanAvailable() ? { retain: settings?.retainScanImages ?? true } : undefined,
   };
+}
+
+/** Whether "Scan to fill" is set up (ANTHROPIC_API_KEY), for forms outside the training pages. */
+export async function scanEnabled() {
+  await requireSession();
+  return scanAvailable();
 }

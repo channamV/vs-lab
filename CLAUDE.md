@@ -204,6 +204,11 @@ says it's compliant. Update that doc when items are done.
   counts (`latestRecords`). `checkIn` calls `trainingAccess`: missing required → `training-required`; auto-grant →
   authorized. `sendTrainingReminders` (in `runWatchdog`) → `training_expiring/expired` events (machine-less; rules with
   machine/division filters skip them) + email to `operators.email`. Records/contacts are in export and erase.
+- Scan to fill (`src/lib/scan.ts`, tested with a fake client; `docs/scan-to-fill.md`): Claude (`claude-opus-5-5`, low effort,
+  Zod structured output, `fallbacks: "default"`) reads certificate / serial plate photos; needs `ANTHROPIC_API_KEY` (unset =
+  no Scan buttons). Saves nothing: manager-only actions (`scanCertificateAction`, `scanPlateAction`) return fields for the
+  form; `src/components/ScanButton.tsx` is reusable. A certificate photo is kept only by attaching it as the record's
+  document (`organizations.retain_scan_images` default, per-scan checkbox). Plate photos aren't kept.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

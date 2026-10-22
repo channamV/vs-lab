@@ -33,12 +33,13 @@
 
 | # | Policy says | vs-lab today | Fix |
 |---|---|---|---|
-| 1 | Data stored "at a private server location hosted by AWS in Canada" | Vercel, Neon and Resend, outside Canada | **Must fix:** move vs-lab to Canadian hosting, or change the policy to list the actual providers and countries |
+| 1 | Data stored "at a private server location hosted by AWS in Canada" | Vercel, Neon and Resend, outside Canada; certificate and plate scans are read by Anthropic (US) | **Must fix:** move vs-lab to Canadian hosting, or change the policy to list the actual providers and countries |
 | 2 | Written as if Veristart collects from everyone directly | Operators' data is collected for their employer (our customer) | **Must fix:** policy explains the customer/Veristart roles; data processing agreement with each customer |
 | 3 | Doesn't describe safety monitoring of operators | Speeding, idling, hours/fatigue, restricted areas and checklist photos are linked to named operators | **Must fix:** add these uses to the policy (the check-in notice now mentions them) |
 | 4 | "By using the Solution you consent" (bundled consent) | — | **Must fix for Quebec:** consent that's specific and separate; a privacy impact assessment before data leaves Quebec; publish the Privacy Officer's title |
 | 5 | Doesn't intend to collect EU (or California) data; will destroy it | vs-lab has GDPR features for future EU customers | Decide: if EU customers are planned, rewrite this section (and see [privacy.md](privacy.md)) |
 | 6 | Mentions "residential tenancies or human rights" authorities | — | Remove: left over from a template for another industry |
+| 8 | Doesn't mention training records or AI reading of documents | Managers keep operators' certifications (and certificate copies); "Scan to fill" sends the photo to Anthropic's API to read it (not kept by vs-lab unless the manager attaches it) | **Must fix:** add training records and automated document reading (service provider, country) to the policy; the check-in notice mentions both |
 | 7 | (no breach section; not required in the policy) | **Breach register built** (Platform → Privacy breach register) | **Must do:** write a short internal breach procedure (who decides, who reports, timelines) |
 
 ## Technical items (vs-lab)

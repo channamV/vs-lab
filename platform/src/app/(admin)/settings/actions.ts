@@ -82,3 +82,14 @@ export async function saveScheduleSettingsAction(prev: PlanFormState, formData: 
   refresh();
   return { error: null, saved: true, version: prev.version + 1 };
 }
+
+/** Owners: whether a scanned certificate is kept with the training record by default (the manager can still choose). */
+export async function saveScanSettingsAction(prev: PlanFormState, formData: FormData): Promise<PlanFormState> {
+  const auth = await requireAuth("owner");
+  await getDb()
+    .update(organizations)
+    .set({ retainScanImages: formData.get("retainScanImages") === "on" })
+    .where(eq(organizations.id, auth.organizationId));
+  refresh();
+  return { error: null, saved: true, version: prev.version + 1 };
+}

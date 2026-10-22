@@ -10,6 +10,10 @@ import { createMachine, MachineError, pairDevice, unpairDevice, updateMachine } 
 import { assertDivisionChoice, assertMachineInScope, DivisionError } from "@/lib/divisions";
 import { recordEvent } from "@/lib/notifications";
 import { afterEvents } from "@/lib/alert-jobs";
+import { and, eq } from "drizzle-orm";
+import { machineCategories } from "@/lib/db/schema";
+import { scanAvailable, ScanError, scanSerialPlate, type PlateFields } from "@/lib/scan";
+import { guessCategory } from "@/lib/training";
 
 /** What was typed, to refill the form after an error (React clears it after every submit). */
 export type MachineFields = Record<(typeof FIELDS)[number], string>;
@@ -107,4 +111,28 @@ export async function unpairDeviceAction(formData: FormData) {
   await requirePlatformAdmin();
   await unpairDevice(getDb(), z.string().min(1).max(32).parse(formData.get("deviceId")));
   refresh();
+}
+
+export type PlateScanResult = { ok: true; fields: PlateFields; categoryId: number | null } | { ok: false; error: string };
+
+/** Scan to fill: reads a serial plate photo for the machine form (managers). Saves nothing, and the photo isn't kept. */
+export async function scanPlateAction(formData: FormData): Promise<PlateScanResult> {
+  const auth = await requireAuth("manager");
+  if (!scanAvailable()) return { ok: false, error: "Scanning isn't set up yet (ANTHROPIC_API_KEY)." };
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choose a photo of the plate." };
+  try {
+    const fields = await scanSerialPlate({ data: new Uint8Array(await file.arrayBuffer()), contentType: file.type });
+    const name = guessCategory(fields.machineType);
+    const [cat] = name
+      ? await getDb()
+          .select({ id: machineCategories.id })
+          .from(machineCategories)
+          .where(and(eq(machineCategories.organizationId, auth.organizationId), eq(machineCategories.name, name)))
+      : [];
+    return { ok: true, fields, categoryId: cat?.id ?? null };
+  } catch (err) {
+    if (err instanceof ScanError) return { ok: false, error: err.message };
+    throw err;
+  }
 }

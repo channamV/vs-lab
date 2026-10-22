@@ -114,7 +114,7 @@ async function Training({ operatorId }: { operatorId: number }) {
                   <details className="w-full">
                     <summary className="cursor-pointer text-sky-700 dark:text-sky-400">Edit or delete</summary>
                     <div className="mt-2 space-y-3 rounded border border-slate-200 p-3 dark:border-slate-700">
-                      <TrainingRecordForm operatorId={operatorId} record={r} types={data.types} />
+                      <TrainingRecordForm operatorId={operatorId} record={r} types={data.types} scan={data.scan} />
                       <form action={deleteTrainingRecordAction}>
                         <input type="hidden" name="id" value={r.id} />
                         <button className="text-red-700 hover:underline dark:text-red-400">Delete this record</button>
@@ -131,7 +131,7 @@ async function Training({ operatorId }: { operatorId: number }) {
         <details className="text-sm" open={data.records.length === 0}>
           <summary className="cursor-pointer font-medium text-sky-700 dark:text-sky-400">Add training record</summary>
           <div className="mt-2">
-            <TrainingRecordForm operatorId={operatorId} types={data.types} />
+            <TrainingRecordForm operatorId={operatorId} types={data.types} scan={data.scan} />
           </div>
         </details>
       )}

@@ -99,7 +99,9 @@ function PrivacyNotice({
         </p>
         <p>
           {privacy.name} may also keep your training and certification records (and copies of certificates) to check
-          you&apos;re qualified for a machine, and may email you before they expire. They&apos;re kept while you work there.
+          you&apos;re qualified for a machine, and may email you before they expire. They&apos;re kept while you work there. A
+          photo of a certificate may be read automatically by an AI service (Anthropic, in the United States) to fill in the
+          details.
         </p>
         <p>
           Phone location is kept for {periodText(privacy.locationDays)}, photos for {periodText(privacy.photoDays)}, and

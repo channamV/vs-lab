@@ -1,11 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef } from "react";
+import { ScanButton } from "@/components/ScanButton";
 import type { Machine } from "@/lib/db/schema";
 import { TIER_LABELS } from "@/lib/format";
 import {
   addMachineAction,
   pairDeviceAction,
+  scanPlateAction,
   updateMachineAction,
   type MachineFields,
   type MachineFormState,
@@ -20,7 +22,47 @@ type Values = Partial<MachineFields>;
  * The divisions the user may choose from, whether "No division" is allowed (whole-organization users), and the
  * machine categories (training coverage).
  */
-export type DivisionChoice = { divisions: { id: number; name: string }[]; allowNone: boolean; categories: { id: number; name: string }[] };
+export type DivisionChoice = {
+  divisions: { id: number; name: string }[];
+  allowNone: boolean;
+  categories: { id: number; name: string }[];
+  /** "Scan serial plate" is available (src/lib/scan.ts). */
+  scan?: boolean;
+};
+
+/** Scan to fill: reads the serial plate and fills the empty-or-scanned fields for the manager to check. */
+function PlateScan({ form }: { form: React.RefObject<HTMLFormElement | null> }) {
+  return (
+    <div className="space-y-1 rounded border border-dashed border-slate-300 p-3 dark:border-slate-700">
+      <ScanButton
+        label="Scan serial plate"
+        onScan={async (file) => {
+          const data = new FormData();
+          data.set("file", file);
+          const result = await scanPlateAction(data);
+          if (!result.ok) return result.error;
+          const set = (name: string, value: string | number | null) => {
+            const el = form.current?.elements.namedItem(name);
+            if (value !== null && value !== "" && (el instanceof HTMLInputElement || el instanceof HTMLSelectElement)) el.value = String(value);
+          };
+          const f = result.fields;
+          set("make", f.make);
+          set("model", f.model);
+          set("year", f.year);
+          set("serialNumber", f.serialNumber);
+          const type = form.current?.elements.namedItem("machineType");
+          if (type instanceof HTMLInputElement && !type.value) set("machineType", f.machineType);
+          const category = form.current?.elements.namedItem("categoryId");
+          if (category instanceof HTMLSelectElement && !category.value) set("categoryId", result.categoryId);
+          const name = form.current?.elements.namedItem("name");
+          if (name instanceof HTMLInputElement && !name.value && f.make) set("name", [f.make, f.model, f.machineType].filter(Boolean).join(" "));
+          return null;
+        }}
+      />
+      <p className="text-xs text-slate-500">Take a photo of the machine&apos;s ID plate: make, model, year and serial number are filled in for you to check. The photo isn&apos;t kept.</p>
+    </div>
+  );
+}
 
 function fromMachine(m: Machine): Values {
   return {
@@ -98,8 +140,10 @@ function Fields({ values, choice }: { values: Values; choice: DivisionChoice }) 
 
 export function AddMachineForm({ choice }: { choice: DivisionChoice }) {
   const [state, action, pending] = useActionState(addMachineAction, { error: null, version: 0 } as MachineFormState);
+  const form = useRef<HTMLFormElement>(null);
   return (
-    <form key={state.version} action={action} className="space-y-3">
+    <form ref={form} key={state.version} action={action} className="space-y-3">
+      {choice.scan && <PlateScan form={form} />}
       <Fields values={state.values ?? {}} choice={choice} />
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
       <button disabled={pending} className={button}>
@@ -111,9 +155,11 @@ export function AddMachineForm({ choice }: { choice: DivisionChoice }) {
 
 export function EditMachineForm({ machine, choice }: { machine: Machine; choice: DivisionChoice }) {
   const [state, action, pending] = useActionState(updateMachineAction, { error: null, version: 0 } as MachineFormState);
+  const form = useRef<HTMLFormElement>(null);
   return (
-    <form key={state.version} action={action} className="space-y-3">
+    <form ref={form} key={state.version} action={action} className="space-y-3">
       <input type="hidden" name="id" value={machine.id} />
+      {choice.scan && <PlateScan form={form} />}
       <Fields values={state.values ?? fromMachine(machine)} choice={choice} />
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
       <button disabled={pending} className={button}>

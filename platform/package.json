@@ -18,6 +18,7 @@
     "retention": "tsx scripts/retention.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.1.0",
     "@electric-sql/pglite": "^0.5.10",
     "@vercel/blob": "^2.8.2",
     "drizzle-orm": "^0.45.4",

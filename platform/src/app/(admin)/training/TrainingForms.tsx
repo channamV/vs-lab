@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import type { CertificationType } from "@/lib/db/schema";
 import { shrinkPhoto } from "@/lib/shrink-photo";
 import { defaultExpiry } from "@/lib/training-status";
-import { addCategoryAction, saveCertificationTypeAction, saveTrainingRecordAction, type TrainingFormState } from "./actions";
+import { ScanButton } from "@/components/ScanButton";
+import { addCategoryAction, saveCertificationTypeAction, saveTrainingRecordAction, scanCertificateAction, type TrainingFormState } from "./actions";
 
 const field = "mt-1 w-full rounded border border-slate-300 bg-transparent px-2 py-1.5 dark:border-slate-700";
 const button = "rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800 disabled:opacity-60";
@@ -154,12 +155,23 @@ type RecordTypes = { id: number; name: string; validityMonths: number | null; ac
  * Add or edit a training record. The expiry date fills itself from the issue date and the certification's validity
  * until the manager types their own (e.g. the date printed on the card).
  */
-export function TrainingRecordForm({ operatorId, record, types }: { operatorId: number; record?: RecordValues; types: RecordTypes }) {
+export function TrainingRecordForm({
+  operatorId,
+  record,
+  types,
+  scan,
+}: {
+  operatorId: number;
+  record?: RecordValues;
+  types: RecordTypes;
+  /** Scan to fill is set up; `retain` = keep the scanned photo by default (company setting). */
+  scan?: { retain: boolean };
+}) {
   const [state, action, pending] = useActionState(saveTrainingRecordAction, initial);
   return (
     // key: a fresh form after each submit (empty after an add; the typed values after an error)
     <form key={state.version} action={action} className="space-y-3">
-      <RecordFields operatorId={operatorId} record={record} types={types} state={state} pending={pending} />
+      <RecordFields operatorId={operatorId} record={record} types={types} state={state} pending={pending} scan={scan} />
     </form>
   );
 }
@@ -170,12 +182,14 @@ function RecordFields({
   types,
   state,
   pending,
+  scan,
 }: {
   operatorId: number;
   record?: RecordValues;
   types: RecordTypes;
   state: TrainingFormState;
   pending: boolean;
+  scan?: { retain: boolean };
 }) {
   const v = state.values;
   const [typeId, setTypeId] = useState(str(v?.certificationTypeId) ?? record?.certificationTypeId.toString() ?? "");
@@ -183,6 +197,52 @@ function RecordFields({
   const [expiresOn, setExpiresOn] = useState(str(v?.expiresOn) ?? record?.expiresOn ?? "");
   const [expiryTyped, setExpiryTyped] = useState(Boolean(record || v?.expiresOn));
   const [preparing, setPreparing] = useState(false);
+  const [scanned, setScanned] = useState<{ note: string; warning: string | null } | null>(null);
+  const [keepScan, setKeepScan] = useState(scan?.retain ?? true);
+  const scanFile = useRef<File | null>(null);
+  const provider = useRef<HTMLInputElement>(null);
+  const number = useRef<HTMLInputElement>(null);
+  const documentInput = useRef<HTMLInputElement>(null);
+  /** Attach (or not) the scanned photo as the certificate, following "keep". */
+  const attachScan = (keep: boolean) => {
+    const input = documentInput.current;
+    if (!input || !scanFile.current) return;
+    const list = new DataTransfer();
+    if (keep) list.items.add(scanFile.current);
+    input.files = list.files;
+  };
+  const onScan = async (file: File) => {
+    const form = new FormData();
+    form.set("file", file);
+    form.set("operatorId", String(operatorId));
+    const result = await scanCertificateAction(form);
+    if (!result.ok) return result.error;
+    const f = result.fields;
+    const type = f.certificationTypeId ? String(f.certificationTypeId) : typeId;
+    const issued = f.issuedOn ?? issuedOn;
+    if (f.certificationTypeId) setTypeId(type);
+    if (f.issuedOn) setIssuedOn(f.issuedOn);
+    if (f.expiresOn) {
+      setExpiresOn(f.expiresOn);
+      setExpiryTyped(true);
+    } else if (!expiryTyped) {
+      const t = types.find((x) => String(x.id) === type);
+      setExpiresOn((t && defaultExpiry(issued, t.validityMonths)) ?? "");
+    }
+    if (f.provider && provider.current) provider.current.value = f.provider;
+    if (f.certificateNumber && number.current) number.current.value = f.certificateNumber;
+    scanFile.current = file;
+    attachScan(keepScan);
+    const missing = [!f.certificationTypeId && "the certification", !f.issuedOn && "the issue date"].filter(Boolean);
+    setScanned({
+      note:
+        (f.certificationAsPrinted ? `Read "${f.certificationAsPrinted}". ` : "") +
+        (missing.length ? `Couldn't tell ${missing.join(" or ")}: please fill ${missing.length > 1 ? "them" : "it"} in. ` : "") +
+        "Check the details before saving.",
+      warning: result.nameWarning,
+    });
+    return null;
+  };
   const autoExpiry = (t: string, issued: string) => {
     if (expiryTyped) return;
     const type = types.find((x) => String(x.id) === t);
@@ -192,6 +252,29 @@ function RecordFields({
   return (
     <>
       {record ? <input type="hidden" name="id" value={record.id} /> : <input type="hidden" name="operatorId" value={operatorId} />}
+      {scan && (
+        <div className="space-y-2 rounded border border-dashed border-slate-300 p-3 dark:border-slate-700">
+          <ScanButton label="Scan certificate" onScan={onScan} />
+          <p className="text-xs text-slate-500">Take a photo of the card or certificate: the details are filled in below for you to check.</p>
+          {scanned && (
+            <>
+              <p className="text-sm text-sky-800 dark:text-sky-300">{scanned.note}</p>
+              {scanned.warning && <p className="text-sm text-amber-700 dark:text-amber-400">{scanned.warning}</p>}
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={keepScan}
+                  onChange={(e) => {
+                    setKeepScan(e.target.checked);
+                    attachScan(e.target.checked);
+                  }}
+                />
+                Keep this photo with the record
+              </label>
+            </>
+          )}
+        </div>
+      )}
       <label className="block text-sm">
         <span className={label}>Certification</span>
         <select
@@ -245,11 +328,11 @@ function RecordFields({
         </label>
         <label className="block text-sm">
           <span className={label}>Training provider (optional)</span>
-          <input name="provider" maxLength={120} defaultValue={str(v?.provider) ?? record?.provider ?? ""} className={field} />
+          <input ref={provider} name="provider" maxLength={120} defaultValue={str(v?.provider) ?? record?.provider ?? ""} className={field} />
         </label>
         <label className="block text-sm">
           <span className={label}>Certificate / card # (optional)</span>
-          <input name="certificateNumber" maxLength={80} defaultValue={str(v?.certificateNumber) ?? record?.certificateNumber ?? ""} className={field} />
+          <input ref={number} name="certificateNumber" maxLength={80} defaultValue={str(v?.certificateNumber) ?? record?.certificateNumber ?? ""} className={field} />
         </label>
       </div>
       <label className="block text-sm">
@@ -261,6 +344,7 @@ function RecordFields({
           {record?.documentKey ? "Replace the certificate (photo or PDF, optional)" : "Certificate (photo or PDF, optional)"}
         </span>
         <input
+          ref={documentInput}
           type="file"
           name="document"
           accept="image/jpeg,image/png,image/webp,application/pdf"

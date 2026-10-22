@@ -78,6 +78,9 @@ How access works:
 from the certification, change it to the date on the card), the provider, the card number, notes, and a photo or PDF
 of the certificate (photos are shrunk on the phone first; up to 3.8 MB).
 
+**Scan certificate** (once set up, [scan-to-fill.md](scan-to-fill.md)) fills these in from a photo of the card for you
+to check; the photo is kept as the certificate copy unless you untick it (company default in Settings).
+
 Statuses: **Valid**, **Expiring soon** (within the reminder window), **Expired (grace period)**, **Expired**. When
 a certification is renewed, add a new record: the newest one counts, and older ones show as "Replaced by a newer
 record". Certificate copies are private: only signed-in users of the same company can open them.
