@@ -35,7 +35,7 @@ export function AddOperatorForm() {
 export function EditOperatorForm({
   operator,
 }: {
-  operator: { id: number; name: string; active: boolean; employeeNumber: string | null };
+  operator: { id: number; name: string; active: boolean; employeeNumber: string | null; email: string | null; phone: string | null };
 }) {
   const [state, action, pending] = useActionState(updateOperatorAction, { error: null, version: 0 } as OperatorFormState);
   return (
@@ -54,6 +54,17 @@ export function EditOperatorForm({
           className={field}
         />
       </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm">
+          <span className="text-slate-600 dark:text-slate-400">Email (optional)</span>
+          <input name="email" type="email" maxLength={120} defaultValue={state.email ?? operator.email ?? ""} className={field} />
+        </label>
+        <label className="block text-sm">
+          <span className="text-slate-600 dark:text-slate-400">Mobile number (optional)</span>
+          <input name="phone" type="tel" maxLength={20} defaultValue={state.phone ?? operator.phone ?? ""} placeholder="e.g. 416 555 0123" className={field} />
+        </label>
+      </div>
+      <p className="text-xs text-slate-500">Used for the operator&apos;s own training expiry reminders (email now; text messages once SMS is set up).</p>
       <label className="block text-sm">
         <span className="text-slate-600 dark:text-slate-400">New PIN (leave empty to keep the current one)</span>
         <input name="newPin" {...pinProps} className={field} />

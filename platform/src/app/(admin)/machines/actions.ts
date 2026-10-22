@@ -16,7 +16,7 @@ export type MachineFields = Record<(typeof FIELDS)[number], string>;
 /** `version` changes on every submit so the form re-renders with the saved or typed values. */
 export type MachineFormState = { error: string | null; version: number; values?: MachineFields };
 
-const FIELDS = ["name", "unitNumber", "machineType", "make", "model", "year", "serialNumber", "fuelTankLitres", "speedLimitKph", "tier", "divisionId"] as const;
+const FIELDS = ["name", "unitNumber", "machineType", "make", "model", "year", "serialNumber", "fuelTankLitres", "speedLimitKph", "tier", "divisionId", "categoryId"] as const;
 
 const MachineInput = z.object({
   name: z.string().max(80),
@@ -30,6 +30,7 @@ const MachineInput = z.object({
   speedLimitKph: z.string().trim().max(8),
   tier: z.enum(tierEnum.enumValues),
   divisionId: z.string().regex(/^\d*$/),
+  categoryId: z.string().regex(/^\d*$/),
 });
 
 function readFields(formData: FormData): MachineFields {
@@ -44,7 +45,7 @@ function toInput(values: MachineFields) {
   if (fuelTankLitres !== null && !Number.isFinite(fuelTankLitres)) throw new MachineError("Enter the fuel tank size in litres.");
   const speedLimitKph = input.speedLimitKph ? Number(input.speedLimitKph) : null;
   if (speedLimitKph !== null && !Number.isFinite(speedLimitKph)) throw new MachineError("Enter the top speed in km/h.");
-  return { ...input, year, fuelTankLitres, speedLimitKph, divisionId: input.divisionId ? Number(input.divisionId) : null };
+  return { ...input, year, fuelTankLitres, speedLimitKph, divisionId: input.divisionId ? Number(input.divisionId) : null, categoryId: input.categoryId ? Number(input.categoryId) : null };
 }
 
 export async function addMachineAction(prev: MachineFormState, formData: FormData): Promise<MachineFormState> {

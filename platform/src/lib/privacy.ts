@@ -4,6 +4,7 @@ import type { Db } from "@/lib/db";
 import {
   alerts,
   auditLog,
+  certificationTypes,
   checkinPhotos,
   checkins,
   checklistIssues,
@@ -21,6 +22,7 @@ import {
   safetyEvents,
   sessions,
   telemetry,
+  trainingRecords,
   worksiteVisits,
   type ChecklistAnswer,
   type Organization,
@@ -276,7 +278,7 @@ export async function exportOperator(db: Db, organizationId: number, operatorId:
     db
       .select({ event: notificationEvents, machine: machines.name })
       .from(notificationEvents)
-      .innerJoin(machines, eq(machines.id, notificationEvents.machineId))
+      .leftJoin(machines, eq(machines.id, notificationEvents.machineId))
       .where(and(eq(notificationEvents.operatorId, op.id), eq(notificationEvents.organizationId, organizationId)))
       .orderBy(asc(notificationEvents.occurredAt)),
     db
@@ -298,6 +300,8 @@ export async function exportOperator(db: Db, organizationId: number, operatorId:
       id: op.id,
       name: op.name,
       employeeNumber: op.employeeNumber,
+      email: op.email,
+      phone: op.phone,
       active: op.active,
       addedAt: op.createdAt.toISOString(),
       erasedAt: op.erasedAt?.toISOString() ?? null,
@@ -324,6 +328,23 @@ export async function exportOperator(db: Db, organizationId: number, operatorId:
     })),
     alerts: alertRows.map((a) => ({ at: a.createdAt.toISOString(), type: a.type, title: a.title, detail: a.detail })),
     notifications: events.map(({ event, machine }) => ({ at: event.occurredAt.toISOString(), type: event.type, machine, detail: event.detail })),
+    training: (
+      await db
+        .select({ r: trainingRecords, type: certificationTypes.name })
+        .from(trainingRecords)
+        .innerJoin(certificationTypes, eq(certificationTypes.id, trainingRecords.certificationTypeId))
+        .where(and(eq(trainingRecords.operatorId, op.id), eq(trainingRecords.organizationId, organizationId)))
+        .orderBy(asc(trainingRecords.issuedOn))
+    ).map(({ r, type }) => ({
+      certification: type,
+      issuedOn: r.issuedOn,
+      expiresOn: r.expiresOn,
+      provider: r.provider,
+      certificateNumber: r.certificateNumber,
+      notes: r.notes,
+      document: r.documentKey ? `/training/documents/${r.id}` : null,
+      enteredBy: r.enteredBy,
+    })),
     safetyLog: safety.map(({ event: e, machine }) => ({
       startedAt: e.startedAt.toISOString(),
       endedAt: e.endedAt?.toISOString() ?? null,
@@ -368,8 +389,12 @@ export async function eraseOperator(db: Db, organizationId: number, operatorId: 
     ? await db.select({ id: checkinPhotos.id, key: checkinPhotos.storageKey }).from(checkinPhotos).where(inArray(checkinPhotos.checkinId, checkinIds))
     : [];
   await deletePhotos(photos.map((p) => p.key));
+  // Training records and their documents go too (they identify the person).
+  const training = await db.select().from(trainingRecords).where(eq(trainingRecords.operatorId, op.id));
+  await deletePhotos(training.flatMap((r) => (r.documentKey ? [r.documentKey] : [])));
 
   await db.transaction(async (tx) => {
+    await tx.delete(trainingRecords).where(eq(trainingRecords.operatorId, op.id));
     if (photos.length) await tx.delete(checkinPhotos).where(inArray(checkinPhotos.id, photos.map((p) => p.id)));
     for (const c of theirs) {
       await tx
@@ -415,6 +440,8 @@ export async function eraseOperator(db: Db, organizationId: number, operatorId: 
       .set({
         name: placeholder,
         employeeNumber: null,
+        email: null,
+        phone: null,
         active: false,
         // Not a hash of any PIN, so nobody can check in as this operator again.
         pinHash: `erased:${randomBytes(16).toString("hex")}`,

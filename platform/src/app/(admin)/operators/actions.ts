@@ -9,7 +9,7 @@ import { createOperator, OperatorError, updateOperator } from "@/lib/operators";
 import { eraseOperator, logAudit, PrivacyError } from "@/lib/privacy";
 
 /** `name` refills the form after an error; `version` changes on every submit so the form re-renders with it. */
-export type OperatorFormState = { error: string | null; version: number; name?: string; employeeNumber?: string };
+export type OperatorFormState = { error: string | null; version: number; name?: string; employeeNumber?: string; email?: string; phone?: string };
 
 export async function addOperatorAction(prev: OperatorFormState, formData: FormData): Promise<OperatorFormState> {
   const auth = await requireAuth("manager");
@@ -36,6 +36,8 @@ const UpdateOperator = z.object({
   active: z.boolean(),
   newPin: z.string().trim().max(16),
   employeeNumber: z.string().max(40),
+  email: z.string().max(120),
+  phone: z.string().max(20),
 });
 
 export async function updateOperatorAction(prev: OperatorFormState, formData: FormData): Promise<OperatorFormState> {
@@ -46,6 +48,8 @@ export async function updateOperatorAction(prev: OperatorFormState, formData: Fo
     active: formData.get("active") === "on",
     newPin: formData.get("newPin") ?? "",
     employeeNumber: formData.get("employeeNumber") ?? "",
+    email: formData.get("email") ?? "",
+    phone: formData.get("phone") ?? "",
   });
   try {
     await updateOperator(getDb(), auth.organizationId, input.id, {
@@ -53,10 +57,12 @@ export async function updateOperatorAction(prev: OperatorFormState, formData: Fo
       active: input.active,
       newPin: input.newPin || undefined,
       employeeNumber: input.employeeNumber,
+      email: input.email,
+      phone: input.phone,
     });
   } catch (err) {
     if (err instanceof OperatorError) {
-      return { error: err.message, version: prev.version + 1, name: input.name, employeeNumber: input.employeeNumber };
+      return { error: err.message, version: prev.version + 1, name: input.name, employeeNumber: input.employeeNumber, email: input.email, phone: input.phone };
     }
     throw err;
   }

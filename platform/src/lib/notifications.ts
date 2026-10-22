@@ -116,6 +116,14 @@ export const EVENT_TYPES = {
     label: "Operating Mode Changed",
     description: "A machine's mode changed (Access-Controlled, Unlocked or Locked): by a manager, a schedule, or a timed change ending.",
   },
+  training_expiring: {
+    label: "Training Expiring",
+    description: "An operator's certification expires soon (at the reminder points set for each certification, e.g. 60, 30 and 7 days before).",
+  },
+  training_expired: {
+    label: "Training Expired",
+    description: "An operator's certification has expired. If it's required for some machines, they can't check in on them (after any grace period).",
+  },
   possible_tamper: {
     label: "Possible Tamper",
     description:
@@ -340,10 +348,12 @@ export function ruleMatches(
     "enabled" | "eventTypes" | "machineIds" | "divisionIds" | "operatorIds" | "worksiteIds" | "weekdays" | "startTime" | "endTime" | "timezone"
   >,
   event: { type: string; operatorId: number | null; worksiteId?: number | null; occurredAt: Date },
-  machine: { id: number; divisionId: number | null },
+  machine: { id: number; divisionId: number | null } | null,
 ): boolean {
   if (!rule.enabled || !rule.eventTypes.includes(event.type)) return false;
   if (rule.machineIds.length || rule.divisionIds.length) {
+    // Events about an operator, not a machine (training): only rules for all machines match.
+    if (!machine) return false;
     const inDivision = machine.divisionId !== null && rule.divisionIds.includes(machine.divisionId);
     if (!rule.machineIds.includes(machine.id) && !inDivision) return false;
   }
@@ -358,7 +368,8 @@ export function ruleMatches(
 
 export type NewEvent = {
   organizationId: number;
-  machineId: number;
+  /** Null for events about an operator rather than a machine (training reminders). */
+  machineId: number | null;
   type: EventType;
   operatorId?: number | null;
   engineSessionId?: number | null;
@@ -435,8 +446,8 @@ export async function processEvents(db: Db, which: { eventIds?: number[]; machin
 }
 
 async function deliver(db: Db, event: NotificationEvent, now: Date) {
-  const [machine] = await db.select().from(machines).where(eq(machines.id, event.machineId));
-  if (!machine) return;
+  const [machine] = event.machineId ? await db.select().from(machines).where(eq(machines.id, event.machineId)) : [null];
+  if (event.machineId && !machine) return;
 
   if (!event.operatorId && event.engineSessionId) {
     const [linked] = await db
@@ -466,7 +477,8 @@ async function deliver(db: Db, event: NotificationEvent, now: Date) {
   }
   const recipients = [];
   for (const entry of byUser.values()) {
-    if (canSeeMachine(await scopeOfUser(db, entry.user), machine)) recipients.push(entry);
+    // Operator events (no machine) go to everyone whose rule matches: operators are company-wide.
+    if (!machine || canSeeMachine(await scopeOfUser(db, entry.user), machine)) recipients.push(entry);
   }
 
   const message = await eventEmail(db, event, machine);
@@ -520,22 +532,23 @@ function withRules(message: EmailMessage, ruleNames: string[]): EmailMessage {
   return { ...message, text: message.text.replace("— VS Lab", `Your subscription${ruleNames.length > 1 ? "s" : ""}: ${ruleNames.join(", ")}\n\n— VS Lab`) };
 }
 
-async function eventEmail(db: Db, event: NotificationEvent, machine: { id: number; name: string; unitNumber: string | null }): Promise<EmailMessage> {
+async function eventEmail(db: Db, event: NotificationEvent, machine: { id: number; name: string; unitNumber: string | null } | null): Promise<EmailMessage> {
   const base = appUrl();
   const label = EVENT_TYPES[event.type as EventType]?.label ?? event.type;
   const [operator] = event.operatorId
     ? await db.select({ name: operators.name }).from(operators).where(eq(operators.id, event.operatorId))
     : [];
   const [alert] = event.alertId ? await db.select().from(alerts).where(eq(alerts.id, event.alertId)) : [];
-  const machineName = machineLabel(machine);
+  const machineName = machine ? machineLabel(machine) : (operator?.name ?? "");
   const lines = [
     alert ? alert.title : `${label}: ${machineName}`,
     "",
     alert?.detail ?? "",
-    operator ? `Operator: ${operator.name}` : "",
+    operator && machine ? `Operator: ${operator.name}` : "",
     event.detail ?? "",
     "",
-    base ? `Machine: ${base}/machines/${machine.id}` : "",
+    base && machine ? `Machine: ${base}/machines/${machine.id}` : "",
+    base && !machine && event.operatorId ? `Operator: ${base}/operators/${event.operatorId}` : "",
     alert && base ? `All alerts: ${base}/alerts` : "",
     base ? `Change your subscriptions: ${base}/alerts/subscriptions` : "",
     "",
@@ -557,14 +570,14 @@ export async function recentActivity(db: Db, user: { id: number; organizationId:
     db
       .select({ event: notificationEvents, machine: machines, operatorName: operators.name })
       .from(notificationEvents)
-      .innerJoin(machines, eq(machines.id, notificationEvents.machineId))
+      .leftJoin(machines, eq(machines.id, notificationEvents.machineId))
       .leftJoin(operators, eq(operators.id, notificationEvents.operatorId))
       .where(and(eq(notificationEvents.organizationId, user.organizationId), gte(notificationEvents.occurredAt, since)))
       .orderBy(desc(notificationEvents.occurredAt))
       .limit(limit * 3),
     listRules(db, user.organizationId, user.id),
   ]);
-  const visible = events.filter((e) => canSeeMachine(scope, e.machine)).slice(0, limit);
+  const visible = events.filter((e) => !e.machine || canSeeMachine(scope, e.machine)).slice(0, limit);
   const deliveries = visible.length
     ? await db
         .select()
@@ -576,7 +589,7 @@ export async function recentActivity(db: Db, user: { id: number; organizationId:
     id: event.id,
     type: event.type,
     label: EVENT_TYPES[event.type as EventType]?.label ?? event.type,
-    machine: machineLabel(machine),
+    machine: machine ? machineLabel(machine) : "—",
     operatorName,
     occurredAt: event.occurredAt,
     matchingRules: rules.filter((r) => ruleMatches(r, event, machine)).map((r) => r.name),

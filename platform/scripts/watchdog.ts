@@ -11,6 +11,7 @@ import { checkDwell } from "../src/lib/worksites";
 import { checkFatigue } from "../src/lib/safety";
 import { applyModeTimers } from "../src/lib/modes";
 import { runSchedules } from "../src/lib/schedules";
+import { sendTrainingReminders } from "../src/lib/training";
 
 async function main() {
   const db = createDb(defaultDbOptions());
@@ -22,8 +23,9 @@ async function main() {
   const modeChanges = (await applyModeTimers(db)).length;
   const scheduled = await runSchedules(db);
   await deliverAlerts(db, scheduled.late);
+  const training = (await sendTrainingReminders(db)).length;
   await processEvents(db, {});
-  console.log(`Checked ${result.checked} paired devices; ${result.changed} incidents opened or escalated; ${raised.length} alerts; ${dwell} stayed-too-long; ${fatigue} operator fatigue; ${modeChanges} timed mode changes ended; ${scheduled.changes} scheduled changes.`);
+  console.log(`Checked ${result.checked} paired devices; ${result.changed} incidents opened or escalated; ${raised.length} alerts; ${dwell} stayed-too-long; ${fatigue} operator fatigue; ${modeChanges} timed mode changes ended; ${scheduled.changes} scheduled changes; ${training} training reminders.`);
   process.exit(0);
 }
 

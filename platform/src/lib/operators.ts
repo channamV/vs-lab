@@ -1,4 +1,5 @@
 import { scheduledAccess } from "@/lib/schedules";
+import { trainingAccess } from "@/lib/training";
 import { currentMode } from "@/lib/mode-types";
 import { createHash } from "node:crypto";
 import { and, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
@@ -235,19 +236,37 @@ async function cleanEmployeeNumber(db: Db, organizationId: number, value: string
   return employeeNumber;
 }
 
+/** Optional email and mobile number (training reminders). Left out = unchanged. */
+function cleanContact(input: { email?: string; phone?: string }) {
+  const out: { email?: string | null; phone?: string | null } = {};
+  if (input.email !== undefined) {
+    const email = input.email.trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new OperatorError("Check the email address.");
+    out.email = email || null;
+  }
+  if (input.phone !== undefined) {
+    const digits = input.phone.replace(/[^\d+]/g, "");
+    if (digits && !/^\+?\d{10,15}$/.test(digits)) throw new OperatorError("Check the mobile number (10 digits, or + and the country code).");
+    // Stored as +1XXXXXXXXXX for North American 10-digit numbers.
+    out.phone = digits ? (digits.startsWith("+") ? digits : digits.length === 10 ? `+1${digits}` : `+${digits}`) : null;
+  }
+  return out;
+}
+
 export async function createOperator(
   db: Db,
   organizationId: number,
-  input: { name: string; pin: string; employeeNumber?: string },
+  input: { name: string; pin: string; employeeNumber?: string; email?: string; phone?: string },
 ) {
   const name = input.name.trim();
   if (!name) throw new OperatorError("Enter the operator's name.");
+  const contact = cleanContact(input);
   checkPin(input.pin);
   await assertPinFree(db, organizationId, input.pin);
   const employeeNumber = await cleanEmployeeNumber(db, organizationId, input.employeeNumber);
   const [row] = await db
     .insert(operators)
-    .values({ organizationId, name, employeeNumber, pinHash: hashPin(input.pin) })
+    .values({ organizationId, name, employeeNumber, pinHash: hashPin(input.pin), ...contact })
     .returning();
   return row;
 }
@@ -256,7 +275,7 @@ export async function updateOperator(
   db: Db,
   organizationId: number,
   id: number,
-  input: { name: string; active: boolean; newPin?: string; employeeNumber?: string },
+  input: { name: string; active: boolean; newPin?: string; employeeNumber?: string; email?: string; phone?: string },
 ) {
   const name = input.name.trim();
   if (!name) throw new OperatorError("Enter the operator's name.");
@@ -270,6 +289,7 @@ export async function updateOperator(
     name,
     active: input.active,
     employeeNumber: await cleanEmployeeNumber(db, organizationId, input.employeeNumber, id),
+    ...cleanContact(input),
   };
   if (input.newPin) {
     checkPin(input.newPin);
@@ -351,6 +371,7 @@ export type CheckinFailure =
   | "not-confirmed"
   | "machine-locked-out"
   | "machine-locked"
+  | "training-required"
   | "not-checked-in";
 
 export type CheckInResult =
@@ -412,6 +433,7 @@ export async function checkIn(
       modeUntil: machines.modeUntil,
       modeRevertTo: machines.modeRevertTo,
       tier: machines.tier,
+      categoryId: machines.categoryId,
     })
     .from(machines)
     .where(eq(machines.code, input.machineCode));
@@ -423,6 +445,9 @@ export async function checkIn(
 
   const operator = await operatorForPin(db, organizationId, machine.id, input.pin, now);
   if (!operator) return { ok: false, reason: "bad-pin" };
+  // Training (src/lib/training.ts): required certifications this operator doesn't hold block the check-in.
+  const training = await trainingAccess(db, organizationId, machine, operator.id, now);
+  if (training.missing.length) return { ok: false, reason: "training-required", questions: training.missing };
 
   const { template, options } = await checklistForMachine(db, machine);
   // Photos: only for this checklist's questions, a few per question, real images of a sensible size.
@@ -463,7 +488,9 @@ export async function checkIn(
     allowed.length === 0 ||
     allowed.some((a) => a.operatorId === operator.id) ||
     // Temporary access from a schedule (src/lib/schedules.ts), without changing the permanent approvals.
-    (await scheduledAccess(db, organizationId, machine.id, now)).includes(operator.id);
+    (await scheduledAccess(db, organizationId, machine.id, now)).includes(operator.id) ||
+    // A valid certification that grants access to this machine.
+    training.granted;
   const phone = input.phoneLocation ?? null;
   const location = checkLocation(phone, machine);
 

@@ -28,7 +28,7 @@ export function photoStorageAvailable(): boolean {
 
 const localDir = () => process.env.PHOTO_DIR || path.join(process.cwd(), ".data", "photos");
 
-const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" };
 
 /** Stores a photo and returns its key. The key is random, so it can't be guessed from the check-in. */
 export async function savePhoto(organizationId: number, file: PhotoFile): Promise<string> {
@@ -38,10 +38,18 @@ export async function savePhoto(organizationId: number, file: PhotoFile): Promis
     return key;
   }
   if (!photoStorageAvailable()) throw new Error("Photo storage isn't set up (BLOB_READ_WRITE_TOKEN missing).");
-  const full = path.join(localDir(), key);
+  const full = path.join(/*turbopackIgnore: true*/ localDir(), key);
   await mkdir(path.dirname(full), { recursive: true });
   await writeFile(full, file.data);
   return key;
+}
+
+/**
+ * Stores another kind of private file (a training certificate, a scanned plate) the same way as photos, and
+ * returns its key. Read with readPhoto, delete with deletePhotos.
+ */
+export async function saveDocument(organizationId: number, data: Uint8Array, contentType: string): Promise<string> {
+  return savePhoto(organizationId, { questionId: "document", data, contentType });
 }
 
 /** Reads a stored photo, or null if it's missing. */
@@ -52,7 +60,7 @@ export async function readPhoto(key: string): Promise<ReadableStream<Uint8Array>
   }
   if (key.includes("..")) return null;
   try {
-    return new Uint8Array(await readFile(path.join(localDir(), key)));
+    return new Uint8Array(await readFile(path.join(/*turbopackIgnore: true*/ localDir(), key)));
   } catch {
     return null;
   }
@@ -67,6 +75,6 @@ export async function deletePhotos(keys: string[]): Promise<void> {
   }
   for (const key of keys) {
     if (key.includes("..")) continue;
-    await rm(path.join(localDir(), key), { force: true });
+    await rm(path.join(/*turbopackIgnore: true*/ localDir(), key), { force: true });
   }
 }

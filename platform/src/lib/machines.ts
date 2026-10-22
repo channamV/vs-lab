@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { deviceAssignments, devices, divisions, engineSessions, machines, organizations, type Tier } from "@/lib/db/schema";
+import { deviceAssignments, devices, divisions, engineSessions, machineCategories, machines, organizations, type Tier } from "@/lib/db/schema";
 
 /**
  * Machines (the customer's equipment) and devices (the tracking hardware on them).
@@ -34,6 +34,8 @@ export type MachineInput = {
   tier?: Tier;
   /** Null = no division. Left out = unchanged (edit) / none (new). */
   divisionId?: number | null;
+  /** Machine category (training coverage). Null = none. Left out = unchanged. */
+  categoryId?: number | null;
 };
 
 const clean = (v: string | undefined) => v?.trim() || null;
@@ -74,6 +76,13 @@ async function cleanInput(db: Db, organizationId: number, input: MachineInput, e
       .where(and(eq(divisions.id, input.divisionId), eq(divisions.organizationId, organizationId)));
     if (!division) throw new MachineError("Division not found.");
   }
+  if (input.categoryId) {
+    const [category] = await db
+      .select({ id: machineCategories.id })
+      .from(machineCategories)
+      .where(and(eq(machineCategories.id, input.categoryId), eq(machineCategories.organizationId, organizationId)));
+    if (!category) throw new MachineError("Category not found.");
+  }
   return {
     name,
     unitNumber,
@@ -86,6 +95,7 @@ async function cleanInput(db: Db, organizationId: number, input: MachineInput, e
     ...(speed !== undefined && { speedLimitKph: speed }),
     ...(input.tier && { tier: input.tier }),
     ...(input.divisionId !== undefined && { divisionId: input.divisionId }),
+    ...(input.categoryId !== undefined && { categoryId: input.categoryId }),
   };
 }
 

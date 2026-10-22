@@ -13,6 +13,7 @@ import { checkFuelTheft, checkFuelWhileRunning } from "@/lib/fuel";
 import { checkFatigue, checkRestrictedAreas } from "@/lib/safety";
 import { applyModeTimers, checkLockedUse } from "@/lib/modes";
 import { runSchedules } from "@/lib/schedules";
+import { sendTrainingReminders } from "@/lib/training";
 
 /**
  * Runs alert rules after the response has been sent, so devices and operators never wait on them
@@ -95,9 +96,11 @@ export async function runWatchdog(now = new Date()) {
   const fatigue = await checkFatigue(db, now);
   // Timed mode changes that have run out ("Unlocked for 4 hours").
   const modeChanges = (await applyModeTimers(db, now)).length;
+  // Training expiring or expired (managers' notifications are delivered below; operators are emailed).
+  const trainingReminders = (await sendTrainingReminders(db, now)).length;
   // Connectivity and worksite notifications for every machine with something pending.
   await processEvents(db, {}, now);
-  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges };
+  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges, trainingReminders };
 }
 
 /** Schedules, every minute (Vercel Cron → /api/jobs/schedules): apply changes, then deliver their notifications. */

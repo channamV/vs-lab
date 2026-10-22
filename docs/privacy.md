@@ -26,6 +26,7 @@ Each organization chooses how long data is kept (**Settings**, owners only). Eve
 | GPS track, device data, connectivity incidents | 2 years | 30 days – 10 years |
 | Check-ins, checklist answers, alerts, resolved defects, fuel log, safety log | 3 years | 90 days – 10 years |
 | Notification history (who was emailed what) | 1 year | 30 days – 10 years |
+| Operators' training records and certificate copies | Until a manager deletes them or the operator is erased | — |
 
 Details:
 - When the phone location goes, the check-in keeps the *result* (at the machine / not at the machine) and the distance.
@@ -43,11 +44,13 @@ watchdog; until that's set, it does nothing. On your own computer: `npm run rete
 On an operator's page (**Operators → the operator**), managers and owners who see the whole company have
 *Operator's data (privacy requests)*:
 
-- **Download their data (JSON)**: everything stored about them: details, approved machines, every check-in with
-  answers, notes, phone location and photo links, related alerts and notifications. This answers a request to
+- **Download their data (JSON)**: everything stored about them: details (including email and mobile number),
+  approved machines, training records, every check-in with answers, notes, phone location and photo links, related
+  alerts and notifications. This answers a request to
   see their data. (The PIN is stored only as a one-way code, so it can't be included.)
 - **Erase their data**: for someone who asks to be forgotten. Type ERASE to confirm. It:
-  - replaces their name with *Former operator #12* and removes their employee number and PIN (nobody can check in as them again; the PIN is free for someone else);
+  - replaces their name with *Former operator #12* and removes their employee number, email, mobile number and PIN (nobody can check in as them again; the PIN is free for someone else);
+  - deletes their training records and the stored certificate copies;
   - removes their machine approvals, the phone location on all their check-ins, and their checklist photos;
   - replaces their name wherever it was written into check-in notes, defect notes, alerts, lockout reasons and notifications.
 

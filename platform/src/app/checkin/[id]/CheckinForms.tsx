@@ -4,6 +4,7 @@ import { startTransition, useActionState, useState, type FormEvent } from "react
 import type { AnswerOption, ChecklistSection } from "@/lib/db/schema";
 import { formatDistance } from "@/lib/format";
 import { checkInAction, checkOutAction, type CheckinFormState } from "./actions";
+import { shrinkPhoto } from "@/lib/shrink-photo";
 
 const idle: CheckinFormState = { status: "idle" };
 
@@ -47,25 +48,6 @@ function getPhoneLocation(): Promise<GeolocationPosition | null> {
 export type PublicChecklist = { sections: ChecklistSection[]; options: AnswerOption[]; confirmationText: string; photosEnabled: boolean };
 
 const MAX_PHOTOS_PER_QUESTION = 3;
-
-/**
- * Shrinks a photo on the phone before it's sent (phones take 3–8 MB pictures; a check-in can only send
- * about 4 MB in total): longest side 1280 px, JPEG. Falls back to the original if the browser can't.
- */
-async function shrinkPhoto(file: File): Promise<File> {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.75));
-    return blob ? new File([blob], "photo.jpg", { type: "image/jpeg" }) : file;
-  } catch {
-    return file;
-  }
-}
 
 function PhotoPicker({
   required,

@@ -18,6 +18,7 @@ import {
   getRecentTelemetry,
   getTrack,
   listDivisions,
+  listMachineCategories,
   listOperators,
   machineDevices,
   machineModeHistory,
@@ -67,7 +68,7 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
   const machine = await getMachine(id);
   if (!machine) notFound();
 
-  const [track, [latest], events, now, hours, sessions, current, history, operators, allowed, alerts, pairings, auth, divisions, sites] = await Promise.all([
+  const [track, [latest], events, now, hours, sessions, current, history, operators, allowed, alerts, pairings, auth, divisions, sites, categories] = await Promise.all([
     getTrack(id),
     getRecentTelemetry(id, 1),
     getRecentEvents(id),
@@ -83,6 +84,7 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
     currentUser(),
     listDivisions(),
     worksiteOutlines(),
+    listMachineCategories(),
   ]);
   const modeChanges = await machineModeHistory(id);
   const mode = effectiveMode(machine, now);
@@ -377,7 +379,7 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="font-semibold">Machine details</h2>
-          <EditMachineForm machine={machine} choice={{ divisions, allowNone: auth?.divisionIds === null }} />
+          <EditMachineForm machine={machine} choice={{ divisions, allowNone: auth?.divisionIds === null, categories }} />
         </section>
 
         <DeviceSection

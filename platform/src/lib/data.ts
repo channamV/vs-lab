@@ -5,6 +5,7 @@ import { cache } from "react";
 import { getDb } from "@/lib/db";
 import {
   alerts,
+  certificationTypes,
   checkinPhotos,
   checkins,
   checklistAnswerSets,
@@ -17,12 +18,14 @@ import {
   divisions,
   engineSessions,
   fuelEvents,
+  machineCategories,
   machineFaults,
   machineOperators,
   machines,
   operators,
   organizations,
   telemetry,
+  trainingRecords,
   userDivisions,
   users,
   worksites,
@@ -39,6 +42,8 @@ import { listBreaches } from "@/lib/breaches";
 import { modeHistory } from "@/lib/modes";
 import { allowedActions, canManageSchedule, listSchedules } from "@/lib/schedules";
 import { currentMode } from "@/lib/mode-types";
+import { ensureTrainingDefaults, latestRecords, recordStatus } from "@/lib/training";
+import { todayIn } from "@/lib/schedule-time";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -996,4 +1001,98 @@ export async function listOrganizationsForSwitcher() {
   await connection();
   await requirePlatformAdmin();
   return getDb().select({ id: organizations.id, name: organizations.name }).from(organizations).orderBy(asc(organizations.name));
+}
+
+/** Machine categories (created on first use), for the machine form and certification types. */
+export async function listMachineCategories() {
+  const auth = await requireSession();
+  const db = getDb();
+  await ensureTrainingDefaults(db, auth.organizationId);
+  return db
+    .select({ id: machineCategories.id, name: machineCategories.name })
+    .from(machineCategories)
+    .where(eq(machineCategories.organizationId, auth.organizationId))
+    .orderBy(asc(machineCategories.sortOrder), asc(machineCategories.name));
+}
+
+/**
+ * Training page: certification types, categories (with machine counts), machines (for "covers"), and each
+ * operator's latest record of each certification with its status today (company timezone).
+ */
+export async function trainingData() {
+  const auth = await requireSession();
+  const db = getDb();
+  await ensureTrainingDefaults(db, auth.organizationId);
+  const org = auth.organizationId;
+  const [types, cats, fleet, records, [settings]] = await Promise.all([
+    db.select().from(certificationTypes).where(eq(certificationTypes.organizationId, org)).orderBy(desc(certificationTypes.active), asc(certificationTypes.name)),
+    db.select().from(machineCategories).where(eq(machineCategories.organizationId, org)).orderBy(asc(machineCategories.sortOrder), asc(machineCategories.name)),
+    db
+      .select({ id: machines.id, name: machines.name, unitNumber: machines.unitNumber, categoryId: machines.categoryId })
+      .from(machines)
+      .where(eq(machines.organizationId, org))
+      .orderBy(asc(machines.unitNumber), asc(machines.name)),
+    db
+      .select({ record: trainingRecords, operator: { id: operators.id, name: operators.name, employeeNumber: operators.employeeNumber, active: operators.active } })
+      .from(trainingRecords)
+      .innerJoin(operators, eq(operators.id, trainingRecords.operatorId))
+      .where(and(eq(trainingRecords.organizationId, org), isNull(operators.erasedAt))),
+    db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, org)),
+  ]);
+  const today = todayIn(settings?.timezone ?? "America/Toronto");
+  const typeById = new Map(types.map((t) => [t.id, t]));
+  const rows = latestRecords(records, (row) => row.record)
+    .map(({ record, operator }) => {
+      const type = typeById.get(record.certificationTypeId)!;
+      return { record, operator, type, ...recordStatus(record, type, today) };
+    })
+    .sort((a, b) => (a.daysLeft ?? 1e9) - (b.daysLeft ?? 1e9) || a.operator.name.localeCompare(b.operator.name));
+  return {
+    types,
+    categories: cats.map((c) => ({ ...c, machineCount: fleet.filter((m) => m.categoryId === c.id).length })),
+    machines: fleet.map((m) => ({ id: m.id, name: m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name, categoryId: m.categoryId })),
+    rows,
+    today,
+    /** Certification types and categories: whole-company managers and owners (like checklists). */
+    canEditTypes: hasRole(auth, "manager") && auth.divisionIds === null,
+    canEditRecords: hasRole(auth, "manager"),
+  };
+}
+
+/** One certification type, for its edit page. */
+export async function getCertificationType(id: number) {
+  const auth = await requireSession();
+  const [row] = await getDb()
+    .select()
+    .from(certificationTypes)
+    .where(and(eq(certificationTypes.id, id), eq(certificationTypes.organizationId, auth.organizationId)));
+  return row ?? null;
+}
+
+/** An operator's training records (newest first) with today's status, and the certifications to choose from. */
+export async function operatorTraining(operatorId: number) {
+  const auth = await requireSession();
+  const db = getDb();
+  await ensureTrainingDefaults(db, auth.organizationId);
+  const [types, records, [settings]] = await Promise.all([
+    db.select().from(certificationTypes).where(eq(certificationTypes.organizationId, auth.organizationId)).orderBy(desc(certificationTypes.active), asc(certificationTypes.name)),
+    db
+      .select()
+      .from(trainingRecords)
+      .where(and(eq(trainingRecords.operatorId, operatorId), eq(trainingRecords.organizationId, auth.organizationId)))
+      .orderBy(desc(trainingRecords.issuedOn)),
+    db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, auth.organizationId)),
+  ]);
+  const today = todayIn(settings?.timezone ?? "America/Toronto");
+  const typeById = new Map(types.map((t) => [t.id, t]));
+  // A record replaced by a later one of the same certification is history, not "expired".
+  const current = new Set(latestRecords(records, (r) => r).map((r) => r.id));
+  return {
+    types: types.map((t) => ({ id: t.id, name: t.name, validityMonths: t.validityMonths, active: t.active })),
+    records: records.map((r) => {
+      const type = typeById.get(r.certificationTypeId)!;
+      return { ...r, typeName: type.name, replaced: !current.has(r.id), ...recordStatus(r, type, today) };
+    }),
+    canEdit: hasRole(auth, "manager"),
+  };
 }

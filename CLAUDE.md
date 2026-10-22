@@ -196,6 +196,14 @@ says it's compliant. Update that doc when items are done.
   (`creatorScope`). Scheduled access → `scheduledAccess` in `checkIn` authorization (approvals unchanged). Relay
   machines: MODE commands sorted unlocks first; unconfirmed after 10 min → `schedule-late` alert. Override reminders
   emailed to the creator 15 min before the end. Org `timezone` (fleet default; Settings) is for schedules only.
+- Training (`src/lib/training.ts` + browser-safe `src/lib/training-status.ts`, tested; `docs/training.md`; `/training`,
+  records on `/operators/<id>`). Per-org `machine_categories` (`machines.category_id`) and `certification_types` (covers
+  `categoryIds`/`machineIds`; `autoGrant` + `required` must both be answered; validity, grace, reminder days, active;
+  starters seeded inactive by `ensureTrainingDefaults`). `training_records` are added by managers (no approval), with an
+  optional private certificate (`saveDocument`, served by `/training/documents/<id>`). Latest record per operator+type
+  counts (`latestRecords`). `checkIn` calls `trainingAccess`: missing required → `training-required`; auto-grant →
+  authorized. `sendTrainingReminders` (in `runWatchdog`) → `training_expiring/expired` events (machine-less; rules with
+  machine/division filters skip them) + email to `operators.email`. Records/contacts are in export and erase.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

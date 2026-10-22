@@ -53,6 +53,7 @@ async function Navigation() {
       label: "Safety",
       items: [
         { href: "/operators", label: "Operators", icon: "operators" },
+        { href: "/training", label: "Training", icon: "training" },
         ...(hasRole(auth, "manager") ? [{ href: "/checklists", label: "Checklists", icon: "checklists" } as const] : []),
       ],
     },

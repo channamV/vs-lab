@@ -40,6 +40,7 @@ const MESSAGES: Record<CheckinFailure, string> = {
   "not-confirmed": "Tick the confirmation at the end of the checklist.",
   "machine-locked-out": "This machine is locked out for repair. Don't operate it: a manager has to clear it first.",
   "machine-locked": "This machine is Locked by a manager. Don't operate it: ask your supervisor.",
+  "training-required": "You need valid training to operate this machine. Ask your supervisor about:",
   "not-checked-in": "Nobody is checked in on this machine.",
 };
 
@@ -92,7 +93,8 @@ export async function checkInAction(prev: CheckinFormState, formData: FormData):
     phoneLocation: phoneLocation(formData),
   });
   if (!result.ok) {
-    const which = result.questions?.length ? ` (${result.questions.slice(0, 3).join("; ")})` : "";
+    const list = result.questions?.slice(0, 3).join("; ");
+    const which = !list ? "" : result.reason === "training-required" ? ` ${list}.` : ` (${list})`;
     return { status: "error", message: MESSAGES[result.reason] + which, attempt: nextAttempt(prev) };
   }
   afterCheckin(result.checkinId);

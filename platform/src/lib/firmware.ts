@@ -43,7 +43,7 @@ async function saveFile(key: string, data: Uint8Array) {
     return;
   }
   if (process.env.VERCEL) throw new FirmwareError("File storage isn't set up (BLOB_READ_WRITE_TOKEN missing).");
-  const full = path.join(localDir(), key);
+  const full = path.join(/*turbopackIgnore: true*/ localDir(), key);
   await mkdir(path.dirname(full), { recursive: true });
   await writeFile(full, data);
 }
@@ -62,7 +62,7 @@ export async function readFirmwareFile(key: string): Promise<Uint8Array | null> 
     if (stream) data = new Uint8Array(await new Response(stream).arrayBuffer());
   } else if (!key.includes("..")) {
     try {
-      data = new Uint8Array(await readFile(path.join(localDir(), key)));
+      data = new Uint8Array(await readFile(path.join(/*turbopackIgnore: true*/ localDir(), key)));
     } catch {
       data = null;
     }

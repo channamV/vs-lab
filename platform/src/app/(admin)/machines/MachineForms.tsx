@@ -16,8 +16,11 @@ const field = "mt-1 w-full rounded border border-slate-300 bg-transparent px-2 p
 const button = "rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800 disabled:opacity-60";
 
 type Values = Partial<MachineFields>;
-/** The divisions the user may choose from, and whether "No division" is allowed (whole-organization users). */
-export type DivisionChoice = { divisions: { id: number; name: string }[]; allowNone: boolean };
+/**
+ * The divisions the user may choose from, whether "No division" is allowed (whole-organization users), and the
+ * machine categories (training coverage).
+ */
+export type DivisionChoice = { divisions: { id: number; name: string }[]; allowNone: boolean; categories: { id: number; name: string }[] };
 
 function fromMachine(m: Machine): Values {
   return {
@@ -32,6 +35,7 @@ function fromMachine(m: Machine): Values {
     speedLimitKph: m.speedLimitKph?.toString() ?? "",
     tier: m.tier,
     divisionId: m.divisionId?.toString() ?? "",
+    categoryId: m.categoryId?.toString() ?? "",
   };
 }
 
@@ -47,6 +51,17 @@ function Fields({ values, choice }: { values: Values; choice: DivisionChoice }) 
       {text("unitNumber", "Unit / fleet #", { maxLength: 20, placeholder: "e.g. 14" })}
       {text("name", "Name", { required: true, maxLength: 80, placeholder: "e.g. CAT 320 Excavator" })}
       {text("machineType", "Type", { maxLength: 40, placeholder: "e.g. Excavator" })}
+      <label className="block text-sm">
+        <span className="text-slate-600 dark:text-slate-400">Category (which training covers it)</span>
+        <select name="categoryId" defaultValue={values.categoryId ?? ""} className={field}>
+          <option value="">No category</option>
+          {choice.categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </label>
       {text("make", "Make", { maxLength: 40, placeholder: "e.g. Caterpillar" })}
       {text("model", "Model", { maxLength: 40, placeholder: "e.g. 320" })}
       {text("year", "Year", { inputMode: "numeric", pattern: "[0-9]{4}", maxLength: 4 })}

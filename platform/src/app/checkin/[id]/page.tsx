@@ -98,6 +98,10 @@ function PrivacyNotice({
           fatigue limits), speeding, long idling, and entering restricted areas.
         </p>
         <p>
+          {privacy.name} may also keep your training and certification records (and copies of certificates) to check
+          you&apos;re qualified for a machine, and may email you before they expire. They&apos;re kept while you work there.
+        </p>
+        <p>
           Phone location is kept for {periodText(privacy.locationDays)}, photos for {periodText(privacy.photoDays)}, and
           check-in records for {periodText(privacy.checkinDays)}. The system is run for {privacy.name} by Veristart.
         </p>

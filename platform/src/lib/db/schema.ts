@@ -62,6 +62,8 @@ export const organizations = pgTable("organizations", {
   timezone: text("timezone").notNull().default("America/Toronto"),
   /** When schedules overlap and disagree: least_restrictive (default) or most_restrictive. Veristart admins only. */
   scheduleConflictRule: text("schedule_conflict_rule").notNull().default("least_restrictive"),
+  /** Scan to fill (src/lib/scan.ts): keep the scanned image with the record (default on). */
+  retainScanImages: boolean("retain_scan_images").notNull().default(true),
 });
 
 /**
@@ -200,6 +202,8 @@ export const machines = pgTable(
     unitNumber: text("unit_number"),
     /** e.g. Excavator, Backhoe, Loader */
     machineType: text("machine_type"),
+    /** The category certifications are matched on (src/lib/training.ts), e.g. Excavator. */
+    categoryId: bigint("category_id", { mode: "number" }),
     make: text("make"),
     model: text("model"),
     year: integer("year"),
@@ -452,6 +456,9 @@ export const operators = pgTable(
     name: text("name").notNull(),
     /** Optional, unique within the organization. Tells two operators with the same name apart. */
     employeeNumber: text("employee_number"),
+    /** Optional contact details: training expiry reminders go to the email (SMS when it's set up). */
+    email: text("email"),
+    phone: text("phone"),
     /** See hashPin() in src/lib/operators.ts. Unique within the organization: the PIN identifies the operator there. */
     pinHash: text("pin_hash").notNull(),
     active: boolean("active").notNull().default(true),
@@ -724,9 +731,8 @@ export const notificationEvents = pgTable(
     organizationId: bigint("organization_id", { mode: "number" })
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    machineId: bigint("machine_id", { mode: "number" })
-      .notNull()
-      .references(() => machines.id, { onDelete: "cascade" }),
+    /** Null for events about an operator rather than a machine (training reminders). */
+    machineId: bigint("machine_id", { mode: "number" }).references(() => machines.id, { onDelete: "cascade" }),
     type: text("type").notNull(),
     /** Filled in from the check-in when the event is processed (start/stop), or when recorded. */
     operatorId: bigint("operator_id", { mode: "number" }).references(() => operators.id, { onDelete: "set null" }),
@@ -1232,3 +1238,85 @@ export const schedules = pgTable(
   (t) => [index("schedules_org_idx").on(t.organizationId)],
 );
 export type Schedule = typeof schedules.$inferSelect;
+
+/** Machine categories, per company (defaults + their own; src/lib/training.ts). Certifications cover categories. */
+export const machineCategories = pgTable(
+  "machine_categories",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [uniqueIndex("machine_categories_org_name_idx").on(t.organizationId, t.name)],
+);
+
+/**
+ * Certification types (src/lib/training.ts; docs/training.md): what a training record proves, how long it lasts,
+ * which machines it covers, and whether it grants access to them (autoGrant) and/or is required for them.
+ */
+export const certificationTypes = pgTable(
+  "certification_types",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    /** Default validity from the issue date; null = doesn't expire. */
+    validityMonths: integer("validity_months"),
+    categoryIds: bigint("category_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
+    machineIds: bigint("machine_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
+    /** A valid record gives access to every covered machine. */
+    autoGrant: boolean("auto_grant").notNull().default(false),
+    /** Without a valid record, operators can't check in on covered machines (even if approved by hand). */
+    required: boolean("required").notNull().default(false),
+    /** Days after expiry that the record still counts (with warnings). */
+    graceDays: integer("grace_days").notNull().default(0),
+    /** Days before expiry to send reminders. */
+    reminderDays: integer("reminder_days").array().notNull().default(sql`'{60,30,7}'`),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("certification_types_org_name_idx").on(t.organizationId, t.name)],
+);
+
+/** An operator's training record / certificate (entered by a manager; src/lib/training.ts). */
+export const trainingRecords = pgTable(
+  "training_records",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    operatorId: bigint("operator_id", { mode: "number" })
+      .notNull()
+      .references(() => operators.id, { onDelete: "cascade" }),
+    certificationTypeId: bigint("certification_type_id", { mode: "number" })
+      .notNull()
+      .references(() => certificationTypes.id, { onDelete: "cascade" }),
+    /** YYYY-MM-DD (calendar dates; compared in the company timezone). */
+    issuedOn: text("issued_on").notNull(),
+    expiresOn: text("expires_on"),
+    provider: text("provider"),
+    certificateNumber: text("certificate_number"),
+    notes: text("notes"),
+    /** The scanned or uploaded document (private storage), if kept. */
+    documentKey: text("document_key"),
+    documentType: text("document_type"),
+    enteredBy: text("entered_by").notNull(),
+    enteredByUserId: bigint("entered_by_user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Reminders: the smallest "days before" already sent for the current expiry date, and when "expired" was sent. */
+    remindedDays: integer("reminded_days"),
+    expiredNotifiedAt: timestamp("expired_notified_at", { withTimezone: true }),
+  },
+  (t) => [index("training_records_operator_idx").on(t.operatorId), index("training_records_org_expiry_idx").on(t.organizationId, t.expiresOn)],
+);
+export type MachineCategory = typeof machineCategories.$inferSelect;
+export type CertificationType = typeof certificationTypes.$inferSelect;
+export type TrainingRecord = typeof trainingRecords.$inferSelect;
