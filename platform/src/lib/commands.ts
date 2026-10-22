@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { deviceCommands, devices } from "@/lib/db/schema";
 
@@ -144,7 +144,12 @@ export async function commandsForReply(db: Db, deviceId: string, now = new Date(
           ),
         ),
       )
-      .orderBy(asc(deviceCommands.id))
+      // Mode changes first, unlocks before anything else (so a crew isn't left waiting), then oldest first.
+      .orderBy(
+        desc(sql`${deviceCommands.command} like 'MODE=unlocked%' or ${deviceCommands.command} like 'MODE=access_controlled%'`),
+        desc(sql`${deviceCommands.command} like 'MODE=%'`),
+        asc(deviceCommands.id),
+      )
       .limit(COMMAND_RULES.perReply);
     if (due.length === 0) return [];
     const key = deviceKey(deviceId);

@@ -8,6 +8,7 @@ import { organizations } from "@/lib/db/schema";
 import { PrivacyError, RETENTION_KEYS, updatePrivacySettings, type RetentionKey } from "@/lib/privacy";
 import { requireAuth } from "@/lib/session";
 import { SafetyError, updateSafetySettings } from "@/lib/safety";
+import { isTimezone } from "@/lib/schedule-time";
 
 const SAFETY_FIELDS = ["speedLimitKph", "idleAlertMinutes", "fatigueDailyHours", "fatigueContinuousHours"] as const;
 
@@ -60,6 +61,24 @@ export async function saveSafetySettingsAction(prev: SettingsFormState, formData
     if (err instanceof SafetyError) return { error: err.message, saved: false, version: prev.version + 1, values };
     throw err;
   }
+  refresh();
+  return { error: null, saved: true, version: prev.version + 1 };
+}
+
+/** Owners: the fleet timezone (default for new schedules). Veristart staff only: the schedule conflict rule. */
+export async function saveScheduleSettingsAction(prev: PlanFormState, formData: FormData): Promise<PlanFormState> {
+  const auth = await requireAuth("owner");
+  const timezone = String(formData.get("timezone") ?? "");
+  if (!isTimezone(timezone)) return { error: "Choose a timezone.", saved: false, version: prev.version + 1 };
+  const rule = String(formData.get("conflictRule") ?? "");
+  await getDb()
+    .update(organizations)
+    .set({
+      timezone,
+      // The conflict rule is a Veristart decision per company (V1-267): ignored unless staff send it.
+      ...(auth.isPlatformAdmin && (rule === "least_restrictive" || rule === "most_restrictive") && { scheduleConflictRule: rule }),
+    })
+    .where(eq(organizations.id, auth.organizationId));
   refresh();
   return { error: null, saved: true, version: prev.version + 1 };
 }

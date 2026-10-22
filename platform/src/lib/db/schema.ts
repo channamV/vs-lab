@@ -58,6 +58,10 @@ export const organizations = pgTable("organizations", {
   fatigueDailyHours: real("fatigue_daily_hours").default(12),
   fatigueContinuousHours: real("fatigue_continuous_hours").default(5),
   workingDays: integer("working_days").array().notNull().default(sql`'{1,2,3,4,5}'`),
+  /** Fleet timezone (IANA): the default for new schedules (src/lib/schedules.ts). */
+  timezone: text("timezone").notNull().default("America/Toronto"),
+  /** When schedules overlap and disagree: least_restrictive (default) or most_restrictive. Veristart admins only. */
+  scheduleConflictRule: text("schedule_conflict_rule").notNull().default("least_restrictive"),
 });
 
 /**
@@ -228,6 +232,16 @@ export const machines = pgTable(
     lockAnchorLat: doublePrecision("lock_anchor_lat"),
     lockAnchorLng: doublePrecision("lock_anchor_lng"),
     lockMovementAlertedAt: timestamp("lock_movement_alerted_at", { withTimezone: true }),
+    /**
+     * Schedules (src/lib/schedules.ts): the schedule controlling the mode now, the mode to go back to when it
+     * ends, and the last time a manager changed the mode by hand (a schedule window already running then is
+     * skipped, so the manager's change stands until the next window). scheduleLateAlertedAt: "change is late"
+     * alert sent for the current change (relay machines).
+     */
+    scheduleId: bigint("schedule_id", { mode: "number" }),
+    modeBeforeSchedule: text("mode_before_schedule"),
+    manualModeAt: timestamp("manual_mode_at", { withTimezone: true }),
+    scheduleLateAlertedAt: timestamp("schedule_late_alerted_at", { withTimezone: true }),
     /** The pre-start checklist for this machine; null = the organization's default. */
     checklistTemplateId: bigint("checklist_template_id", { mode: "number" }).references(() => checklistTemplates.id, {
       onDelete: "set null",
@@ -1162,9 +1176,59 @@ export const machineModeChanges = pgTable(
     reason: text("reason"),
     /** manager, schedule or timer */
     source: text("source").notNull(),
+    scheduleId: bigint("schedule_id", { mode: "number" }),
     changedBy: text("changed_by"),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("machine_mode_changes_machine_idx").on(t.machineId, t.at)],
 );
 export type MachineModeChange = typeof machineModeChanges.$inferSelect;
+
+/**
+ * Schedules (src/lib/schedules.ts, src/lib/schedule-time.ts; docs/schedules.md): future machine-mode changes and
+ * temporary operator access. Times are wall-clock in the schedule's own timezone.
+ */
+export const schedules = pgTable(
+  "schedules",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** active or paused */
+    status: text("status").notNull().default("active"),
+    /** machine_mode or operator_access */
+    action: text("action").notNull(),
+    mode: text("mode"),
+    /** Empty = all machines the creator can manage (machine mode only). */
+    machineIds: bigint("machine_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
+    operatorIds: bigint("operator_ids", { mode: "number" }).array().notNull().default(sql`'{}'`),
+    /** once, weekly or override */
+    recurrence: text("recurrence").notNull(),
+    timezone: text("timezone").notNull(),
+    /** One-time and override: YYYY-MM-DD and HH:MM. */
+    startDate: text("start_date"),
+    startTime: text("start_time"),
+    endDate: text("end_date"),
+    endTime: text("end_time"),
+    /** One-time machine mode: keep the mode until changed by hand. */
+    noEnd: boolean("no_end").notNull().default(false),
+    /** Weekly: days (0 = Sunday), all day, and the dates it runs between (YYYY-MM-DD; null = open). */
+    weekdays: integer("weekdays").array().notNull().default(sql`'{}'`),
+    allDay: boolean("all_day").notNull().default(false),
+    effectiveFrom: text("effective_from"),
+    effectiveUntil: text("effective_until"),
+    /** revert or set_mode (+ endMode). */
+    endBehavior: text("end_behavior").notNull().default("revert"),
+    endMode: text("end_mode"),
+    remindBeforeExpiry: boolean("remind_before_expiry").notNull().default(false),
+    reminderSentFor: timestamp("reminder_sent_for", { withTimezone: true }),
+    createdByUserId: bigint("created_by_user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("schedules_org_idx").on(t.organizationId)],
+);
+export type Schedule = typeof schedules.$inferSelect;

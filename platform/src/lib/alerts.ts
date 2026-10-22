@@ -33,6 +33,8 @@ export const ALERT_LABELS = {
   /** A Locked machine was started or moved (src/lib/modes.ts). */
   "locked-use": "Started while Locked",
   "locked-movement": "Moved while Locked",
+  /** A relay machine hasn't confirmed a scheduled mode change (src/lib/schedules.ts). */
+  "schedule-late": "Scheduled change is late",
 } as const;
 
 export type AlertType = keyof typeof ALERT_LABELS;

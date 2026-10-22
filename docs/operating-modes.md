@@ -86,6 +86,7 @@ run our firmware.
 - **Code:** `platform/src/lib/modes.ts` and `mode-types.ts` (tested).
 - **Simulator:** `npm run simulate` answers MODE commands like the firmware should.
 
-## Coming next
+## Schedules
 
-**Schedules**: automatic mode changes by day and time, e.g. Locked on nights and weekends. Based on Jira V1-267.
+Automatic mode changes by day and time (e.g. Locked on nights and weekends) and temporary operator access:
+see [schedules.md](schedules.md).

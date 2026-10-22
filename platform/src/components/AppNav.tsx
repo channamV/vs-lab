@@ -8,6 +8,7 @@ import {
   Bell,
   BellRing,
   Building2,
+  CalendarClock,
   ChevronsLeft,
   ChevronsRight,
   ClipboardCheck,
@@ -35,6 +36,7 @@ import { NAV_COOKIE } from "@/lib/nav";
 const ICONS = {
   fleet: Truck,
   worksites: MapPinned,
+  schedules: CalendarClock,
   alerts: Bell,
   subscriptions: BellRing,
   reports: BarChart3,

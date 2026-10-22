@@ -1,3 +1,4 @@
+import { scheduledAccess } from "@/lib/schedules";
 import { currentMode } from "@/lib/mode-types";
 import { createHash } from "node:crypto";
 import { and, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
@@ -458,7 +459,11 @@ export async function checkIn(
     .select({ operatorId: machineOperators.operatorId })
     .from(machineOperators)
     .where(eq(machineOperators.machineId, machine.id));
-  const authorized = allowed.length === 0 || allowed.some((a) => a.operatorId === operator.id);
+  const authorized =
+    allowed.length === 0 ||
+    allowed.some((a) => a.operatorId === operator.id) ||
+    // Temporary access from a schedule (src/lib/schedules.ts), without changing the permanent approvals.
+    (await scheduledAccess(db, organizationId, machine.id, now)).includes(operator.id);
   const phone = input.phoneLocation ?? null;
   const location = checkLocation(phone, machine);
 

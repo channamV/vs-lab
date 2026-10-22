@@ -43,6 +43,7 @@ async function Navigation() {
       items: [
         { href: "/", label: "Fleet", icon: "fleet" },
         { href: "/worksites", label: "Worksites", icon: "worksites" },
+        { href: "/schedules", label: "Schedules", icon: "schedules" },
         { href: "/alerts", label: "Alerts", icon: "alerts", badge: alertCount },
         { href: "/alerts/subscriptions", label: "Notifications", icon: "subscriptions" },
         { href: "/reports", label: "Reports", icon: "reports" },

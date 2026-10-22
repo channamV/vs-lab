@@ -37,6 +37,8 @@ import { commandHistory, deviceKey } from "@/lib/commands";
 import { listReleases, releaseRollout } from "@/lib/firmware";
 import { listBreaches } from "@/lib/breaches";
 import { modeHistory } from "@/lib/modes";
+import { allowedActions, canManageSchedule, listSchedules } from "@/lib/schedules";
+import { currentMode } from "@/lib/mode-types";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -139,6 +141,35 @@ export async function engineHoursToday(): Promise<Map<number, number>> {
     .then((rows) => rows.map((r) => r.session));
   const byMachine = Map.groupBy(sessions, (s) => s.machineId);
   return new Map([...byMachine].map(([id, list]) => [id, hoursByDay(list, now, 1, tz)[0].hours]));
+}
+
+/**
+ * Schedules page and form: every schedule (with whether this user may change it), the machines this user can
+ * schedule (with their mode now), operators, the fleet timezone and the conflict rule.
+ */
+export async function schedulesData() {
+  const auth = await requireSession();
+  const db = getDb();
+  const [list, mine, allMachines, ops, [org]] = await Promise.all([
+    listSchedules(db, auth.organizationId),
+    db.select().from(machines).where(machineScope(auth)).orderBy(asc(machines.unitNumber), asc(machines.name)),
+    db.select({ id: machines.id, name: machines.name, unitNumber: machines.unitNumber, divisionId: machines.divisionId }).from(machines).where(eq(machines.organizationId, auth.organizationId)),
+    db.select({ id: operators.id, name: operators.name }).from(operators).where(and(eq(operators.organizationId, auth.organizationId), eq(operators.active, true))).orderBy(asc(operators.name)),
+    db.select({ timezone: organizations.timezone, rule: organizations.scheduleConflictRule }).from(organizations).where(eq(organizations.id, auth.organizationId)),
+  ]);
+  const divisionOf = new Map(allMachines.map((m) => [m.id, m.divisionId]));
+  const now = Date.now();
+  return {
+    schedules: list.map((s) => ({ ...s, canManage: canManageSchedule(auth, s, divisionOf) })),
+    machines: mine.map((m) => ({ id: m.id, name: m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name, tier: m.tier, mode: currentMode(m, now) })),
+    /** Names of every machine, for describing schedules (including machines outside this user's divisions). */
+    machineNames: allMachines.map((m) => ({ id: m.id, name: m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name })),
+    operators: ops,
+    actions: allowedActions(auth),
+    wholeOrganization: auth.divisionIds === null,
+    fleetTimezone: org?.timezone ?? "America/Toronto",
+    conflictRule: (org?.rule === "most_restrictive" ? "most_restrictive" : "least_restrictive") as "least_restrictive" | "most_restrictive",
+  };
 }
 
 /** A machine's recent operating-mode changes. */

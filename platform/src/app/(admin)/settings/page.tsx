@@ -1,9 +1,10 @@
 import { Suspense } from "react";
-import { privacySettings, requestTime } from "@/lib/data";
+import { currentUser, privacySettings, requestTime } from "@/lib/data";
 import { timeAgo } from "@/lib/format";
 import { PrivacyForm } from "./PrivacyForm";
 import { ReportPlanForm } from "./ReportPlanForm";
 import { SafetyForm } from "./SafetyForm";
+import { ScheduleSettingsForm } from "./ScheduleSettingsForm";
 
 const card = "space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
 
@@ -19,7 +20,7 @@ export default function SettingsPage() {
     <div className="max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-slate-500">Privacy, safety and reporting settings for your organization. Only owners can see this page.</p>
+        <p className="text-sm text-slate-500">Privacy, safety, schedule and reporting settings for your organization. Only owners can see this page.</p>
       </div>
       <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
         <Settings />
@@ -29,7 +30,7 @@ export default function SettingsPage() {
 }
 
 async function Settings() {
-  const [{ org, log }, now] = await Promise.all([privacySettings(), requestTime()]);
+  const [{ org, log }, now, auth] = await Promise.all([privacySettings(), requestTime(), currentUser()]);
   return (
     <>
       <section className={card}>
@@ -42,6 +43,17 @@ async function Settings() {
           <p className="text-sm text-slate-500">Speeding, excessive idling and operator fatigue. Each occurrence goes in Reports → Safety.</p>
         </div>
         <SafetyForm current={org} />
+      </section>
+      <section className={card}>
+        <div>
+          <h2 className="font-semibold">Schedules</h2>
+          <p className="text-sm text-slate-500">Timezone and how overlapping schedules are resolved.</p>
+        </div>
+        <ScheduleSettingsForm
+          timezone={org.timezone}
+          rule={org.scheduleConflictRule === "most_restrictive" ? "most_restrictive" : "least_restrictive"}
+          staff={auth?.isPlatformAdmin ?? false}
+        />
       </section>
       <section className={card}>
         <div>

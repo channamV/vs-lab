@@ -108,6 +108,10 @@ export const EVENT_TYPES = {
     label: "Unauthorized Machine Movement",
     description: "A Locked machine moved more than 100 m from where it was locked, with or without its engine running. Also an alert.",
   },
+  schedule_change_late: {
+    label: "Scheduled Change Late",
+    description: "A machine with an ignition relay hasn't confirmed a scheduled mode change after 10 minutes (probably out of coverage). Also an alert.",
+  },
   mode_changed: {
     label: "Operating Mode Changed",
     description: "A machine's mode changed (Access-Controlled, Unlocked or Locked): by a manager, a schedule, or a timed change ending.",
@@ -141,6 +145,7 @@ export const ALERT_EVENT: Record<AlertType, EventType> = {
   "restricted-area": "restricted_area",
   "locked-use": "start_while_locked",
   "locked-movement": "unauthorized_movement",
+  "schedule-late": "schedule_change_late",
 };
 
 export const ALERT_EVENT_TYPES = [...new Set(Object.values(ALERT_EVENT))];

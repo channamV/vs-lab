@@ -12,6 +12,7 @@ import { checkDwell } from "@/lib/worksites";
 import { checkFuelTheft, checkFuelWhileRunning } from "@/lib/fuel";
 import { checkFatigue, checkRestrictedAreas } from "@/lib/safety";
 import { applyModeTimers, checkLockedUse } from "@/lib/modes";
+import { runSchedules } from "@/lib/schedules";
 
 /**
  * Runs alert rules after the response has been sent, so devices and operators never wait on them
@@ -97,4 +98,13 @@ export async function runWatchdog(now = new Date()) {
   // Connectivity and worksite notifications for every machine with something pending.
   await processEvents(db, {}, now);
   return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges };
+}
+
+/** Schedules, every minute (Vercel Cron → /api/jobs/schedules): apply changes, then deliver their notifications. */
+export async function runScheduleJob(now = new Date()) {
+  const db = getDb();
+  const result = await runSchedules(db, now);
+  await deliverAlerts(db, result.late);
+  await processEvents(db, { eventIds: result.events });
+  return { organizations: result.organizations, changes: result.changes, reminders: result.reminders, late: result.late.length };
 }

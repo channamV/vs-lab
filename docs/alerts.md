@@ -56,6 +56,7 @@ production portal's notification subscriptions.
   - **Possible Fuel Theft** (also an alert) and **Refuelled**: see "Fuel" below.
   - **Start While Locked** and **Unauthorized Machine Movement** (also alerts), and **Operating Mode Changed**:
     see [operating-modes.md](operating-modes.md).
+  - **Scheduled Change Late** (also an alert): see [schedules.md](schedules.md).
   - **Speeding**, **Excessive Idling**, **Operator Fatigue** and **Restricted Area Entered** (also an alert):
     see [safety.md](safety.md).
   - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, equipment

@@ -184,6 +184,18 @@ says it's compliant. Update that doc when items are done.
   Locked: `checkLockedUse` in `afterDeviceReport` → `locked-use` (per engine session) / `locked-movement` (> 100 m from
   `lock_anchor_*`, once per lock) alerts → `start_while_locked` / `unauthorized_movement` events; check-ins refused
   (`machine-locked`). Offline fallback `offline_mode` (null = keep) + `offline_after_hours`, enforced by relay firmware.
+- Schedules (Jira V1-267; `src/lib/schedules.ts` + browser-safe `src/lib/schedule-time.ts`, tested; `docs/schedules.md`;
+  `/schedules`): `schedules` rows (action machine_mode / operator_access; recurrence once / weekly / override; wall-clock
+  times in `timezone`; end_behavior revert / set_mode). `runSchedules` (Vercel Cron every minute → `/api/jobs/schedules`
+  → `runScheduleJob`; also `npm run watchdog`) calls `reconcileOrganization`: per machine `resolveMachine` (overrides >
+  regular; org `schedule_conflict_rule` least/most restrictive; operator access turns scheduled Locked into
+  Access-Controlled; windows started before `machines.manual_mode_at` skipped) → `setMode` (source schedule,
+  `machines.schedule_id`, `mode_before_schedule` for revert). Manager `setMode` sets `manual_mode_at` and releases the
+  schedule. Save/edit/pause/delete reconcile at once; pause releases without reverting; delete applies end behaviour.
+  Permissions = live permissions (`allowedActions`: managers+, divisions), checked on save and on every run
+  (`creatorScope`). Scheduled access → `scheduledAccess` in `checkIn` authorization (approvals unchanged). Relay
+  machines: MODE commands sorted unlocks first; unconfirmed after 10 min → `schedule-late` alert. Override reminders
+  emailed to the creator 15 min before the end. Org `timezone` (fleet default; Settings) is for schedules only.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

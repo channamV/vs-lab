@@ -72,7 +72,7 @@ export async function setMode(
   db: Db,
   organizationId: number,
   machineId: number,
-  change: { mode: string; until?: Date | null; reason?: string; source?: "manager" | "schedule" | "timer" },
+  change: { mode: string; until?: Date | null; reason?: string; source?: "manager" | "schedule" | "timer"; scheduleId?: number | null },
   changedBy: string | null,
   now = new Date(),
 ): Promise<number | null> {
@@ -95,11 +95,13 @@ export async function setMode(
       modeChangedAt: now,
       modeChangedBy: changedBy,
       modeSource: source,
+      // A manager's change stands until the next schedule window (one running now is skipped).
+      ...(source === "manager" && { manualModeAt: now, scheduleId: null, modeBeforeSchedule: null }),
       // A new lock starts from where the machine is now.
       ...(change.mode === "locked" && before !== "locked" && { lockAnchorLat: m.lastLat, lockAnchorLng: m.lastLng, lockMovementAlertedAt: null }),
     })
     .where(eq(machines.id, m.id));
-  await db.insert(machineModeChanges).values({ organizationId, machineId, mode: change.mode, until, reason, source, changedBy, at: now });
+  await db.insert(machineModeChanges).values({ organizationId, machineId, mode: change.mode, until, reason, source, changedBy, at: now, scheduleId: change.scheduleId ?? null });
   await sendModeToDevice(db, { ...m, mode: change.mode }, changedBy ?? source, now);
   return recordEvent(db, {
     organizationId,
