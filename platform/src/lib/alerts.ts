@@ -1,3 +1,4 @@
+import { currentMode } from "@/lib/mode-types";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { alerts, checkins, checklistIssues, engineSessions, machines, operators, type Alert, type Machine } from "@/lib/db/schema";
@@ -29,6 +30,9 @@ export const ALERT_LABELS = {
   "fuel-loss": "Possible fuel theft (while running)",
   /** A machine entered a worksite of type "restricted" (src/lib/safety.ts). */
   "restricted-area": "Restricted area entered",
+  /** A Locked machine was started or moved (src/lib/modes.ts). */
+  "locked-use": "Started while Locked",
+  "locked-movement": "Moved while Locked",
 } as const;
 
 export type AlertType = keyof typeof ALERT_LABELS;
@@ -38,9 +42,12 @@ export function isMonitored(machine: Pick<Machine, "tier">): boolean {
   return machine.tier === "monitor" || machine.tier === "control";
 }
 
-/** Armed unless disarmed; a timed disarm re-arms itself when the time passes. */
-export function isArmed(machine: Pick<Machine, "disarmed" | "disarmedUntil">, now = Date.now()): boolean {
-  return !machine.disarmed || (machine.disarmedUntil !== null && machine.disarmedUntil.getTime() <= now);
+/**
+ * "Armed" for the unauthorized-use alert: the machine is Access-Controlled (src/lib/modes.ts). Unlocked machines
+ * don't need a check-in; Locked ones alert on any start straight away instead (checkLockedUse).
+ */
+export function isArmed(machine: Pick<Machine, "mode" | "modeUntil" | "modeRevertTo" | "tier">, now = Date.now()): boolean {
+  return currentMode(machine, now) === "access_controlled";
 }
 
 /** Inserts an alert unless the same one was already raised. Returns the new alert, or nothing. */

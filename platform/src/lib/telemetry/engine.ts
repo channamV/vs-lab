@@ -105,6 +105,16 @@ export function midnightInZone(y: number, m: number, d: number, timeZone: string
   return result;
 }
 
+/** A wall-clock time in the zone ("2026-10-22T18:30", from a datetime-local field) as a Date; null if malformed. */
+export function zonedTime(local: string, timeZone: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local.trim());
+  if (!m) return null;
+  const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  let result = guess - zoneOffset(guess, timeZone);
+  result = guess - zoneOffset(result, timeZone);
+  return new Date(result);
+}
+
 export function localDateKey(ms: number, timeZone: string): string {
   const p = partsInZone(ms, timeZone);
   return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.d).padStart(2, "0")}`;

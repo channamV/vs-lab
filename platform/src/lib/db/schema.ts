@@ -84,7 +84,7 @@ export const auditLog = pgTable(
 );
 
 /**
- * owner: everything, including users. manager: machines, operators, arm/disarm, alerts. viewer: read-only.
+ * owner: everything, including users. manager: machines, operators, operating modes, alerts. viewer: read-only.
  * Platform admins (Veristart staff) are listed in PLATFORM_ADMIN_EMAILS, not stored here.
  */
 export const roleEnum = pgEnum("role", ["owner", "manager", "viewer"]);
@@ -207,11 +207,27 @@ export const machines = pgTable(
     speedLimitKph: real("speed_limit_kph"),
     tier: tierEnum("tier").notNull().default("gps"),
     /**
-     * Safety & Access Monitoring machines are armed unless disarmed (e.g. during a service visit).
-     * disarmedUntil set → re-arms automatically at that time; null → disarmed until someone re-arms.
+     * Operating mode (src/lib/modes.ts; docs/operating-modes.md): access_controlled, unlocked or locked. A timed
+     * change (modeUntil) returns to modeRevertTo. The checklist safety lock (lockedOutAt) overrides it.
      */
-    disarmed: boolean("disarmed").notNull().default(false),
-    disarmedUntil: timestamp("disarmed_until", { withTimezone: true }),
+    mode: text("mode").notNull().default("access_controlled"),
+    modeUntil: timestamp("mode_until", { withTimezone: true }),
+    modeRevertTo: text("mode_revert_to"),
+    modeReason: text("mode_reason"),
+    modeChangedAt: timestamp("mode_changed_at", { withTimezone: true }),
+    modeChangedBy: text("mode_changed_by"),
+    /** manager, schedule or timer: what made the latest change. */
+    modeSource: text("mode_source"),
+    /** Relay machines: the mode to fall back to after offlineAfterHours without contact (null = keep the mode). */
+    offlineMode: text("offline_mode"),
+    offlineAfterHours: integer("offline_after_hours").notNull().default(12),
+    /** Relay machines: the mode the device last confirmed it's enforcing. */
+    confirmedMode: text("confirmed_mode"),
+    confirmedModeAt: timestamp("confirmed_mode_at", { withTimezone: true }),
+    /** Locked: where the machine was when it was locked, and when "moved while locked" was alerted. */
+    lockAnchorLat: doublePrecision("lock_anchor_lat"),
+    lockAnchorLng: doublePrecision("lock_anchor_lng"),
+    lockMovementAlertedAt: timestamp("lock_movement_alerted_at", { withTimezone: true }),
     /** The pre-start checklist for this machine; null = the organization's default. */
     checklistTemplateId: bigint("checklist_template_id", { mode: "number" }).references(() => checklistTemplates.id, {
       onDelete: "set null",
@@ -1129,3 +1145,26 @@ export const breachRecords = pgTable("breach_records", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type BreachRecord = typeof breachRecords.$inferSelect;
+
+/** Every operating-mode change, for the machine page history and audit (src/lib/modes.ts). */
+export const machineModeChanges = pgTable(
+  "machine_mode_changes",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull(),
+    until: timestamp("until", { withTimezone: true }),
+    reason: text("reason"),
+    /** manager, schedule or timer */
+    source: text("source").notNull(),
+    changedBy: text("changed_by"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("machine_mode_changes_machine_idx").on(t.machineId, t.at)],
+);
+export type MachineModeChange = typeof machineModeChanges.$inferSelect;

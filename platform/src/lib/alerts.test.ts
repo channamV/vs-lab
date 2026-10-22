@@ -79,28 +79,32 @@ describe("unauthorized use", () => {
     expect(await checkUnauthorizedUse(db, MACHINE, at(45 + grace + 1))).toHaveLength(0);
   });
 
-  it("only applies to armed Safety & Access Monitoring machines with the engine running", async () => {
+  it("only applies to Access-Controlled Safety & Access Monitoring machines with the engine running", async () => {
     await db.update(machines).set({ tier: "gps" });
     expect(await checkUnauthorizedUse(db, MACHINE, at(30))).toHaveLength(0);
-    await db.update(machines).set({ tier: "monitor", disarmed: true });
+    await db.update(machines).set({ tier: "monitor", mode: "unlocked" });
     expect(await checkUnauthorizedUse(db, MACHINE, at(30))).toHaveLength(0);
-    await db.update(machines).set({ disarmed: false, engineOn: false });
+    await db.update(machines).set({ mode: "locked" }); // Locked alerts at once instead (modes.ts)
+    expect(await checkUnauthorizedUse(db, MACHINE, at(30))).toHaveLength(0);
+    await db.update(machines).set({ mode: "access_controlled", engineOn: false });
     expect(await checkUnauthorizedUse(db, MACHINE, at(30))).toHaveLength(0);
   });
 
-  it("re-arms automatically when a timed disarm runs out", async () => {
-    await db.update(machines).set({ disarmed: true, disarmedUntil: at(20) });
+  it("is back to Access-Controlled when a timed Unlocked period runs out", async () => {
+    await db.update(machines).set({ mode: "unlocked", modeUntil: at(20), modeRevertTo: "access_controlled" });
     expect(await checkUnauthorizedUse(db, MACHINE, at(15))).toHaveLength(0);
     expect(await checkUnauthorizedUse(db, MACHINE, at(25))).toHaveLength(1);
   });
 });
 
 describe("isArmed", () => {
-  it("handles indefinite and timed disarms", () => {
-    expect(isArmed({ disarmed: false, disarmedUntil: null })).toBe(true);
-    expect(isArmed({ disarmed: true, disarmedUntil: null })).toBe(false);
-    expect(isArmed({ disarmed: true, disarmedUntil: at(10) }, at(5).getTime())).toBe(false);
-    expect(isArmed({ disarmed: true, disarmedUntil: at(10) }, at(11).getTime())).toBe(true);
+  it("is the Access-Controlled mode, counting timed changes", () => {
+    const m = { mode: "access_controlled", modeUntil: null, modeRevertTo: null, tier: "monitor" as const };
+    expect(isArmed(m)).toBe(true);
+    expect(isArmed({ ...m, mode: "unlocked" })).toBe(false);
+    expect(isArmed({ ...m, mode: "unlocked", modeUntil: at(10), modeRevertTo: "access_controlled" }, at(5).getTime())).toBe(false);
+    expect(isArmed({ ...m, mode: "unlocked", modeUntil: at(10), modeRevertTo: "access_controlled" }, at(11).getTime())).toBe(true);
+    expect(isArmed({ ...m, tier: "gps" })).toBe(false);
   });
 });
 

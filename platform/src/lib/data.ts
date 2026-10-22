@@ -36,6 +36,7 @@ import { buildReport, reportRange } from "@/lib/reports";
 import { commandHistory, deviceKey } from "@/lib/commands";
 import { listReleases, releaseRollout } from "@/lib/firmware";
 import { listBreaches } from "@/lib/breaches";
+import { modeHistory } from "@/lib/modes";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -138,6 +139,12 @@ export async function engineHoursToday(): Promise<Map<number, number>> {
     .then((rows) => rows.map((r) => r.session));
   const byMachine = Map.groupBy(sessions, (s) => s.machineId);
   return new Map([...byMachine].map(([id, list]) => [id, hoursByDay(list, now, 1, tz)[0].hours]));
+}
+
+/** A machine's recent operating-mode changes. */
+export async function machineModeHistory(id: number) {
+  await requireMachine(id);
+  return modeHistory(getDb(), id);
 }
 
 /** Engine hours for each of the last `days` days for one machine. */

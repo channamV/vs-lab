@@ -34,7 +34,7 @@ Insights, limited to what VS Lab's devices actually measure (no fuel, DEF or fau
 **Operators**: engine hours, check-ins, machines, days, and check-ins that reported defects.
 
 **Checklist compliance**: per machine, compliance, hours with a checked-in operator, starts without a
-check-in (the unauthorized-use alert, on armed Safety & Access Monitoring machines), check-ins and defects,
+check-in (the unauthorized-use alert, on Access-Controlled Safety & Access Monitoring machines), check-ins and defects,
 and the days it ran without a check-in.
 
 **Fuel**: per machine, fuel used and average L/h (engine fuel meter, J1939), idle fuel, refuels (count and

@@ -8,7 +8,7 @@ import { AddDivisionForm, DivisionRow } from "./DivisionForms";
 
 const ROLE_HELP = [
   ["Owner", "Everything, including adding and removing users."],
-  ["Manager", "Machines, operators, arm/disarm, acknowledging alerts. Gets all alert emails to start with."],
+  ["Manager", "Machines, operators, operating modes (lock, unlock), acknowledging alerts. Gets all alert emails to start with."],
   ["Viewer", "Can look at everything, can't change anything."],
 ];
 

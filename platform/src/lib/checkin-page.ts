@@ -1,3 +1,4 @@
+import { currentMode } from "@/lib/mode-types";
 import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
 import { connection } from "next/server";
@@ -25,6 +26,10 @@ export async function getCheckinMachine(code: string) {
       organizationId: machines.organizationId,
       checklistTemplateId: machines.checklistTemplateId,
       lockedOutAt: machines.lockedOutAt,
+      mode: machines.mode,
+      modeUntil: machines.modeUntil,
+      modeRevertTo: machines.modeRevertTo,
+      tier: machines.tier,
     })
     .from(machines)
     .where(eq(machines.code, code));
@@ -57,6 +62,8 @@ export async function getCheckinMachine(code: string) {
     name: machine.name,
     unitNumber: machine.unitNumber,
     lockedOut: machine.lockedOutAt !== null,
+    /** Locked by a manager (not for repair): check-ins are refused. */
+    locked: machine.lockedOutAt === null && currentMode(machine) === "locked",
     current,
     privacy: org,
     checklist: { sections: template.sections, options, confirmationText: template.confirmationText, photosEnabled: photoStorageAvailable() },

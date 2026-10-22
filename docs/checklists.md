@@ -82,4 +82,4 @@ When an operator locks a machine out:
 
 A manager clears it on the machine page (**Repaired: clear lockout**). On Safety & Access Monitoring the machine
 can still physically start; actually preventing the start needs the starter relay of Safety & Access Control.
-If an armed machine starts with nobody checked in, the usual **Unauthorized use** alert follows.
+If an Access-Controlled machine starts with nobody checked in, the usual **Unauthorized use** alert follows.

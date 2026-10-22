@@ -36,6 +36,7 @@ sticker on the machine, entering a PIN and completing the pre-start checklist, a
 16. [Safety rules](docs/safety.md) — speeding (fleet, machine and site limits), restricted areas, excessive idling, operator fatigue
 17. [Firmware updates](docs/firmware-updates.md) — uploading releases, sending them to devices in stages, what the firmware must do
 18. [Privacy in Canada](docs/privacy-canada.md) — PIPEDA/Quebec checklist, gaps against Veristart's privacy policy, breach register
+19. [Operating modes](docs/operating-modes.md) — Access-Controlled / Unlocked / Locked per machine, alarmed GPS mode, offline fallback
 
 ## Quick start
 

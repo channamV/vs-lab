@@ -1,3 +1,4 @@
+import { currentMode } from "@/lib/mode-types";
 import { createHash } from "node:crypto";
 import { and, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
@@ -348,6 +349,7 @@ export type CheckinFailure =
   | "photo-invalid"
   | "not-confirmed"
   | "machine-locked-out"
+  | "machine-locked"
   | "not-checked-in";
 
 export type CheckInResult =
@@ -405,11 +407,16 @@ export async function checkIn(
       lng: machines.lastLng,
       checklistTemplateId: machines.checklistTemplateId,
       lockedOutAt: machines.lockedOutAt,
+      mode: machines.mode,
+      modeUntil: machines.modeUntil,
+      modeRevertTo: machines.modeRevertTo,
+      tier: machines.tier,
     })
     .from(machines)
     .where(eq(machines.code, input.machineCode));
   if (!machine) return { ok: false, reason: "unknown-machine" };
   if (machine.lockedOutAt) return { ok: false, reason: "machine-locked-out" };
+  if (currentMode(machine, now.getTime()) === "locked") return { ok: false, reason: "machine-locked" };
   const organizationId = machine.organizationId;
   if (await pinLockedOut(db, machine.id, now)) return { ok: false, reason: "locked" };
 

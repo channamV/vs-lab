@@ -100,6 +100,18 @@ export const EVENT_TYPES = {
     label: "Operator Fatigue",
     description: "An operator went over the daily hours limit, or worked too long without a 15-minute break (from check-ins and engine time).",
   },
+  start_while_locked: {
+    label: "Start While Locked",
+    description: "The engine started on a machine that's Locked (by a manager, or locked out for repair). Also an alert.",
+  },
+  unauthorized_movement: {
+    label: "Unauthorized Machine Movement",
+    description: "A Locked machine moved more than 100 m from where it was locked, with or without its engine running. Also an alert.",
+  },
+  mode_changed: {
+    label: "Operating Mode Changed",
+    description: "A machine's mode changed (Access-Controlled, Unlocked or Locked): by a manager, a schedule, or a timed change ending.",
+  },
   possible_tamper: {
     label: "Possible Tamper",
     description:
@@ -111,7 +123,6 @@ export type EventType = keyof typeof EVENT_TYPES;
 
 /** Production event types we can't detect yet (they need firmware or hardware we don't have). */
 export const LATER_EVENT_TYPES = [
-  "Unauthorized Machine Movement",
   "Equipment Removed",
   "Equipment Unlock / Operator Bypass",
   "Equipment Access Control",
@@ -128,6 +139,8 @@ export const ALERT_EVENT: Record<AlertType, EventType> = {
   "fuel-theft": "possible_fuel_theft",
   "fuel-loss": "possible_fuel_theft",
   "restricted-area": "restricted_area",
+  "locked-use": "start_while_locked",
+  "locked-movement": "unauthorized_movement",
 };
 
 export const ALERT_EVENT_TYPES = [...new Set(Object.values(ALERT_EVENT))];

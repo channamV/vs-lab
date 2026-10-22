@@ -21,7 +21,7 @@ you're happy with email links, delete `ADMIN_PASSWORD` in Vercel and that option
 | Role | Can |
 |---|---|
 | **Owner** | Everything, including adding users and changing roles. Gets alert emails. |
-| **Manager** | Machines, operators, arm/disarm, acknowledging alerts. Gets alert emails. |
+| **Manager** | Machines, operators, operating modes (lock/unlock), acknowledging alerts. Gets alert emails. |
 | **Viewer** | Look at everything, change nothing. |
 
 Every organization keeps at least one active owner. Each email address belongs to one organization.

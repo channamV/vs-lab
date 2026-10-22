@@ -175,6 +175,15 @@ says it's compliant. Update that doc when items are done.
   `queueUpdate` adds `UPDATE=<version>\t<bytes>\t<sha256>\t<path>` commands (`device_commands.firmware_release_id`, 7-day
   expiry; skips devices on the version or waiting; a newer choice cancels the old). `authorizeDownload` = device was sent
   it + signature (`downloadSignature`). Ack ok → `afterUpdateAnswer` sets the version. Retire = no more sends/downloads.
+- Operating modes (`src/lib/modes.ts` + browser-safe `src/lib/mode-types.ts`, tested; `docs/operating-modes.md`; replaced
+  arm/disarm 2026-10-22): `machines.mode` access_controlled / unlocked / locked (GPS tier: no access_controlled — it
+  behaves as unlocked), timed via `mode_until` + `mode_revert_to` (`currentMode` applies expiry on read;
+  `applyModeTimers` in `runWatchdog`). `effectiveMode` = checklist safety lock (`locked_out_at`) else `currentMode`.
+  `setMode` (managers only) records `machine_mode_changes` + `mode_changed` event and, for tier `control`, queues
+  `MODE=<mode>\t<offline|keep>\t<hours>` (ack ok → `confirmMode` → `confirmed_mode`). `isArmed` = Access-Controlled.
+  Locked: `checkLockedUse` in `afterDeviceReport` → `locked-use` (per engine session) / `locked-movement` (> 100 m from
+  `lock_anchor_*`, once per lock) alerts → `start_while_locked` / `unauthorized_movement` events; check-ins refused
+  (`machine-locked`). Offline fallback `offline_mode` (null = keep) + `offline_after_hours`, enforced by relay firmware.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

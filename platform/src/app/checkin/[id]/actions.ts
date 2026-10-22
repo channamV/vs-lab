@@ -39,6 +39,7 @@ const MESSAGES: Record<CheckinFailure, string> = {
   "photo-invalid": "A photo couldn't be used (too large, or not a picture). Remove it and take it again.",
   "not-confirmed": "Tick the confirmation at the end of the checklist.",
   "machine-locked-out": "This machine is locked out for repair. Don't operate it: a manager has to clear it first.",
+  "machine-locked": "This machine is Locked by a manager. Don't operate it: ask your supervisor.",
   "not-checked-in": "Nobody is checked in on this machine.",
 };
 

@@ -354,6 +354,11 @@ async function handleReply(d: SimDevice, reply: string) {
       console.log(`${d.id}: restarting`);
       await send(`/hub/api/notify/${d.id}?EV=2&SSI=${d.rssi}`);
       await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=&FW=${encodeURIComponent(d.firmware)}`);
+    } else if (name === "MODE") {
+      // Our firmware would set the ignition relay and remember the offline fallback.
+      const [mode, offline, hours] = value.split("\t");
+      result = `enforcing ${mode}`;
+      console.log(`${d.id}: 🔐 mode ${mode}${offline !== "keep" ? `, ${offline} after ${hours} h offline` : ""}`);
     } else if (name === "UPDATE") {
       [ok, result] = await update(d, value).catch((err) => [false, `update failed: ${err.message}`] as [boolean, string]);
     } else {

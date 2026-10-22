@@ -11,6 +11,7 @@ import { notifyIncidents, watchdog } from "@/lib/tamper";
 import { checkDwell } from "@/lib/worksites";
 import { checkFuelTheft, checkFuelWhileRunning } from "@/lib/fuel";
 import { checkFatigue, checkRestrictedAreas } from "@/lib/safety";
+import { applyModeTimers, checkLockedUse } from "@/lib/modes";
 
 /**
  * Runs alert rules after the response has been sent, so devices and operators never wait on them
@@ -31,6 +32,8 @@ export function afterDeviceReport(deviceId: string) {
       await deliverAlerts(db, await checkFuelTheft(db, machineId));
       // Refuels and fuel lost while running (every few minutes).
       await deliverAlerts(db, await checkFuelWhileRunning(db, machineId));
+      // Locked machines being started or moved.
+      await deliverAlerts(db, await checkLockedUse(db, machineId));
       // Entered a restricted area (exclusion zone): an alert straight away.
       await deliverAlerts(db, await checkRestrictedAreas(db, machineId));
       // Tamper: quiet spell ended, moved while quiet, different vehicle, power interrupted.
@@ -89,7 +92,9 @@ export async function runWatchdog(now = new Date()) {
   const dwell = await checkDwell(db, now);
   // Operators over the daily hours limit or working too long without a break.
   const fatigue = await checkFatigue(db, now);
+  // Timed mode changes that have run out ("Unlocked for 4 hours").
+  const modeChanges = (await applyModeTimers(db, now)).length;
   // Connectivity and worksite notifications for every machine with something pending.
   await processEvents(db, {}, now);
-  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue };
+  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges };
 }

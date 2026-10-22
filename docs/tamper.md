@@ -27,7 +27,7 @@ Then each of these moves it **down** a step, because it could explain the silenc
 - **low battery** at the last report (under 11.8 V): may have run flat;
 - the device has **gone quiet near here before** (within 300 m) and come back by itself: a known dead spot.
 
-And this moves it **up** a step: an **armed** Safety & Access Monitoring machine, **after hours** (before 6 AM or
+And this moves it **up** a step: an **Access-Controlled** Safety & Access Monitoring machine (or a **Locked** machine on any level), **after hours** (before 6 AM or
 after 7 PM local time).
 
 The alert lists the reasons, e.g. *"Stopped reporting at 2:14 AM while the engine was running, without signing

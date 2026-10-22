@@ -8,7 +8,7 @@ Mirrors the Veristart offering (one platform, three levels, chosen per machine).
 | Promise | See where equipment is and how it's used | Know who is operating; alert on unauthorized use | Physically enforce the rules |
 | Hardware | Device on diagnostic port | Same device, plus operator ID (beacon / phone) | Plus starter-control relay |
 | Stops a start? | No | No: detects, alerts, buzzes | Yes |
-| Lab status | **Working** (position, engine on/off, engine hours, battery, signal) | **Working on the platform** (operators, QR check-in, checklist, alerts, arm/disarm). Next: firmware (buzzer, BLE beacons) | Deferred |
+| Lab status | **Working** (position, engine on/off, engine hours, battery, signal) | **Working on the platform** (operators, QR check-in, checklist, alerts, operating modes). Next: firmware (buzzer, BLE beacons) | Deferred |
 
 ## Tier 1 — GPS & Telematics (built)
 
@@ -56,7 +56,7 @@ not iOS, so it isn't the primary method.
 - Alert goes to the fleet manager (email / SMS / web notification), and optionally **sounds the
   device's buzzer** (the ONE+ has one, which needs a firmware change and a command channel)
 - Check-in without a completed pre-start checklist → **compliance alert**
-- **Remote arm / disarm** per machine or per site (e.g. disarm during a service visit)
+- **Operating modes** per machine (Access-Controlled / Unlocked / Locked, timed changes; [operating-modes.md](operating-modes.md))
 
 **4. Records.** Operator sessions, checklist results, alerts and acknowledgements make up the audit trail.
 

@@ -5,7 +5,8 @@ import { FleetMap, type MapMarker } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EngineBadge } from "@/components/EngineBadge";
 import { connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, quietMachines, requestTime, worksiteOutlines, activeFaultCounts } from "@/lib/data";
-import { isArmed, isMonitored } from "@/lib/alerts";
+import { effectiveMode } from "@/lib/modes";
+import { ModeBadge } from "./machines/[id]/ModePanel";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, fmt, formatHours, machineLabel, TIER_LABELS, timeAgo } from "@/lib/format";
 import { checkinFlags } from "@/lib/checkin-flags";
@@ -170,7 +171,11 @@ async function FleetOverview() {
                 </td>
                 <td className="px-4 py-2">
                   {TIER_LABELS[d.tier]}
-                  {isMonitored(d) && !isArmed(d, now) && <div className="text-xs text-slate-500">Disarmed</div>}
+                  {(d.tier !== "gps" || effectiveMode(d, now).mode === "locked") && (
+                    <div className="mt-0.5">
+                      <ModeBadge mode={effectiveMode(d, now).mode} />
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-2">{timeAgo(d.lastSeenAt, now)}</td>
                 <td className="px-4 py-2 text-right">{fmt(d.lastSpeedKph, 0, " km/h")}</td>

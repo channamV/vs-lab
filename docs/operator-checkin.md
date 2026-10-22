@@ -49,7 +49,7 @@ close together, the operator was at the machine.
   - nobody had it: flagged **engine running before check-in** (the checklist was done after starting).
 
 An engine run that nobody checked in for raises an **unauthorized use** alert after 5 minutes, on
-armed Safety & Access Monitoring machines (see [alerts.md](alerts.md)).
+Access-Controlled Safety & Access Monitoring machines (see [alerts.md](alerts.md)).
 
 Neither check blocks anyone: on Safety & Access Monitoring the machine always starts and the platform
 reports. In step 3, these flags can trigger email alerts.

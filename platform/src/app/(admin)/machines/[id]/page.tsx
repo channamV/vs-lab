@@ -20,6 +20,7 @@ import {
   listDivisions,
   listOperators,
   machineDevices,
+  machineModeHistory,
   openAlerts,
   pairableDevices,
   recentCheckins,
@@ -34,13 +35,18 @@ import { appTimeZone, effectiveEnd } from "@/lib/telemetry/engine";
 import { PID_NAMES } from "@/lib/freematics/protocol";
 import { clockTime, fmt, formatHours, machineLabel, timeAgo } from "@/lib/format";
 import { checkinFlags, engineLabel, locationLabel } from "@/lib/checkin-flags";
-import { endCheckinAction, setAllowedOperators, setArming } from "./actions";
+import { endCheckinAction, setAllowedOperators } from "./actions";
 import { unpairDeviceAction } from "../actions";
 import { EditMachineForm, PairDeviceForm } from "../MachineForms";
 import { LockoutBanner, MachineChecklist } from "./MachineChecklist";
 import { Connectivity } from "./Connectivity";
 import { AlertList } from "../../alerts/AlertList";
-import { ALERT_RULES, isArmed, isMonitored } from "@/lib/alerts";
+import { ALERT_RULES } from "@/lib/alerts";
+import { hasRole } from "@/lib/auth";
+import type { Machine } from "@/lib/db/schema";
+import { effectiveMode } from "@/lib/modes";
+import { isMode, MODES, type Mode } from "@/lib/mode-types";
+import { ModePanel } from "./ModePanel";
 
 export default function MachinePage({ params }: PageProps<"/machines/[id]">) {
   return (
@@ -78,6 +84,8 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
     listDivisions(),
     worksiteOutlines(),
   ]);
+  const modeChanges = await machineModeHistory(id);
+  const mode = effectiveMode(machine, now);
   const tz = appTimeZone();
   const engine = engineStatus(machine, now);
   const status = connectionStatus(machine, now);
@@ -211,59 +219,21 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
           )}
         </section>
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="font-semibold">Monitoring</h2>
-          {isMonitored(machine) ? (
-            <>
-              {isArmed(machine, now) ? (
-                <p className="text-sm">
-                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
-                    Armed
-                  </span>{" "}
-                  Alerts if the engine runs {ALERT_RULES.unauthorizedGraceMinutes} min with nobody checked in.
-                </p>
-              ) : (
-                <p className="text-sm">
-                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                    Disarmed
-                  </span>{" "}
-                  {machine.disarmedUntil ? `until ${clockTime(machine.disarmedUntil, tz, now)}` : "until re-armed"}. No unauthorized-use
-                  alerts.
-                </p>
-              )}
-              <form action={setArming} className="flex flex-wrap gap-2">
-                <input type="hidden" name="id" value={machine.id} />
-                {isArmed(machine, now) ? (
-                  <>
-                    <span className="w-full text-xs text-slate-500">Disarm (e.g. for a service visit):</span>
-                    {[
-                      ["1h", "1 hour"],
-                      ["4h", "4 hours"],
-                      ["morning", "Until 6 AM"],
-                      ["indefinite", "Until re-armed"],
-                    ].map(([mode, label]) => (
-                      <button
-                        key={mode}
-                        name="mode"
-                        value={mode}
-                        className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </>
-                ) : (
-                  <button name="mode" value="arm" className="rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800">
-                    Arm now
-                  </button>
-                )}
-              </form>
-            </>
-          ) : (
-            <p className="text-sm text-slate-500">
-              Set the service level to Safety &amp; Access Monitoring (under Settings) to get unauthorized-use and check-in alerts
-              for this machine.
-            </p>
-          )}
+          <h2 className="font-semibold">Operating mode</h2>
+          <ModePanel
+            machineId={machine.id}
+            tier={machine.tier}
+            mode={mode.mode}
+            safetyLocked={mode.safety}
+            canChange={auth !== null && hasRole(auth, "manager")}
+            offlineMode={isMode(machine.offlineMode) ? machine.offlineMode : null}
+            offlineAfterHours={machine.offlineAfterHours}
+            status={modeStatus(machine, mode.mode, tz, now)}
+            history={modeChanges.map((c) => ({
+              at: clockTime(c.at, tz, now),
+              text: `${MODES[c.mode as Mode]?.label ?? c.mode}${c.until ? ` until ${clockTime(c.until, tz, now)}` : ""}${c.reason ? ` (${c.reason})` : ""} · ${c.changedBy ?? (c.source === "timer" ? "timed change ended" : c.source)}`,
+            }))}
+          />
         </section>
       </div>
 
@@ -576,4 +546,28 @@ const FIELD_ORDER = Object.values(PID_NAMES);
 function sortFields(fields: Record<string, number | number[]>) {
   const rank = (k: string) => (FIELD_ORDER.includes(k) ? FIELD_ORDER.indexOf(k) : FIELD_ORDER.length);
   return Object.entries(fields).sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
+/** Plain-language lines under the mode: timed change, grace period, relay confirmation, offline state. */
+function modeStatus(machine: Machine, mode: Mode, tz: string, now: number): string[] {
+  const lines: string[] = [];
+  if (machine.modeUntil && machine.modeUntil.getTime() > now && machine.modeRevertTo) {
+    lines.push(`Until ${clockTime(machine.modeUntil, tz, now)}, then back to ${MODES[machine.modeRevertTo as Mode]?.label ?? machine.modeRevertTo}.`);
+  }
+  if (machine.modeReason && !machine.lockedOutAt) lines.push(`Reason: ${machine.modeReason}`);
+  if (mode === "access_controlled" && machine.tier === "monitor") {
+    lines.push(`Alert after ${ALERT_RULES.unauthorizedGraceMinutes} min of running with nobody checked in.`);
+  }
+  if (machine.tier === "control") {
+    lines.push(
+      machine.confirmedMode === mode
+        ? "The machine has confirmed this mode."
+        : "Waiting for the machine to confirm (it gets the change at its next connection).",
+    );
+    const offlineH = machine.lastSeenAt ? (now - machine.lastSeenAt.getTime()) / 3_600_000 : null;
+    if (offlineH !== null && machine.offlineMode && offlineH >= machine.offlineAfterHours && !machine.lockedOutAt) {
+      lines.push(`No connection for ${Math.floor(offlineH)} h: it has probably switched to ${MODES[machine.offlineMode as Mode]?.label} (offline fallback).`);
+    }
+  }
+  return lines;
 }

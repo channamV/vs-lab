@@ -25,9 +25,10 @@ ones it has already run.
 | Change reporting interval | Seconds between reports while running (1–60) |
 | Set jobsite Wi-Fi | Network name and password for jobsite Wi-Fi such as Starlink ([firmware/README.md](../firmware/README.md)). The password isn't kept once the command is finished |
 | Restart the device | Reboot it |
+| Set mode | Sent automatically to relay machines when a manager changes the operating mode ([operating-modes.md](operating-modes.md)) |
 | Update firmware | Sent from **Platform → Firmware**, not this form: download, check and install a new version ([firmware-updates.md](firmware-updates.md)) |
 
-More can be added as the firmware grows (e.g. starter relay lock/unlock for Safety & Access Control).
+More can be added as the firmware grows.
 
 ## Security: signed commands
 
@@ -49,7 +50,8 @@ come from it.
 - Reply to `POST /hub/api/post/<id>`, `GET /hub/api/notify/<id>` and `GET /hub/api/push`: the first line is as
   before (`OK …`); each further line is `CMD <id> <signature> <command>`. The command is the rest of the line,
   e.g. `BEEP=3`, `RATE=10`, `REPORT`, `RESET`, `WIFI=<ssid><TAB><password>`,
-  `UPDATE=<version><TAB><bytes><TAB><sha256><TAB><path>` ([firmware-updates.md](firmware-updates.md)). Up to 5 per reply.
+  `UPDATE=<version><TAB><bytes><TAB><sha256><TAB><path>` ([firmware-updates.md](firmware-updates.md)),
+  `MODE=<mode><TAB><offline mode|keep><TAB><hours>` ([operating-modes.md](operating-modes.md)). Up to 5 per reply.
 - Signature: first 16 hex characters of HMAC-SHA256(device key, `<deviceId>\n<id>\n<command>`); `-` when signing
   is off. Device key: first 32 hex characters of HMAC-SHA256(`DEVICE_KEY_SECRET`, `device-key:<deviceId>`).
 - Answer: `GET /hub/api/ack/<deviceId>?id=<id>&ok=1|0&result=<text>&sig=<signature>`, signature = first 16 hex of

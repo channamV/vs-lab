@@ -1,4 +1,4 @@
-# Alerts and arm/disarm
+# Alerts
 
 Part of Tier 2, Safety & Access Monitoring. The machine always starts. The platform watches and tells
 you when something's wrong, on the **Alerts** page and by email.
@@ -9,7 +9,7 @@ Only machines whose service level is **Safety & Access Monitoring** (machine pag
 
 | Alert | When | How often |
 |---|---|---|
-| **Unauthorized use** | The machine is **armed** and its engine has been running for **5 minutes** without anyone checking in for that run. Operators are checked out automatically when the engine has been off longer than the break allowance (30 minutes for web check-ins), so a start after that needs a new check-in. | Once per engine-on period |
+| **Unauthorized use** | The machine is **Access-Controlled** ([operating-modes.md](operating-modes.md)) and its engine has been running for **5 minutes** without anyone checking in for that run. Operators are checked out automatically when the engine has been off longer than the break allowance (30 minutes for web check-ins), so a start after that needs a new check-in. | Once per engine-on period |
 | **Repair needed** | A pre-start checklist reported a minor or major defect that isn't already an open issue on the machine, or reported an open one as more severe. Repeats stack on the issue without a new alert. Says if the machine was locked out. See [checklists.md](checklists.md). | Once per check-in, only for new or escalated issues |
 | **Operator not approved** | The operator isn't on the machine's approved list. | Once per check-in |
 | **Not confirmed at machine** | The operator's phone was more than 100 m from the machine, or they didn't share their location. | Once per check-in |
@@ -23,13 +23,12 @@ vehicle) apply to every machine with a device: see [tamper.md](tamper.md).
 The unauthorized-use check runs each time the machine reports, so the alert arrives within a few
 seconds of the 5 minutes passing. If the device loses signal, the alert waits until it reports again.
 
-## Arm and disarm
+## Operating modes (replaces arm and disarm)
 
-Machine page → **Monitoring**. A Safety & Access Monitoring machine is **armed** by default.
-Disarm it when the engine will legitimately run with nobody checked in, e.g. a mechanic's service visit:
-**1 hour**, **4 hours**, **until 6 AM** tomorrow, or **until re-armed**. Timed disarms re-arm
-automatically. While disarmed, there are no unauthorized-use alerts. Check-in alerts still work.
-The Fleet page shows "Disarmed" under the machine's level.
+Machine page → **Operating mode**: **Access-Controlled** (the unauthorized-use alert applies), **Unlocked** (e.g. a
+mechanic's service visit: no check-in needed; for 1, 4 or 8 hours, until 6 AM, until a time, or until changed) or
+**Locked** (any start or movement alerts straight away: **Started while Locked**, **Moved while Locked**). Timed changes
+go back by themselves. See [operating-modes.md](operating-modes.md).
 
 ## Handling alerts
 
@@ -55,6 +54,8 @@ production portal's notification subscriptions.
   - **Low Battery Warning** (replaced production's "Switched to Battery Power", 2026-10-21): see below.
   - **Engine Fault Code**: the engine computer reported a new fault (J1939 machines; see [can-data.md](can-data.md)).
   - **Possible Fuel Theft** (also an alert) and **Refuelled**: see "Fuel" below.
+  - **Start While Locked** and **Unauthorized Machine Movement** (also alerts), and **Operating Mode Changed**:
+    see [operating-modes.md](operating-modes.md).
   - **Speeding**, **Excessive Idling**, **Operator Fatigue** and **Restricted Area Entered** (also an alert):
     see [safety.md](safety.md).
   - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, equipment

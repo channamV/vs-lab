@@ -10,6 +10,7 @@ import {
   type Alert,
 } from "@/lib/db/schema";
 import { isArmed, isMonitored } from "@/lib/alerts";
+import { effectiveMode } from "@/lib/modes";
 import { distanceMeters } from "@/lib/operators";
 import { clockTime, machineLabel } from "@/lib/format";
 import { recordEvent } from "@/lib/notifications";
@@ -175,7 +176,8 @@ export async function watchdog(db: Db, now = new Date()) {
       lastRssi: device.lastRssi,
       lastBatteryV: device.lastBatteryV,
       knownGaps,
-      armed: isMonitored(machine) && isArmed(machine, now.getTime()),
+      // Access-Controlled monitoring, or Locked on any tier: going quiet is more concerning.
+      armed: (isMonitored(machine) && isArmed(machine, now.getTime())) || effectiveMode(machine, now.getTime()).mode === "locked",
       timeZone,
     });
     if (!score) continue;
