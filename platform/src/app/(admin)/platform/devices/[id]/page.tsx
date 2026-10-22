@@ -53,6 +53,17 @@ async function DeviceDetail({ params }: Pick<PageProps<"/platform/devices/[id]">
         <dd>{timeAgo(device.lastFixAt, now)}</dd>
         <dt className="text-slate-500">VIN (OBD)</dt>
         <dd className="font-mono">{device.vin ?? "—"}</dd>
+        <dt className="text-slate-500">Firmware</dt>
+        <dd>
+          {device.firmwareVersion ? (
+            <span className="font-mono">{device.firmwareVersion}</span>
+          ) : (
+            <span className="text-slate-500">Not reported (stock Telelogger)</span>
+          )}{" "}
+          <Link href="/platform/firmware" className="text-sky-700 hover:underline dark:text-sky-400">
+            Updates
+          </Link>
+        </dd>
       </dl>
 
       <Suspense fallback={<p className="text-sm text-slate-500">Loading commands…</p>}>

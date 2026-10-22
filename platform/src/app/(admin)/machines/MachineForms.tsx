@@ -29,6 +29,7 @@ function fromMachine(m: Machine): Values {
     year: m.year?.toString() ?? "",
     serialNumber: m.serialNumber ?? "",
     fuelTankLitres: m.fuelTankLitres?.toString() ?? "",
+    speedLimitKph: m.speedLimitKph?.toString() ?? "",
     tier: m.tier,
     divisionId: m.divisionId?.toString() ?? "",
   };
@@ -51,6 +52,7 @@ function Fields({ values, choice }: { values: Values; choice: DivisionChoice }) 
       {text("year", "Year", { inputMode: "numeric", pattern: "[0-9]{4}", maxLength: 4 })}
       {text("serialNumber", "Serial # / VIN", { maxLength: 40 })}
       {text("fuelTankLitres", "Fuel tank size, litres (optional)", { inputMode: "decimal", maxLength: 8, placeholder: "e.g. 400" })}
+      {text("speedLimitKph", "Top speed, km/h (optional; replaces the fleet speed limit)", { inputMode: "decimal", maxLength: 8, placeholder: "e.g. 25" })}
       <label className="block text-sm">
         <span className="text-slate-600 dark:text-slate-400">Service level</span>
         <select name="tier" defaultValue={values.tier || "gps"} className={field}>

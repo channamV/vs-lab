@@ -183,9 +183,10 @@ export async function recordAnswer(
     .update(deviceCommands)
     .set({ status: answer.ok ? "done" : "failed", answeredAt: now, result: answer.result.slice(0, 500) || null })
     .where(and(eq(deviceCommands.id, answer.id), eq(deviceCommands.deviceId, deviceId), inArray(deviceCommands.status, ["sent", "pending", "expired"])))
-    .returning({ id: deviceCommands.id });
+    .returning();
   if (updated.length === 0) throw new CommandError("Unknown command");
   await forgetSecrets(db, answer.id);
+  return updated[0];
 }
 
 /** Once a Wi-Fi command is finished, the password isn't kept. */

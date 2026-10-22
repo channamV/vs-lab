@@ -203,6 +203,8 @@ export const machines = pgTable(
     serialNumber: text("serial_number"),
     /** Fuel tank size in litres (optional): turns fuel-level drops into litres for the fuel theft alert. */
     fuelTankLitres: real("fuel_tank_litres"),
+    /** This machine's own top speed (km/h) for the Speeding notification; replaces the fleet limit. Null = fleet limit. */
+    speedLimitKph: real("speed_limit_kph"),
     tier: tierEnum("tier").notNull().default("gps"),
     /**
      * Safety & Access Monitoring machines are armed unless disarmed (e.g. during a service visit).
@@ -306,6 +308,9 @@ export const devices = pgTable("devices", {
   /** Latest engine reading from this device (diagnostics; the machine keeps its own engine state). */
   engineOn: boolean("engine_on"),
   engineChangedAt: timestamp("engine_changed_at", { withTimezone: true }),
+  /** Firmware version the device last reported (FW= on login, or a finished update), and when. */
+  firmwareVersion: text("firmware_version"),
+  firmwareReportedAt: timestamp("firmware_reported_at", { withTimezone: true }),
 });
 
 /** One row per data sample sent by a device. */
@@ -1002,9 +1007,32 @@ export const deviceCommands = pgTable(
     answeredAt: timestamp("answered_at", { withTimezone: true }),
     /** The device's answer (e.g. "OK", a value, or an error). */
     result: text("result"),
+    /** For firmware updates: the release being installed (src/lib/firmware.ts). */
+    firmwareReleaseId: bigint("firmware_release_id", { mode: "number" }).references(() => firmwareReleases.id, { onDelete: "set null" }),
   },
-  (t) => [index("device_commands_device_idx").on(t.deviceId, t.createdAt)],
+  (t) => [
+    index("device_commands_device_idx").on(t.deviceId, t.createdAt),
+    index("device_commands_release_idx").on(t.firmwareReleaseId),
+  ],
 );
+
+/** Firmware builds staff have uploaded for over-the-air updates (src/lib/firmware.ts; docs/firmware-updates.md). */
+export const firmwareReleases = pgTable("firmware_releases", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  /** As the firmware reports it (FW=), e.g. "vs-1.0.3". Unique. */
+  version: text("version").notNull().unique(),
+  notes: text("notes"),
+  fileName: text("file_name").notNull(),
+  /** Where the file is kept (private Blob store, or .data/firmware locally). */
+  storageKey: text("storage_key").notNull(),
+  /** SHA-256 of the file (hex): the device checks it before installing. */
+  sha256: text("sha256").notNull(),
+  bytes: integer("bytes").notNull(),
+  uploadedBy: text("uploaded_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Retired releases can't be sent to more devices. */
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+});
 
 /**
  * The safety log (src/lib/safety.ts): speeding spells, restricted-area entries, excessive idling and operator
@@ -1044,6 +1072,7 @@ export const safetyEvents = pgTable(
 export type Organization = typeof organizations.$inferSelect;
 export type SafetyEvent = typeof safetyEvents.$inferSelect;
 export type DeviceCommand = typeof deviceCommands.$inferSelect;
+export type FirmwareRelease = typeof firmwareReleases.$inferSelect;
 export type FuelEvent = typeof fuelEvents.$inferSelect;
 export type MachineFault = typeof machineFaults.$inferSelect;
 export type Worksite = typeof worksites.$inferSelect;

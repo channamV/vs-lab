@@ -176,6 +176,13 @@
       "when": 1792670145509,
       "tag": "0024_safety",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792671762576,
+      "tag": "0025_top_speed_firmware",
+      "breakpoints": true
     }
   ]
 }

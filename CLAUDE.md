@@ -24,6 +24,7 @@ github.com/stanleyhuangyc/Freematics.
 - `POST /hub/api/post/<DEVID>` — body `PID:val[;val],...*CHECKSUM` (hex PIDs, PID 0 starts a sample)
 - `GET  /hub/api/notify/<DEVID>?EV=&SSI=&VIN=` — connection events (1 login, 2 logout, 7 ping...)
 - `GET  /hub/api/push?id=&lat=&lon=&speed=<knots>...` — "HTTPS GET" mode (GPS only)
+- Our fork only: notify `FW=<version>` (→ `devices.firmware_version`), and `GET /hub/api/firmware/<release>?d=&s=` (download)
 - Device only checks for HTTP 200. Parser: `platform/src/lib/freematics/protocol.ts`.
 - Device commands (`src/lib/commands.ts`, tested; `docs/device-commands.md`): replies to post/notify/push are
   `OK …` plus `CMD <id> <sig> <command>` lines (stock firmware ignores them); our fork answers at
@@ -152,7 +153,8 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   (machine page Fuel section, Reports → Fuel tab + CSV; `refuel` notification event).
 - Safety (`src/lib/safety.ts`, tested; `docs/safety.md`; kinds/units in browser-safe `src/lib/safety-kinds.ts`): org limits
   `speed_limit_kph` / `idle_alert_minutes` / `fatigue_daily_hours` / `fatigue_continuous_hours` (null = off; owner Settings →
-  Safety rules) and `worksites.speed_limit_kph` (lowest open-visit site limit wins). Ingest calls `checkSpeedAndIdle`
+  Safety rules), `machines.speed_limit_kph` (replaces the fleet limit) and `worksites.speed_limit_kph` (a lower open-visit
+  site limit wins; `speedLimitFor`). Ingest calls `checkSpeedAndIdle`
   (after the worksite check): speeding spell = `safety_events` row tracked by `machines.speeding_event_id`, notified
   (`speeding`) after `SAFETY_RULES.speedingGraceSeconds`, unnotified spikes deleted; idle (RPM only, `idleState`) via
   `machines.idle_since/idle_event_id` → `excessive_idle`; a device gap > `gapMinutes` ends both. Worksite type
@@ -160,6 +162,11 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   `restricted_area` event. `checkFatigue` (in `runWatchdog`): engine time while checked in, per operator; daily and
   continuous (gaps < 15 min merged) → `operator_fatigue`, deduped by `safety_events.dedupe_key`. Reports → Safety tab + CSV.
   Safety log is in retention (check-in period), operator export and erase.
+- Firmware updates (`src/lib/firmware.ts`, tested; `docs/firmware-updates.md`): staff upload releases at `/platform/firmware`
+  (`firmware_releases`: version unique, sha256, file in the private Blob store under `firmware/`, `.data/firmware` locally).
+  `queueUpdate` adds `UPDATE=<version>\t<bytes>\t<sha256>\t<path>` commands (`device_commands.firmware_release_id`, 7-day
+  expiry; skips devices on the version or waiting; a newer choice cancels the old). `authorizeDownload` = device was sent
+  it + signature (`downloadSignature`). Ack ok → `afterUpdateAnswer` sets the version. Retire = no more sends/downloads.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

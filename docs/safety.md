@@ -8,7 +8,7 @@ Set the limits on **Settings → Safety rules** (owners). Leave a box empty to t
 
 | Rule | Default | Notification |
 |---|---|---|
-| Fleet speed limit | off | **Speeding** |
+| Fleet speed limit (each machine can have its own top speed) | off | **Speeding** |
 | Excessive idling after | 30 minutes | **Excessive Idling** |
 | Operator hours per day | 12 hours | **Operator Fatigue** |
 | Operator hours without a break | 5 hours | **Operator Fatigue** |
@@ -21,8 +21,11 @@ Set the limits on **Settings → Safety rules** (owners). Leave a box empty to t
   ignored too.
 - **Which limit applies:**
   - The **fleet limit** from Settings.
+  - A machine can have its **own top speed** (Edit machine → *Top speed*), e.g. 25 km/h for a loader, or 100 km/h
+    for a pickup. It replaces the fleet limit for that machine, whether it's higher or lower.
   - A worksite can have its **own limit** (Worksites → Edit details → *Speed limit*), e.g. 15 km/h in a yard.
-  - Inside a site with a limit, the site's limit applies. In several overlapping sites, the lowest applies.
+    Inside the site, its limit applies when it's lower than the machine's (or fleet) limit. In several
+    overlapping sites, the lowest applies.
 - **What's recorded:** one entry per spell, with the top speed, the limit, the operator checked in and the site.
   - A spell ends when the speed drops back under the limit.
   - It also ends if the device stops reporting for more than 5 minutes.

@@ -29,6 +29,8 @@ export type MachineInput = {
   serialNumber?: string;
   /** Litres; null = unknown. Left out = unchanged. */
   fuelTankLitres?: number | null;
+  /** km/h; null = the fleet limit applies. Left out = unchanged. */
+  speedLimitKph?: number | null;
   tier?: Tier;
   /** Null = no division. Left out = unchanged (edit) / none (new). */
   divisionId?: number | null;
@@ -61,6 +63,10 @@ async function cleanInput(db: Db, organizationId: number, input: MachineInput, e
   if (tank !== undefined && tank !== null && (!Number.isFinite(tank) || tank < 5 || tank > 10_000)) {
     throw new MachineError("Fuel tank size must be between 5 and 10,000 litres.");
   }
+  const speed = input.speedLimitKph;
+  if (speed !== undefined && speed !== null && (!Number.isFinite(speed) || speed < 5 || speed > 200)) {
+    throw new MachineError("The top speed must be between 5 and 200 km/h.");
+  }
   if (input.divisionId) {
     const [division] = await db
       .select({ id: divisions.id })
@@ -77,6 +83,7 @@ async function cleanInput(db: Db, organizationId: number, input: MachineInput, e
     year,
     serialNumber: clean(input.serialNumber),
     ...(tank !== undefined && { fuelTankLitres: tank }),
+    ...(speed !== undefined && { speedLimitKph: speed }),
     ...(input.tier && { tier: input.tier }),
     ...(input.divisionId !== undefined && { divisionId: input.divisionId }),
   };

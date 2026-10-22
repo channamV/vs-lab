@@ -33,7 +33,8 @@ sticker on the machine, entering a PIN and completing the pre-start checklist, a
 13. [Reports](docs/reports.md) — engine hours, idle, utilization, operators, checklist compliance, worksites; CSV
 14. [Engine (CAN) data](docs/can-data.md) — the OBD-II data we receive, J1939 for heavy equipment, simulating it
 15. [Device commands](docs/device-commands.md) — sending commands to devices (buzzer, Wi-Fi, reporting rate…), signing
-16. [Safety rules](docs/safety.md) — speeding (fleet and site limits), restricted areas, excessive idling, operator fatigue
+16. [Safety rules](docs/safety.md) — speeding (fleet, machine and site limits), restricted areas, excessive idling, operator fatigue
+17. [Firmware updates](docs/firmware-updates.md) — uploading releases, sending them to devices in stages, what the firmware must do
 
 ## Quick start
 

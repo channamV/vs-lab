@@ -21,6 +21,11 @@ export default function PlatformPage() {
           Veristart staff only. Customers never see this page. To work inside an organization (its machines, operators and
           users), pick it in the top bar.
         </p>
+        <p className="mt-1 text-sm">
+          <Link href="/platform/firmware" className="text-sky-700 hover:underline dark:text-sky-400">
+            Firmware releases and updates →
+          </Link>
+        </p>
       </div>
       <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
         <Platform />

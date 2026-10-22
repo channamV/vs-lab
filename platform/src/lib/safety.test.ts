@@ -90,6 +90,20 @@ describe("speeding", () => {
     expect((await events("speeding"))[0].detail).toBe("25 km/h — over the North Yard site limit of 15 km/h.");
   });
 
+  it("uses the machine's own top speed instead of the fleet limit, unless a site's is lower", async () => {
+    await db.update(machines).set({ speedLimitKph: 25 }).where(eq(machines.id, machineId));
+    for (const sec of [0, 5, 11]) await report(sec, { ...outside, speedKph: 30 });
+    expect((await events("speeding"))[0].detail).toBe("30 km/h — over the machine's top speed of 25 km/h.");
+    // Higher than the fleet limit: a truck allowed 60 isn't speeding at 50.
+    await db.update(machines).set({ speedLimitKph: 60 }).where(eq(machines.id, machineId));
+    for (const sec of [100, 105, 111]) await report(sec, { ...outside, speedKph: 50 });
+    expect(await events("speeding")).toHaveLength(1);
+    // A yard limit of 15 still applies inside the yard.
+    await createWorksite(db, org, null, { name: "North Yard", type: "yard_storage", notes: "", dwellLimitMinutes: null, speedLimitKph: 15, polygon: yard });
+    for (const sec of [200, 205, 211]) await report(sec, { ...inYard, speedKph: 20 });
+    expect((await events("speeding"))[1].detail).toBe("20 km/h — over the North Yard site limit of 15 km/h.");
+  });
+
   it("does nothing without a limit", async () => {
     await db.update(organizations).set({ speedLimitKph: null }).where(eq(organizations.id, org));
     for (const sec of [0, 5, 11]) await report(sec, { ...outside, speedKph: 120 });

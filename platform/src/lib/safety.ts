@@ -95,8 +95,11 @@ export function parseSiteSpeedLimit(value: string): number | null {
 
 export type MotionSample = { speedKph: number | null; satellites: number | null; rpm: number | null; engineOn: boolean | null };
 
-/** The speed limit that applies to the machine now: the lowest limit of the sites it's in, else the fleet's. */
-export async function speedLimitFor(db: Db, machine: Pick<Machine, "id">, org: Pick<Organization, "speedLimitKph">) {
+/**
+ * The speed limit that applies to the machine now. Its own top speed if set, else the fleet limit; inside a
+ * worksite with a lower limit, the site's (the lowest, if it's in several).
+ */
+export async function speedLimitFor(db: Db, machine: Pick<Machine, "id" | "speedLimitKph">, org: Pick<Organization, "speedLimitKph">) {
   const [site] = await db
     .select({ id: worksites.id, name: worksites.name, limit: worksites.speedLimitKph })
     .from(worksiteVisits)
@@ -104,9 +107,14 @@ export async function speedLimitFor(db: Db, machine: Pick<Machine, "id">, org: P
     .where(and(eq(worksiteVisits.machineId, machine.id), isNull(worksiteVisits.leftAt), isNotNull(worksites.speedLimitKph)))
     .orderBy(asc(worksites.speedLimitKph))
     .limit(1);
-  if (site) return { limit: site.limit!, worksiteId: site.id, where: `the ${site.name} site limit` };
-  if (org.speedLimitKph !== null) return { limit: org.speedLimitKph, worksiteId: null, where: "the fleet limit" };
-  return null;
+  const base =
+    machine.speedLimitKph !== null
+      ? { limit: machine.speedLimitKph, worksiteId: null, where: "the machine's top speed" }
+      : org.speedLimitKph !== null
+        ? { limit: org.speedLimitKph, worksiteId: null, where: "the fleet limit" }
+        : null;
+  if (site && (base === null || site.limit! < base.limit)) return { limit: site.limit!, worksiteId: site.id, where: `the ${site.name} site limit` };
+  return base;
 }
 
 const kph = (v: number) => `${Math.round(v)} km/h`;

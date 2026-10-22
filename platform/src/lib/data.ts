@@ -34,6 +34,7 @@ import { ensureChecklistDefaults } from "@/lib/checklists";
 import { auditEntries } from "@/lib/privacy";
 import { buildReport, reportRange } from "@/lib/reports";
 import { commandHistory, deviceKey } from "@/lib/commands";
+import { listReleases, releaseRollout } from "@/lib/firmware";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -928,6 +929,20 @@ export async function getDeviceForStaff(id: string) {
     db.select().from(telemetry).where(eq(telemetry.deviceId, id)).orderBy(desc(telemetry.receivedAt), desc(telemetry.id)).limit(1),
   ]);
   return { ...row.device, stockOrganization: row.stockOrganization, pairings, events, latest: latest ?? null };
+}
+
+/** Staff: firmware releases (Platform → Firmware). */
+export async function firmwareReleasesForStaff() {
+  await connection();
+  await requirePlatformAdmin();
+  return listReleases(getDb());
+}
+
+/** Staff: one release and every device's version and update state. */
+export async function firmwareRolloutForStaff(id: number) {
+  await connection();
+  await requirePlatformAdmin();
+  return releaseRollout(getDb(), id);
 }
 
 /** Platform admins: organization names for the switcher in the nav bar. */

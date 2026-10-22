@@ -17,6 +17,8 @@
  *   npm run simulate -- --speeding         # running machines drive at ~50 km/h for 30 s every 2 minutes (speeding)
  *   npm run simulate -- --idle             # running machines only idle, never work (excessive idling; needs RPM: --obd all)
  *
+ *   npm run simulate -- --firmware vs-1.0.0  # the firmware version the devices report when they sign in (FW=)
+ *
  * Device commands (docs/device-commands.md): the simulated devices act like our firmware fork. They read
  * commands from the replies, check the signature (with --device-secret, default $DEVICE_KEY_SECRET, the same
  * secret as the platform), run them and answer at /hub/api/ack.
@@ -33,7 +35,7 @@
  * firmware fork will (hour meter, fuel rate and total, coolant, RPM, load, DEF, fault codes; docs/can-data.md).
  */
 import { parseArgs } from "node:util";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { encodePayload, type SampleFields } from "../src/lib/freematics/protocol";
 
 const { values: args } = parseArgs({
@@ -51,6 +53,7 @@ const { values: args } = parseArgs({
     siphon: { type: "boolean", default: false },
     speeding: { type: "boolean", default: false },
     idle: { type: "boolean", default: false },
+    firmware: { type: "string", default: "sim-1.0.0" },
     "device-secret": { type: "string", default: process.env.DEVICE_KEY_SECRET ?? "" },
   },
 });
@@ -107,6 +110,8 @@ interface SimDevice {
   /** --siphon: percentage points still to be taken while running. */
   siphonLeft: number;
   siphoned: boolean;
+  /** Firmware version it reports (FW=); changes when an update installs. */
+  firmware: string;
   /** Commands already run (the firmware remembers the last ID, so a resent command isn't run twice). */
   lastCommandId: number;
   rateS: number | null;
@@ -133,6 +138,7 @@ const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => ({
   idleFuelL: 900 + i * 450,
   siphonLeft: 0,
   siphoned: false,
+  firmware: args.firmware!,
   lastCommandId: 0,
   rateS: null,
   defPct: 70 + Math.random() * 25,
@@ -269,7 +275,22 @@ async function send(path: string, init?: RequestInit): Promise<string> {
 }
 
 async function login(d: SimDevice) {
-  await handleReply(d, await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=`));
+  await handleReply(d, await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=&FW=${encodeURIComponent(d.firmware)}`));
+}
+
+/** UPDATE=<version>\t<bytes>\t<sha256>\t<path>: download, check size and fingerprint, "install", restart. */
+async function update(d: SimDevice, value: string): Promise<[boolean, string]> {
+  const [version, bytes, sha256, path] = value.split("\t");
+  const res = await fetch(`${host}${path}`);
+  if (!res.ok) return [false, `download failed: HTTP ${res.status}`];
+  const data = new Uint8Array(await res.arrayBuffer());
+  if (data.length !== Number(bytes)) return [false, `size mismatch: got ${data.length} bytes`];
+  if (createHash("sha256").update(data).digest("hex") !== sha256) return [false, "SHA-256 mismatch: not installed"];
+  console.log(`${d.id}: ⬇ downloaded ${version} (${(data.length / 1e6).toFixed(2)} MB, fingerprint OK), installing and restarting`);
+  d.firmware = version;
+  await send(`/hub/api/notify/${d.id}?EV=2&SSI=${d.rssi}`);
+  await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=&FW=${encodeURIComponent(d.firmware)}`);
+  return [true, `running ${version}`];
 }
 
 // ---------- Device commands (what our firmware fork will do) ----------
@@ -310,7 +331,9 @@ async function handleReply(d: SimDevice, reply: string) {
     } else if (name === "RESET") {
       console.log(`${d.id}: restarting`);
       await send(`/hub/api/notify/${d.id}?EV=2&SSI=${d.rssi}`);
-      await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=`);
+      await send(`/hub/api/notify/${d.id}?EV=1&SSI=${d.rssi}&VIN=&FW=${encodeURIComponent(d.firmware)}`);
+    } else if (name === "UPDATE") {
+      [ok, result] = await update(d, value).catch((err) => [false, `update failed: ${err.message}`] as [boolean, string]);
     } else {
       ok = false;
       result = `unknown command ${name}`;
