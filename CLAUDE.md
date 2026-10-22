@@ -150,6 +150,16 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   refuel. `checkFuelWhileRunning` (every 5 min, anchor `engine_sessions.fuel_anchor_*`, renewed hourly): rise → running
   refuel; J1939 + tank size: tank drop − meter burn ≥ 5%/20 L → `fuel-loss` alert. Refuels/thefts → `fuel_events`
   (machine page Fuel section, Reports → Fuel tab + CSV; `refuel` notification event).
+- Safety (`src/lib/safety.ts`, tested; `docs/safety.md`; kinds/units in browser-safe `src/lib/safety-kinds.ts`): org limits
+  `speed_limit_kph` / `idle_alert_minutes` / `fatigue_daily_hours` / `fatigue_continuous_hours` (null = off; owner Settings →
+  Safety rules) and `worksites.speed_limit_kph` (lowest open-visit site limit wins). Ingest calls `checkSpeedAndIdle`
+  (after the worksite check): speeding spell = `safety_events` row tracked by `machines.speeding_event_id`, notified
+  (`speeding`) after `SAFETY_RULES.speedingGraceSeconds`, unnotified spikes deleted; idle (RPM only, `idleState`) via
+  `machines.idle_since/idle_event_id` → `excessive_idle`; a device gap > `gapMinutes` ends both. Worksite type
+  `restricted` → `checkRestrictedAreas` in `afterDeviceReport` → `restricted-area` alert (unique per `worksite_visit_id`) →
+  `restricted_area` event. `checkFatigue` (in `runWatchdog`): engine time while checked in, per operator; daily and
+  continuous (gaps < 15 min merged) → `operator_fatigue`, deduped by `safety_events.dedupe_key`. Reports → Safety tab + CSV.
+  Safety log is in retention (check-in period), operator export and erase.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

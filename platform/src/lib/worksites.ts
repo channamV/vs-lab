@@ -33,6 +33,8 @@ export type WorksiteInput = {
   notes: string;
   /** Minutes, or null for no limit. */
   dwellLimitMinutes: number | null;
+  /** km/h, or null/absent for none (the fleet limit applies). */
+  speedLimitKph?: number | null;
 };
 
 function cleanInput(input: WorksiteInput) {
@@ -43,7 +45,7 @@ function cleanInput(input: WorksiteInput) {
   if (dwell !== null && (!Number.isInteger(dwell) || dwell < 5 || dwell > WORKSITE_RULES.maxDwellMinutes)) {
     throw new WorksiteError("The time limit must be between 5 minutes and 30 days.");
   }
-  return { name, type: input.type, notes: input.notes.trim().slice(0, 500) || null, dwellLimitMinutes: dwell };
+  return { name, type: input.type, notes: input.notes.trim().slice(0, 500) || null, dwellLimitMinutes: dwell, speedLimitKph: input.speedLimitKph ?? null };
 }
 
 function shape(polygon: unknown) {
@@ -99,7 +101,7 @@ export async function deleteWorksite(db: Db, organizationId: number, id: number)
 const typeLabel = (site: Pick<Worksite, "type">) => WORKSITE_TYPES[site.type as WorksiteType]?.label ?? site.type;
 
 /** The operator checked in on the machine right now, if any (for the notification's operator filter). */
-async function currentOperatorId(db: Db, machineId: number): Promise<number | null> {
+export async function currentOperatorId(db: Db, machineId: number): Promise<number | null> {
   const [open] = await db
     .select({ operatorId: checkins.operatorId })
     .from(checkins)

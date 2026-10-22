@@ -14,6 +14,8 @@
  *   npm run simulate -- --fuel-theft       # 15% of the fuel disappears while each engine is off (fuel theft alert)
  *   npm run simulate -- --refuel           # machines below half a tank are filled up while parked (fuel log)
  *   npm run simulate -- --siphon           # J1939 machines lose 15% of the tank while running, after ~4 minutes
+ *   npm run simulate -- --speeding         # running machines drive at ~50 km/h for 30 s every 2 minutes (speeding)
+ *   npm run simulate -- --idle             # running machines only idle, never work (excessive idling; needs RPM: --obd all)
  *
  * Device commands (docs/device-commands.md): the simulated devices act like our firmware fork. They read
  * commands from the replies, check the signature (with --device-secret, default $DEVICE_KEY_SECRET, the same
@@ -47,6 +49,8 @@ const { values: args } = parseArgs({
     "fuel-theft": { type: "boolean", default: false },
     refuel: { type: "boolean", default: false },
     siphon: { type: "boolean", default: false },
+    speeding: { type: "boolean", default: false },
+    idle: { type: "boolean", default: false },
     "device-secret": { type: "string", default: process.env.DEVICE_KEY_SECRET ?? "" },
   },
 });
@@ -223,8 +227,9 @@ function nextSample(d: SimDevice): SampleFields {
     d.nextSwitchAt = Date.now() + (d.engineOn ? minutes(3, 8) : minutes(1, 3));
     console.log(`${d.id}: engine ${d.engineOn ? "ON" : "OFF"}`);
   }
-  const working = d.engineOn && Math.random() < d.duty;
-  const speedKph = working ? 3 + Math.random() * 7 : 0;
+  const fast = args.speeding && d.engineOn && (Date.now() - simStart) % 120_000 < 30_000;
+  const working = d.engineOn && !args.idle && (fast || Math.random() < d.duty);
+  const speedKph = fast ? 48 + Math.random() * 6 : working ? 3 + Math.random() * 7 : 0;
   // Move along a circle around the jobsite.
   d.angle += ((speedKph / 3.6) * intervalS) / d.radiusM;
   const dLat = (d.radiusM * Math.cos(d.angle)) / 111_320;

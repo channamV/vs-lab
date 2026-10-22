@@ -14,6 +14,9 @@ Only machines whose service level is **Safety & Access Monitoring** (machine pag
 | **Operator not approved** | The operator isn't on the machine's approved list. | Once per check-in |
 | **Not confirmed at machine** | The operator's phone was more than 100 m from the machine, or they didn't share their location. | Once per check-in |
 
+**Restricted area entered**: a machine entered a worksite marked as a restricted area (exclusion zone). Every
+machine with a device, once per entry: see [safety.md](safety.md).
+
 **Possible tamper** alerts (a tracking device that went quiet, lost power, moved while quiet or reports a different
 vehicle) apply to every machine with a device: see [tamper.md](tamper.md).
 
@@ -52,6 +55,8 @@ production portal's notification subscriptions.
   - **Low Battery Warning** (replaced production's "Switched to Battery Power", 2026-10-21): see below.
   - **Engine Fault Code**: the engine computer reported a new fault (J1939 machines; see [can-data.md](can-data.md)).
   - **Possible Fuel Theft** (also an alert) and **Refuelled**: see "Fuel" below.
+  - **Speeding**, **Excessive Idling**, **Operator Fatigue** and **Restricted Area Entered** (also an alert):
+    see [safety.md](safety.md).
   - The greyed-out dashed chips are production event types VS Lab can't detect yet (movement, equipment
     removed, lock/unlock).
 - **Machines** and **Operators**: search and tick. Leave a list empty for "all". If the company uses divisions,

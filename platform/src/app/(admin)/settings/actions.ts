@@ -7,6 +7,9 @@ import { getDb } from "@/lib/db";
 import { organizations } from "@/lib/db/schema";
 import { PrivacyError, RETENTION_KEYS, updatePrivacySettings, type RetentionKey } from "@/lib/privacy";
 import { requireAuth } from "@/lib/session";
+import { SafetyError, updateSafetySettings } from "@/lib/safety";
+
+const SAFETY_FIELDS = ["speedLimitKph", "idleAlertMinutes", "fatigueDailyHours", "fatigueContinuousHours"] as const;
 
 export type SettingsFormState = { error: string | null; saved: boolean; version: number; values?: Record<string, string> };
 
@@ -43,6 +46,20 @@ export async function saveReportPlanAction(prev: PlanFormState, formData: FormDa
     .update(organizations)
     .set({ plannedHoursPerDay: Math.round(hours * 4) / 4, workingDays: [...new Set(days)].sort() })
     .where(eq(organizations.id, auth.organizationId));
+  refresh();
+  return { error: null, saved: true, version: prev.version + 1 };
+}
+
+/** Owners only: speed limit, idling limit and operator fatigue limits (src/lib/safety.ts). Blank = off. */
+export async function saveSafetySettingsAction(prev: SettingsFormState, formData: FormData): Promise<SettingsFormState> {
+  const auth = await requireAuth("owner");
+  const values = Object.fromEntries(SAFETY_FIELDS.map((k) => [k, String(formData.get(k) ?? "")])) as Record<(typeof SAFETY_FIELDS)[number], string>;
+  try {
+    await updateSafetySettings(getDb(), auth.organizationId, values);
+  } catch (err) {
+    if (err instanceof SafetyError) return { error: err.message, saved: false, version: prev.version + 1, values };
+    throw err;
+  }
   refresh();
   return { error: null, saved: true, version: prev.version + 1 };
 }

@@ -4,6 +4,7 @@ import { reportData, requestTime } from "@/lib/data";
 import { clockTime, formatHours, machineLabel, timeAgo } from "@/lib/format";
 import { IDLE_SOURCE_LABELS, isMeasuredIdle, RANGE_PRESETS, REPORT_RULES, type Report } from "@/lib/reports";
 import { WORKSITE_TYPES, worksiteColor, type WorksiteType } from "@/lib/worksite-types";
+import { SAFETY_KINDS, type SafetyKind } from "@/lib/safety-kinds";
 import { ActivityHeatmap, DailyHoursChart, HoursBars, Meter, dayLabel } from "./charts";
 
 /**
@@ -17,6 +18,7 @@ const TABS = {
   operators: "Operators",
   compliance: "Checklist compliance",
   fuel: "Fuel",
+  safety: "Safety",
   worksites: "Worksites",
 } as const;
 type Tab = keyof typeof TABS;
@@ -32,7 +34,7 @@ export default function ReportsPage({ searchParams }: PageProps<"/reports">) {
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold">Reports</h1>
-        <p className="text-sm text-slate-500">Engine hours, idle time, utilization, operators, checklist compliance and worksites.</p>
+        <p className="text-sm text-slate-500">Engine hours, idle time, utilization, operators, checklist compliance, fuel, safety and worksites.</p>
       </div>
       <Suspense fallback={<p className="text-sm text-slate-500">Working out the report…</p>}>
         <Reports searchParams={searchParams} />
@@ -90,6 +92,8 @@ async function Reports({ searchParams }: { searchParams: Promise<Params> }) {
         <Compliance report={report} csv={csv("compliance")} />
       ) : tab === "fuel" ? (
         <Fuel report={report} csv={csv("fuel")} logCsv={csv("fuel-log")} timeZone={timeZone} now={now} />
+      ) : tab === "safety" ? (
+        <Safety report={report} csv={csv("safety")} timeZone={timeZone} now={now} />
       ) : (
         <Worksites report={report} csv={csv("worksites")} />
       )}
@@ -564,6 +568,66 @@ function Fuel({ report, csv, logCsv, timeZone, now }: { report: Report; csv: str
                     {Math.round(e.fromPct)}% → {Math.round(e.toPct)}%
                   </td>
                   <td className={td}>{e.litres === null ? "—" : Math.round(e.litres)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </TableCard>
+    </div>
+  );
+}
+
+function Safety({ report, csv, timeZone, now }: { report: Report; csv: string; timeZone: string; now: number }) {
+  const counts = (Object.keys(SAFETY_KINDS) as SafetyKind[]).map((k) => ({ kind: k, n: report.safetyLog.filter((e) => e.kind === k).length }));
+  const value = (e: Report["safetyLog"][number]) => {
+    if (e.peak === null) return "—";
+    if (e.kind === "speeding") return `${Math.round(e.peak)} km/h (limit ${Math.round(e.limitValue ?? 0)})`;
+    if (e.kind === "excessive_idle") return `${formatHours(e.peak / 60)}${e.endedAt ? "" : " so far"}`;
+    return `${formatHours(e.peak)} (limit ${formatHours(e.limitValue ?? 0)})`;
+  };
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {counts.map((c) => (
+          <div key={c.kind} className={`${card} p-3`}>
+            <div className="text-xs text-slate-500">{SAFETY_KINDS[c.kind]}</div>
+            <div className="text-2xl font-semibold tabular-nums">{c.n}</div>
+          </div>
+        ))}
+      </div>
+      <TableCard
+        title="Safety log"
+        csv={csv}
+        note="Speeding over 10 seconds (fleet or worksite limit), restricted-area entries, idling over the limit (machines that report RPM) and operator fatigue. Limits are on the Settings page."
+      >
+        {report.safetyLog.length === 0 ? (
+          <p className="p-4 text-sm text-slate-500">Nothing in this period.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className={thead}>
+              <tr>
+                <th className={th}>When</th>
+                <th className={th}>What</th>
+                <th className={th}>Machine</th>
+                <th className={th}>Operator</th>
+                <th className={th}>How much</th>
+                <th className={th}>Where</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.safetyLog.map((e) => (
+                <tr key={e.id} className={row}>
+                  <td className={td}>{clockTime(e.startedAt, timeZone, now)}</td>
+                  <td className="px-3 py-2 font-medium">{SAFETY_KINDS[e.kind as SafetyKind] ?? e.kind}</td>
+                  <td className="px-3 py-2">
+                    <Link href={`/machines/${e.machineId}`} className="text-sky-700 hover:underline dark:text-sky-400">
+                      {e.machine}
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2">{e.operator ?? "—"}</td>
+                  <td className={td}>{value(e)}</td>
+                  <td className="px-3 py-2">{e.worksite ?? "—"}</td>
                 </tr>
               ))}
             </tbody>

@@ -84,6 +84,22 @@ export const EVENT_TYPES = {
     label: "Refuelled",
     description: "The fuel level went up: a refuel, while parked or running (machines that report fuel level). Also in the fuel log.",
   },
+  restricted_area: {
+    label: "Restricted Area Entered",
+    description: "A machine entered a worksite marked as a restricted area (exclusion zone). Also raises an alert.",
+  },
+  speeding: {
+    label: "Speeding",
+    description: "A machine went over the fleet speed limit, or a worksite's own limit, for more than 10 seconds (GPS speed).",
+  },
+  excessive_idle: {
+    label: "Excessive Idling",
+    description: "A machine has idled (engine running at low RPM, not moving) longer than the company's limit. Needs a device that reads engine RPM.",
+  },
+  operator_fatigue: {
+    label: "Operator Fatigue",
+    description: "An operator went over the daily hours limit, or worked too long without a 15-minute break (from check-ins and engine time).",
+  },
   possible_tamper: {
     label: "Possible Tamper",
     description:
@@ -111,6 +127,7 @@ export const ALERT_EVENT: Record<AlertType, EventType> = {
   "tamper-escalated": "possible_tamper",
   "fuel-theft": "possible_fuel_theft",
   "fuel-loss": "possible_fuel_theft",
+  "restricted-area": "restricted_area",
 };
 
 export const ALERT_EVENT_TYPES = [...new Set(Object.values(ALERT_EVENT))];

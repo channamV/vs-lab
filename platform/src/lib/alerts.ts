@@ -27,6 +27,8 @@ export const ALERT_LABELS = {
   "fuel-theft": "Possible fuel theft",
   /** The tank dropped while running, more than the engine burned (J1939 machines with a tank size). */
   "fuel-loss": "Possible fuel theft (while running)",
+  /** A machine entered a worksite of type "restricted" (src/lib/safety.ts). */
+  "restricted-area": "Restricted area entered",
 } as const;
 
 export type AlertType = keyof typeof ALERT_LABELS;

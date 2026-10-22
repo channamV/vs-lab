@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
+import { parseSiteSpeedLimit, SafetyError } from "@/lib/safety";
 import { createWorksite, deleteWorksite, setWorksitePerimeter, updateWorksite, WorksiteError } from "@/lib/worksites";
 
 /** Managers and owners who see the whole organization (worksites are shared by all divisions). */
@@ -21,6 +22,7 @@ const Details = z.object({
   type: z.string().max(40),
   notes: z.string().max(500),
   dwellHours: z.string().max(10),
+  speedLimit: z.string().max(10),
 });
 
 /** New worksite (with its drawn boundary) or changed details. */
@@ -32,6 +34,7 @@ export async function saveWorksiteAction(prev: WorksiteFormState, formData: Form
     type: formData.get("type") ?? "",
     notes: formData.get("notes") ?? "",
     dwellHours: formData.get("dwellHours") ?? "",
+    speedLimit: formData.get("speedLimit") ?? "",
   });
   const fail = (error: string) => ({ error, savedId: null, version: prev.version + 1 });
   let dwellLimitMinutes: number | null = null;
@@ -40,7 +43,14 @@ export async function saveWorksiteAction(prev: WorksiteFormState, formData: Form
     if (!Number.isFinite(hours) || hours <= 0) return fail("Enter the time limit in hours, e.g. 8 or 0.5.");
     dwellLimitMinutes = Math.round(hours * 60);
   }
-  const details = { name: input.name, type: input.type, notes: input.notes, dwellLimitMinutes };
+  let speedLimitKph: number | null;
+  try {
+    speedLimitKph = parseSiteSpeedLimit(input.speedLimit);
+  } catch (err) {
+    if (err instanceof SafetyError) return fail(err.message);
+    throw err;
+  }
+  const details = { name: input.name, type: input.type, notes: input.notes, dwellLimitMinutes, speedLimitKph };
   const db = getDb();
   let savedId: number;
   try {

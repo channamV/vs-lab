@@ -7,6 +7,7 @@ import { checkMovement, noteContact } from "@/lib/tamper";
 import { checkDwell, updatePresence } from "@/lib/worksites";
 import { checkBattery } from "@/lib/battery";
 import { updateEngineData } from "@/lib/faults";
+import { checkSpeedAndIdle } from "@/lib/safety";
 import { detectEngine, ENGINE_THRESHOLDS, type EngineReading } from "./engine";
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
@@ -169,6 +170,25 @@ export async function ingestSamples(
 
   // Engine computer data (J1939): hour meter and fault codes.
   if (machineId) await sideCheck("Engine data", () => updateEngineData(db, machineId, samples, now));
+
+  // Safety: speeding (fleet / worksite limits) and excessive idling. Runs after the worksite check so
+  // a site's own speed limit applies as soon as the machine is in it.
+  if (machineId) {
+    await sideCheck("Safety check", () =>
+      checkSpeedAndIdle(
+        db,
+        machineId,
+        rows.map((r, i) => ({
+          speedKph: r.speedKph,
+          satellites: r.satellites,
+          rpm: num(samples[i], "j1939Rpm") ?? num(samples[i], "obdRpm"),
+          engineOn: readings[i].running,
+        })),
+        now,
+        before?.lastSeenAt ?? null,
+      ),
+    );
+  }
 
   // Low battery warning (engine-off readings only).
   if (machineId) {

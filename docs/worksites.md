@@ -11,10 +11,14 @@ too long**. Modelled on the Worksites page in Veristart Insights.
 3. Click the map at each corner of the area. **Undo corner** removes the last one. Double-click, or press
    **Finish**, to close the shape (at least 3 corners). **Esc** or **Cancel** stops.
 4. Fill in the name, type (job site, company facility, yard, service facility, fuel depot, customer site,
-   other: each has its own colour) and, if you want, a **time limit** in hours and notes. **Save worksite**.
+   restricted area, other: each has its own colour) and, if you want, a **time limit** in hours, a **speed
+   limit** in km/h and notes. **Save worksite**.
+   - **Speed limit**: inside this site it replaces the fleet limit for the Speeding notification.
+   - **Restricted area (exclusion zone)**: any machine that enters raises an alert straight away.
+   - Both are explained in [safety.md](safety.md).
 
 To change one, click it on the map or in the list:
-- **Edit details**: name, type, time limit, notes.
+- **Edit details**: name, type, time limit, speed limit, notes.
 - **Edit boundary**: drag the orange corners; click a small light dot on an edge to add a corner there;
   right-click (on a phone, press and hold) a corner to remove it. **Save boundary**.
 - **Delete**: removes the worksite and its visit history (notifications already sent stay).

@@ -11,6 +11,8 @@ export const WORKSITE_TYPES = {
   service_facility: { label: "Service facility", color: "#8b5cf6" },
   fuel_depot: { label: "Fuel depot", color: "#ef4444" },
   customer_site: { label: "Customer site", color: "#22c55e" },
+  /** Exclusion zone: entering it raises an alert straight away (src/lib/safety.ts). */
+  restricted: { label: "Restricted area (exclusion zone)", color: "#be123c" },
   other: { label: "Other", color: "#6b7280" },
 } as const;
 export type WorksiteType = keyof typeof WORKSITE_TYPES;

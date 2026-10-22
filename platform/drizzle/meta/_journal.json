@@ -169,6 +169,13 @@
       "when": 1792605569045,
       "tag": "0023_device_commands",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792670145509,
+      "tag": "0024_safety",
+      "breakpoints": true
     }
   ]
 }

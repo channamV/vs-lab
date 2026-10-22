@@ -41,6 +41,10 @@ and the days it ran without a check-in.
 litres) and suspected thefts; then the **fuel log**: every refuel and suspected theft in the period. Both
 download as CSV. See [alerts.md](alerts.md#fuel-theft-alerts-and-the-refuelling-log).
 
+**Safety**: counts of each kind, then the **safety log**: speeding spells, restricted-area entries, excessive
+idling and operator fatigue in the period, with the machine, operator, how much and where. Downloads as CSV.
+See [safety.md](safety.md).
+
 **Worksites**: per worksite, engine hours on site, time on site, visits, machines and average visit.
 
 ## How idle is worked out

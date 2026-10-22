@@ -8,6 +8,7 @@ import { createDb, defaultDbOptions } from "../src/lib/db";
 import { deliverAlerts, processEvents } from "../src/lib/notifications";
 import { notifyIncidents, watchdog } from "../src/lib/tamper";
 import { checkDwell } from "../src/lib/worksites";
+import { checkFatigue } from "../src/lib/safety";
 
 async function main() {
   const db = createDb(defaultDbOptions());
@@ -15,8 +16,9 @@ async function main() {
   const raised = await notifyIncidents(db);
   await deliverAlerts(db, raised);
   const dwell = await checkDwell(db);
+  const fatigue = await checkFatigue(db);
   await processEvents(db, {});
-  console.log(`Checked ${result.checked} paired devices; ${result.changed} incidents opened or escalated; ${raised.length} alerts; ${dwell} stayed-too-long.`);
+  console.log(`Checked ${result.checked} paired devices; ${result.changed} incidents opened or escalated; ${raised.length} alerts; ${dwell} stayed-too-long; ${fatigue} operator fatigue.`);
   process.exit(0);
 }
 

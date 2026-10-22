@@ -18,6 +18,7 @@ import {
   operators,
   organizations,
   pinFailures,
+  safetyEvents,
   sessions,
   telemetry,
   worksiteVisits,
@@ -182,6 +183,8 @@ export async function applyRetention(db: Db, now = new Date()): Promise<Retentio
 
     // The fuel log goes with the alerts.
     await db.delete(fuelEvents).where(and(eq(fuelEvents.organizationId, org.id), lt(fuelEvents.at, checkinCutoff)));
+    // The safety log names operators (speeding, idling, fatigue): kept as long as check-ins.
+    await db.delete(safetyEvents).where(and(eq(safetyEvents.organizationId, org.id), lt(safetyEvents.startedAt, checkinCutoff)));
 
     // Alerts, resolved defects and finished check-ins. Open defects and a current check-in always stay.
     r.alertsDeleted += (
@@ -263,7 +266,7 @@ export async function exportOperator(db: Db, organizationId: number, operatorId:
     .where(and(eq(checkins.operatorId, op.id), eq(checkins.organizationId, organizationId)))
     .orderBy(asc(checkins.startedAt));
   const checkinIds = rows.map((r) => r.checkin.id);
-  const [photos, alertRows, events] = await Promise.all([
+  const [photos, alertRows, events, safety] = await Promise.all([
     checkinIds.length
       ? db.select().from(checkinPhotos).where(inArray(checkinPhotos.checkinId, checkinIds)).orderBy(asc(checkinPhotos.id))
       : [],
@@ -276,6 +279,12 @@ export async function exportOperator(db: Db, organizationId: number, operatorId:
       .innerJoin(machines, eq(machines.id, notificationEvents.machineId))
       .where(and(eq(notificationEvents.operatorId, op.id), eq(notificationEvents.organizationId, organizationId)))
       .orderBy(asc(notificationEvents.occurredAt)),
+    db
+      .select({ event: safetyEvents, machine: machines.name })
+      .from(safetyEvents)
+      .leftJoin(machines, eq(machines.id, safetyEvents.machineId))
+      .where(and(eq(safetyEvents.operatorId, op.id), eq(safetyEvents.organizationId, organizationId)))
+      .orderBy(asc(safetyEvents.startedAt)),
   ]);
   const photosFor = Map.groupBy(photos, (p) => p.checkinId);
   return {
@@ -315,6 +324,15 @@ export async function exportOperator(db: Db, organizationId: number, operatorId:
     })),
     alerts: alertRows.map((a) => ({ at: a.createdAt.toISOString(), type: a.type, title: a.title, detail: a.detail })),
     notifications: events.map(({ event, machine }) => ({ at: event.occurredAt.toISOString(), type: event.type, machine, detail: event.detail })),
+    safetyLog: safety.map(({ event: e, machine }) => ({
+      startedAt: e.startedAt.toISOString(),
+      endedAt: e.endedAt?.toISOString() ?? null,
+      kind: e.kind,
+      machine,
+      peak: e.peak,
+      limit: e.limitValue,
+      detail: e.detail,
+    })),
   };
 }
 
@@ -386,6 +404,10 @@ export async function eraseOperator(db: Db, organizationId: number, operatorId: 
     const events = await tx.select().from(notificationEvents).where(eq(notificationEvents.operatorId, op.id));
     for (const e of events) {
       if (e.detail) await tx.update(notificationEvents).set({ detail: scrub(e.detail) }).where(eq(notificationEvents.id, e.id));
+    }
+    const logged = await tx.select().from(safetyEvents).where(eq(safetyEvents.operatorId, op.id));
+    for (const e of logged) {
+      if (e.detail) await tx.update(safetyEvents).set({ detail: scrub(e.detail) }).where(eq(safetyEvents.id, e.id));
     }
     await tx.delete(machineOperators).where(eq(machineOperators.operatorId, op.id));
     await tx

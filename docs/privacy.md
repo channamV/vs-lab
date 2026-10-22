@@ -21,7 +21,7 @@ Each organization chooses how long data is kept (**Settings**, owners only). Eve
 | Operators' phone location at check-in | 90 days | 1 day – 10 years |
 | Checklist photos | 1 year | 30 days – 10 years |
 | GPS track, device data, connectivity incidents | 2 years | 30 days – 10 years |
-| Check-ins, checklist answers, alerts, resolved defects | 3 years | 90 days – 10 years |
+| Check-ins, checklist answers, alerts, resolved defects, fuel log, safety log | 3 years | 90 days – 10 years |
 | Notification history (who was emailed what) | 1 year | 30 days – 10 years |
 
 Details:

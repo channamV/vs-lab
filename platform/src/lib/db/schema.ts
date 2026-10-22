@@ -48,6 +48,15 @@ export const organizations = pgTable("organizations", {
    * (0 = Sunday … 6 = Saturday). Utilization = engine hours ÷ planned hours.
    */
   plannedHoursPerDay: real("planned_hours_per_day").notNull().default(8),
+  /**
+   * Safety rules (src/lib/safety.ts; Settings). Null = off. Fleet speed limit in km/h (worksites can set their
+   * own); idle stretch that counts as excessive (minutes, machines that report RPM); operator fatigue: hours
+   * operated in a day, and hours without a 15-minute break.
+   */
+  speedLimitKph: real("speed_limit_kph"),
+  idleAlertMinutes: integer("idle_alert_minutes").default(30),
+  fatigueDailyHours: real("fatigue_daily_hours").default(12),
+  fatigueContinuousHours: real("fatigue_continuous_hours").default(5),
   workingDays: integer("working_days").array().notNull().default(sql`'{1,2,3,4,5}'`),
 });
 
@@ -223,6 +232,10 @@ export const machines = pgTable(
     batteryLowVolts: real("battery_low_volts"),
     /** The engine computer's own hour meter (J1939), when the machine's device reads it, and when it was read. */
     engineHourMeter: doublePrecision("engine_hour_meter"),
+    /** Safety (src/lib/safety.ts): the open speeding spell and idle stretch, as safety_events rows, and when idling began. */
+    speedingEventId: bigint("speeding_event_id", { mode: "number" }),
+    idleSince: timestamp("idle_since", { withTimezone: true }),
+    idleEventId: bigint("idle_event_id", { mode: "number" }),
     engineHourMeterAt: timestamp("engine_hour_meter_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Latest state, from whichever device is paired. Null until a device has reported for this machine.
@@ -606,6 +619,8 @@ export const alerts = pgTable(
     checkinId: bigint("checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
     /** For tamper alerts: the incident (one alert when it opens, one more if it escalates to high). */
     incidentId: bigint("incident_id", { mode: "number" }),
+    /** For restricted-area alerts: the visit (one alert per entry). */
+    worksiteVisitId: bigint("worksite_visit_id", { mode: "number" }),
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
     ackNote: text("ack_note"),
     /** sent, failed or not-configured (no email settings yet). Null while sending. */
@@ -618,6 +633,7 @@ export const alerts = pgTable(
     uniqueIndex("alerts_one_per_engine_session_idx").on(t.type, t.engineSessionId),
     uniqueIndex("alerts_one_per_checkin_idx").on(t.type, t.checkinId),
     uniqueIndex("alerts_one_per_incident_idx").on(t.type, t.incidentId),
+    uniqueIndex("alerts_one_per_visit_idx").on(t.type, t.worksiteVisitId),
   ],
 );
 
@@ -865,6 +881,8 @@ export const worksites = pgTable(
     centerLng: doublePrecision("center_lng").notNull(),
     /** "Stays too long": a notification when a machine has been here longer than this. Null = no limit. */
     dwellLimitMinutes: integer("dwell_limit_minutes"),
+    /** Site speed limit (km/h); null = the fleet limit applies. */
+    speedLimitKph: real("speed_limit_kph"),
     createdByUserId: bigint("created_by_user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -988,7 +1006,43 @@ export const deviceCommands = pgTable(
   (t) => [index("device_commands_device_idx").on(t.deviceId, t.createdAt)],
 );
 
+/**
+ * The safety log (src/lib/safety.ts): speeding spells, restricted-area entries, excessive idling and operator
+ * fatigue (later: harsh braking, impacts, rollover, tilt from our firmware). One row per occurrence.
+ */
+export const safetyEvents = pgTable(
+  "safety_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" }).references(() => machines.id, { onDelete: "cascade" }),
+    operatorId: bigint("operator_id", { mode: "number" }).references(() => operators.id, { onDelete: "set null" }),
+    worksiteId: bigint("worksite_id", { mode: "number" }).references(() => worksites.id, { onDelete: "set null" }),
+    /** speeding, restricted_area, excessive_idle, fatigue_daily, fatigue_continuous */
+    kind: text("kind").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    /** Null while it's going on (speeding, idling). */
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    /** Highest value (km/h, minutes, hours) and the limit it was measured against. */
+    peak: real("peak"),
+    limitValue: real("limit_value"),
+    detail: text("detail"),
+    /** When it was notified (speeding and idling are only notified once they've lasted long enough). */
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    /** Stops the same occurrence being recorded twice (e.g. fatigue: operator + day). */
+    dedupeKey: text("dedupe_key"),
+  },
+  (t) => [
+    index("safety_events_org_time_idx").on(t.organizationId, t.startedAt),
+    index("safety_events_machine_idx").on(t.machineId, t.startedAt),
+    uniqueIndex("safety_events_dedupe_idx").on(t.dedupeKey),
+  ],
+);
+
 export type Organization = typeof organizations.$inferSelect;
+export type SafetyEvent = typeof safetyEvents.$inferSelect;
 export type DeviceCommand = typeof deviceCommands.$inferSelect;
 export type FuelEvent = typeof fuelEvents.$inferSelect;
 export type MachineFault = typeof machineFaults.$inferSelect;

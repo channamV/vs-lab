@@ -1,7 +1,8 @@
-import { and, asc, eq, gte, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { alerts, checkins, divisions, engineSessions, fuelEvents, machines, operators, organizations, telemetry, worksites, worksiteVisits, type FuelEvent } from "@/lib/db/schema";
+import { alerts, checkins, divisions, engineSessions, fuelEvents, machines, operators, organizations, safetyEvents, telemetry, worksites, worksiteVisits, type FuelEvent, type SafetyEvent } from "@/lib/db/schema";
 import { machineScope, type Scope } from "@/lib/divisions";
+import { SAFETY_KINDS, SAFETY_UNITS, type SafetyKind } from "@/lib/safety-kinds";
 import { effectiveEnd, localDateKey, midnightInZone, type SessionSpan } from "@/lib/telemetry/engine";
 
 /**
@@ -226,6 +227,8 @@ export type Report = {
   worksites: WorksiteReport[];
   /** Every fuel log entry in the period, oldest first. */
   fuelLog: (FuelEvent & { machine: string })[];
+  /** The safety log in the period (speeding, restricted areas, idling, fatigue), newest first. */
+  safetyLog: (SafetyEvent & { machine: string; operator: string | null; worksite: string | null })[];
   totals: {
     hours: number;
     idleHours: number;
@@ -268,7 +271,7 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
   const to = new Date(range.to);
   const none = ids.length === 0;
 
-  const [sessions, idleRows, checkinRows, unauthorized, visits, ecuRows, fuelRows] = await Promise.all([
+  const [sessions, idleRows, checkinRows, unauthorized, visits, ecuRows, fuelRows, safetyRows] = await Promise.all([
     none
       ? []
       : db
@@ -355,6 +358,23 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
           .from(fuelEvents)
           .where(and(inArray(fuelEvents.machineId, ids), gte(fuelEvents.at, from), lt(fuelEvents.at, to)))
           .orderBy(asc(fuelEvents.at)),
+    // The safety log (only occurrences that counted: brief speeding spikes are never notified).
+    none
+      ? []
+      : db
+          .select({ event: safetyEvents, operator: operators.name, worksite: worksites.name })
+          .from(safetyEvents)
+          .leftJoin(operators, eq(operators.id, safetyEvents.operatorId))
+          .leftJoin(worksites, eq(worksites.id, safetyEvents.worksiteId))
+          .where(
+            and(
+              inArray(safetyEvents.machineId, ids),
+              isNotNull(safetyEvents.notifiedAt),
+              gte(safetyEvents.startedAt, from),
+              lt(safetyEvents.startedAt, to),
+            ),
+          )
+          .orderBy(desc(safetyEvents.startedAt)),
   ]);
 
   const plannedPerMachine = plannedHours(range, org?.plannedHoursPerDay ?? 8, org?.workingDays ?? [1, 2, 3, 4, 5]);
@@ -517,6 +537,10 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
       const m = fleet.find((x) => x.machine.id === f.machineId)!.machine;
       return { ...f, machine: m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name };
     }),
+    safetyLog: safetyRows.map((r) => {
+      const m = fleet.find((x) => x.machine.id === r.event.machineId)!.machine;
+      return { ...r.event, machine: m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name, operator: r.operator, worksite: r.worksite };
+    }),
     totals: {
       hours: totalHours,
       idleHours: sum((m) => m.idleHours),
@@ -617,6 +641,21 @@ export const REPORT_CSV = {
       Math.round(e.fromPct),
       Math.round(e.toPct),
       e.litres === null ? "" : h2(e.litres),
+    ]),
+  ],
+  safety: (r: Report) => [
+    ["Started", "Ended", "What", "Machine", "Operator", "Worksite", "Peak", "Limit", "Unit", "Detail"],
+    ...r.safetyLog.map((e) => [
+      e.startedAt,
+      e.endedAt ?? "",
+      SAFETY_KINDS[e.kind as SafetyKind] ?? e.kind,
+      e.machine,
+      e.operator ?? "",
+      e.worksite ?? "",
+      e.peak === null ? "" : h2(e.peak),
+      e.limitValue === null ? "" : h2(e.limitValue),
+      SAFETY_UNITS[e.kind as SafetyKind] ?? "",
+      e.detail ?? "",
     ]),
   ],
   worksites: (r: Report) => [

@@ -22,6 +22,7 @@ export type SiteRow = {
   notes: string | null;
   polygon: Polygon;
   dwellLimitMinutes: number | null;
+  speedLimitKph: number | null;
   machinesInside: { id: number; name: string; unitNumber: string | null; since: Date }[];
 };
 type MachinePoint = { id: number; name: string; unitNumber: string | null; lat: number | null; lng: number | null; lastSeenAt: Date | null };
@@ -359,6 +360,7 @@ export function WorksiteManager({ sites, machines, canEdit }: { sites: SiteRow[]
                 {selected.dwellLimitMinutes
                   ? `Notify after a machine has been here ${formatHours(selected.dwellLimitMinutes / 60)}.`
                   : "No time limit."}
+                {selected.speedLimitKph ? ` Speed limit ${Math.round(selected.speedLimitKph)} km/h.` : ""}
               </p>
               <div>
                 <h3 className="text-sm font-medium">Here now ({selected.machinesInside.length})</h3>
@@ -474,6 +476,7 @@ function DetailsForm({
     type: site?.type ?? "worksite",
     notes: site?.notes ?? "",
     dwellHours: site?.dwellLimitMinutes ? String(Number((site.dwellLimitMinutes / 60).toFixed(2))) : "",
+    speedLimit: site?.speedLimitKph ? String(site.speedLimitKph) : "",
   });
   const set = (key: keyof typeof values) => (e: { target: { value: string } }) => setValues((v) => ({ ...v, [key]: e.target.value }));
   useEffect(() => {
@@ -511,6 +514,16 @@ function DetailsForm({
         />
         <span className="text-xs text-slate-500">For the “Stayed Too Long at Worksite” notification.</span>
       </label>
+      <label className="block text-sm">
+        <span className="text-slate-600 dark:text-slate-400">Speed limit (km/h, optional)</span>
+        <input name="speedLimit" inputMode="decimal" placeholder="e.g. 20" value={values.speedLimit} onChange={set("speedLimit")} className={field} />
+        <span className="text-xs text-slate-500">Inside this site, instead of the fleet limit (Settings), for the “Speeding” notification.</span>
+      </label>
+      {values.type === "restricted" && (
+        <p className="rounded bg-rose-50 px-2 py-1.5 text-xs text-rose-900 dark:bg-rose-950 dark:text-rose-200">
+          Restricted area: any machine that enters raises an alert straight away (Alerts page and “Restricted Area Entered” notification).
+        </p>
+      )}
       <label className="block text-sm">
         <span className="text-slate-600 dark:text-slate-400">Notes (optional)</span>
         <textarea name="notes" maxLength={500} rows={2} value={values.notes} onChange={set("notes")} className={field} />
