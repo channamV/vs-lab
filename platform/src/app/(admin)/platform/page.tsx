@@ -25,6 +25,10 @@ export default function PlatformPage() {
           <Link href="/platform/firmware" className="text-sky-700 hover:underline dark:text-sky-400">
             Firmware releases and updates →
           </Link>
+          {" · "}
+          <Link href="/platform/breaches" className="text-sky-700 hover:underline dark:text-sky-400">
+            Privacy breach register →
+          </Link>
         </p>
       </div>
       <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>

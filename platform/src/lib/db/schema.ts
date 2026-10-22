@@ -1098,3 +1098,34 @@ export type EngineSession = typeof engineSessions.$inferSelect;
 export type Operator = typeof operators.$inferSelect;
 export type Checkin = typeof checkins.$inferSelect;
 export type Tier = (typeof tierEnum.enumValues)[number];
+
+/**
+ * Privacy breach register (src/lib/breaches.ts; docs/privacy-canada.md). PIPEDA requires a record of every breach
+ * of security safeguards involving personal information, kept at least 24 months, whether or not it was reported.
+ * Staff only. Never deleted by the retention clean-up.
+ */
+export const breachRecords = pgTable("breach_records", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  /** When it happened (if known) and when we found out. */
+  occurredAt: timestamp("occurred_at", { withTimezone: true }),
+  discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
+  /** What happened, and what personal information was involved. */
+  description: text("description").notNull(),
+  dataInvolved: text("data_involved"),
+  /** Which customers and roughly how many people. */
+  organizationsAffected: text("organizations_affected"),
+  peopleAffected: integer("people_affected"),
+  /** Real risk of significant harm: null = not assessed yet. If yes, report to the Commissioner and notify people. */
+  realRiskOfSignificantHarm: boolean("real_risk_of_significant_harm"),
+  riskReasoning: text("risk_reasoning"),
+  reportedToCommissionerAt: timestamp("reported_to_commissioner_at", { withTimezone: true }),
+  individualsNotifiedAt: timestamp("individuals_notified_at", { withTimezone: true }),
+  customersNotifiedAt: timestamp("customers_notified_at", { withTimezone: true }),
+  /** What was done to contain it and stop it happening again. */
+  actionsTaken: text("actions_taken"),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  recordedBy: text("recorded_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type BreachRecord = typeof breachRecords.$inferSelect;

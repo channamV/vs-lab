@@ -35,6 +35,7 @@ import { auditEntries } from "@/lib/privacy";
 import { buildReport, reportRange } from "@/lib/reports";
 import { commandHistory, deviceKey } from "@/lib/commands";
 import { listReleases, releaseRollout } from "@/lib/firmware";
+import { listBreaches } from "@/lib/breaches";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -929,6 +930,13 @@ export async function getDeviceForStaff(id: string) {
     db.select().from(telemetry).where(eq(telemetry.deviceId, id)).orderBy(desc(telemetry.receivedAt), desc(telemetry.id)).limit(1),
   ]);
   return { ...row.device, stockOrganization: row.stockOrganization, pairings, events, latest: latest ?? null };
+}
+
+/** Staff: the privacy breach register. */
+export async function breachRegister() {
+  await connection();
+  await requirePlatformAdmin();
+  return listBreaches(getDb());
 }
 
 /** Staff: firmware releases (Platform → Firmware). */

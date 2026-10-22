@@ -96,6 +96,14 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   Craig to remove the `ADMIN_PASSWORD` fallback (Vercel setting + code in `src/lib/auth.ts`). It must go before any
   EU customer goes live (GDPR, `docs/privacy.md`).
 
+## Privacy compliance reminder (Craig's request, 2026-10-22)
+
+vs-lab is **not yet compliant with Veristart's own privacy policy** (2024-09-23) or ready for Canadian customers'
+real data: see the "Must fix" items in `docs/privacy-canada.md` (Canadian hosting, operator/employer roles,
+safety-monitoring wording, Quebec consent, breach procedure). **Remind Craig of this occasionally** (e.g. when
+finishing a feature that touches personal data, or before any customer/pilot use) until the doc's status line
+says it's compliant. Update that doc when items are done.
+
 ## Conventions
 
 - Next.js 16 differs from older versions: read `platform/node_modules/next/dist/docs/` before
@@ -176,7 +184,9 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   `exportOperator` (JSON at `/operators/<id>/export`) and `eraseOperator` (placeholder "Former operator #id", PIN
   unusable, approvals/locations/photos removed, name replaced in text; check-ins kept; `operators.erased_at`) are for
   whole-org managers/owners (`canManageOperatorData`). `audit_log` (shown on Settings) records staff switching into an
-  org (`viewOrganization`) and exports/erasures. New personal data → add it to retention, export and erase.
+  org (`viewOrganization`) and exports/erasures. New personal data → add it to retention, export and erase, and to
+  the check-in privacy notice. Canada/PIPEDA: `docs/privacy-canada.md`; breach register `src/lib/breaches.ts` (tested;
+  staff page `/platform/breaches`; never deleted by retention).
 - Check-ins follow the engine (Craig's rule, 2026-10-17): start within 5 min → the check-in is linked to that
   engine session (`checkins.engine_session_id`); engine stops (after a break allowance by check-in
   `method`: web 30 min, ble 0, `CHECKIN_RULES.breakMinutes`) or no start → automatic check-out, recorded at

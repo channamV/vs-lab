@@ -183,6 +183,13 @@
       "when": 1792671762576,
       "tag": "0025_top_speed_firmware",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792674832959,
+      "tag": "0026_breach_register",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,8 @@
 # Privacy (GDPR)
 
+> Canada (PIPEDA, Quebec) and how vs-lab compares with Veristart's own privacy policy: [privacy-canada.md](privacy-canada.md).
+> **vs-lab is not yet compliant with that policy**: see the "Must fix" items there.
+
 What VS Lab does to handle personal data properly, so it can be used by customers in Europe (and is good practice
 everywhere). The people whose data we hold are mainly **operators**: their name, PIN, when they ran which machine,
 checklist answers, notes, photos, and (if they allow it) their phone's location at check-in. Portal users' email

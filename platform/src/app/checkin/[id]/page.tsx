@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { getCheckinMachine } from "@/lib/checkin-page";
 import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, periodText } from "@/lib/format";
+import { VERISTART_PRIVACY } from "@/lib/privacy-limits";
 import { CheckInForm, CheckOutForm } from "./CheckinForms";
 
 /** PUBLIC page opened from the QR sticker on a machine. No sign-in; operators identify with their PIN. */
@@ -87,6 +88,10 @@ function PrivacyNotice({
           phone&apos;s location at check-in is used to confirm you&apos;re at the machine.
         </p>
         <p>
+          While you&apos;re checked in, the machine&apos;s safety records are linked to you: hours operated and breaks (for
+          fatigue limits), speeding, long idling, and entering restricted areas.
+        </p>
+        <p>
           Phone location is kept for {periodText(privacy.locationDays)}, photos for {periodText(privacy.photoDays)}, and
           check-in records for {periodText(privacy.checkinDays)}. The system is run for {privacy.name} by Veristart.
         </p>
@@ -99,6 +104,17 @@ function PrivacyNotice({
           ) : (
             <>ask your supervisor.</>
           )}
+        </p>
+        <p>
+          How Veristart handles personal information:{" "}
+          <a href={VERISTART_PRIVACY.policyUrl} className="underline" target="_blank" rel="noreferrer">
+            Veristart privacy policy
+          </a>
+          . Veristart&apos;s Privacy Officer:{" "}
+          <a href={`mailto:${VERISTART_PRIVACY.officerEmail}`} className="underline">
+            {VERISTART_PRIVACY.officerEmail}
+          </a>
+          .
         </p>
       </div>
     </details>

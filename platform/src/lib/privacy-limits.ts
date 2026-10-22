@@ -10,3 +10,12 @@ export const RETENTION_LIMITS = {
 } as const;
 export type RetentionKey = keyof typeof RETENTION_LIMITS;
 export const RETENTION_KEYS = Object.keys(RETENTION_LIMITS) as RetentionKey[];
+
+/**
+ * Veristart's own privacy policy and Privacy Officer (policy of 2024-09-23), shown on the operator check-in
+ * notice. vs-lab doesn't yet do everything that policy says: see docs/privacy-canada.md.
+ */
+export const VERISTART_PRIVACY = {
+  officerEmail: "Privacy@veristart.ca",
+  policyUrl: "https://www.veristart.ca/",
+};

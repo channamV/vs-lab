@@ -35,6 +35,7 @@ sticker on the machine, entering a PIN and completing the pre-start checklist, a
 15. [Device commands](docs/device-commands.md) — sending commands to devices (buzzer, Wi-Fi, reporting rate…), signing
 16. [Safety rules](docs/safety.md) — speeding (fleet, machine and site limits), restricted areas, excessive idling, operator fatigue
 17. [Firmware updates](docs/firmware-updates.md) — uploading releases, sending them to devices in stages, what the firmware must do
+18. [Privacy in Canada](docs/privacy-canada.md) — PIPEDA/Quebec checklist, gaps against Veristart's privacy policy, breach register
 
 ## Quick start
 
