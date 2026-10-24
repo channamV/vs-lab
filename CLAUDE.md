@@ -9,13 +9,15 @@ Windows PC). Explain changes in plain language and keep the docs in `docs/` curr
 | Path | What |
 |---|---|
 | `platform/` | Web app + device API. Next.js 16 (App Router, Cache Components), TypeScript, Drizzle ORM, PostgreSQL |
-| `firmware/` | Device firmware notes and (later) our fork of Freematics Telelogger |
+| `firmware/` | Our build of Freematics Telelogger (`telelogger/`, `libraries/`; upstream copy in commit 51160f1) + notes |
 | `docs/` | Runbooks written for a non-engineer: setup, device, deploy, product tiers |
 
 ## Hardware
 
-Freematics ONE+ **Model H**, SIM7670 (LTE Cat 1) modem, ESP32. SIM cards: **Soracom, plan01s** (APN `soracom.io`). Runs the stock Freematics
-**Telelogger** firmware configured for "HTTPS POST" to our server. Source of truth for the
+Freematics ONE+ **Model H**, SIM7670 (LTE Cat 1) modem, ESP32. SIM cards: **Soracom, plan01s** (APN `soracom.io`). Runs **our build of Freematics
+Telelogger** (`firmware/telelogger`, PlatformIO envs `bench`/`vehicle`; settings as build flags in `platformio.ini`,
+config.h untouched; SNI fix for the SIM7670 in `FreematicsPlus/FreematicsNetwork.cpp`) posting "HTTPS POST" to our
+server. Build/flash only on Craig's PC (PlatformIO's registry is blocked in cloud sessions); `docs/freematics-setup.md`. Source of truth for the
 device protocol: `firmware_v5/telelogger` and `libraries/FreematicsPlus` in
 github.com/stanleyhuangyc/Freematics.
 

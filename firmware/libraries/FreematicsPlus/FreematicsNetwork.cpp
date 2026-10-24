@@ -760,6 +760,9 @@ void CellHTTP::init()
   if (m_type == CELL_SIM7670) {
     sendCommand("AT+CSSLCFG=\"sslversion\",0,4\r");
     sendCommand("AT+CSSLCFG=\"authmode\",0,0\r");
+    // VS Lab: send the server name in the TLS handshake (SNI). Hosts like Vercel serve many sites from one
+    // address and refuse a handshake without it, so HTTPS over cellular would fail on every upload.
+    sendCommand("AT+CSSLCFG=\"enableSNI\",0,1\r");
   } else if (m_type != CELL_SIM7070) {
     sendCommand("AT+CHTTPSSTOP\r");
     sendCommand("AT+CHTTPSSTART\r");

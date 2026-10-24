@@ -1,3 +1,5 @@
 .DS_Store
 Thumbs.db
 firmware/vendor/
+firmware/telelogger/.pio/
+firmware/telelogger/.vscode/

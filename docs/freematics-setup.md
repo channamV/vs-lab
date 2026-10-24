@@ -1,111 +1,117 @@
 # Freematics ONE+ Model H setup
 
-Goal: the device, running **stock Freematics firmware**, reports to **your** platform instead of
-Freematics' demo server. No code changes, just settings.
+Goal: a new device reports to **our platform** (`vs-lab-platform-tpj9.vercel.app`) over Soracom cellular, and its
+data shows on a machine's page.
+
+The device runs **our build of Freematics Telelogger** (`firmware/telelogger`). It's the stock firmware with the
+settings already filled in, plus one fix the SIM7670 modem needs to reach Vercel over cellular (see
+[firmware/README.md](../firmware/README.md)). Freematics Builder can't apply that fix, so we flash from your PC with
+PlatformIO; Claude Code on your PC does it for you.
 
 ## What you need
 
-- Freematics ONE+ Model H (SIM7670 LTE Cat 1)
-- Micro SIM with a data plan. An IoT SIM like Soracom is easiest. Note the **APN** your provider gives you.
-  VS Lab uses **Soracom plan01s** SIMs (APN `soracom.io`).
-- USB cable (the one that came with the device)
-- For bench testing: a **12 V OBD-II bench power adapter**. USB power is enough to flash and for Wi-Fi testing.
-  The cellular modem can draw more power than USB supplies when it transmits.
-- Antennas attached (GPS and cellular) **before** powering on
+- Freematics ONE+ **Model H** (SIM7670 LTE Cat 1)
+- **Soracom plan01s** SIM (APN `soracom.io`)
+- **microSD card** (optional, 4–32 GB, FAT32). The device also writes its data to the card, a backup while
+  there's no signal.
+- The device's **USB cable** (a data cable, not charge-only)
+- For cellular tests on the bench: a **12 V OBD-II bench power supply**, or test in a vehicle. Over USB alone the
+  modem can brown out when it transmits.
+- Your Windows PC with **Claude Code** and **git**, and the vs-lab repository cloned
 
-## 1. Your platform needs a public HTTPS address
+## 1. Get the SIM ready (Soracom console)
 
-The device reaches your platform over the internet, so `localhost` won't work. Two options:
+1. Sign in at **console.soracom.io** → **SIM Management**.
+2. Find the SIM by its **ICCID** (printed on the card, e.g. `89423 10223 00256 471 2`).
+   - Listed with status **Ready** or **Active**: good.
+   - Not listed: **Register SIM** and enter the numbers the console asks for (they're on the card).
+3. Give it a **Name** you'll recognise later, e.g. `VS Lab #1`. Add the device ID once you know it (step 4).
+4. Keep the card: the **PUK** on it unlocks the SIM if it ever gets PIN-locked.
 
-| Option | When | How |
-|---|---|---|
-| **Deploy** (recommended) | You want it running all the time | Follow [deploy.md](deploy.md). Your address will be something like `vs-lab-xyz.vercel.app` |
-| **Temporary tunnel** | Quick test against your PC | Install `cloudflared`, run `cloudflared tunnel --url http://localhost:3000`, and use the `….trycloudflare.com` address it prints. It changes every time you run it. |
+## 2. Put the SIM and microSD card in
 
-Check it works. Open this in a browser, replacing the host:
-`https://YOUR-HOST/hub/api/notify/TEST0001?EV=7` → it should show **OK**, and a device "TEST0001" appears on the Fleet page.
+**Unplug the device first.** Cards go in and out with the power off.
 
-## 2. Connect the device to your PC
+1. **SIM size: micro SIM.** The Soracom card is a three-size "triple cut". Press out the **middle (micro)** size: the
+   outline around the gold chip that also takes in the "SG002" print. Don't press the tiny nano piece out of it.
+   Compare it with the slot before forcing anything. If it's loose or wrong, stop and check the device's manual.
+2. Insert the SIM into the SIM slot, chip side and notched corner as marked on the case.
+3. **microSD card**: it should already be FAT32. Most new cards up to 32 GB are. If Windows says otherwise,
+   right-click it in File Explorer → Format → FAT32. Insert it into the microSD slot.
+4. If your unit has antenna connectors, fit the antennas **before** powering on.
 
-1. Plug the device into your PC over USB.
-2. Open **Device Manager** (right-click Start) → **Ports (COM & LPT)**.
-3. You should see something like *USB-SERIAL CH340 (COM5)* or *Silicon Labs CP210x (COM5)*. Note the COM number.
-4. If it's under "Other devices" with a yellow warning instead, it needs a driver:
-   - CH340: search "CH340 driver Windows" (from wch-ic.com)
-   - CP210x: search "CP210x driver" (from silabs.com)
-   - Or ask Claude Code on your PC: *"My Freematics shows as an unknown device in Device Manager, help me install the driver."*
+## 3. Flash our firmware (Claude Code on your PC)
 
-## 3. Configure and flash the firmware
+Plug the device into the PC by USB. Then open Claude Code **in your vs-lab folder** and paste:
 
-The easiest route is **Freematics Builder**, a Windows tool from Freematics. Download it from
-freematics.com or from the GitHub releases at github.com/stanleyhuangyc/Freematics/releases.
+> Pull the latest vs-lab from GitHub. My Freematics ONE+ Model H is plugged in by USB. Install PlatformIO if needed, find
+> its COM port, then build and flash `firmware/telelogger` with the `bench` environment
+> (`pio run -e bench -t upload` from that folder). Then open the serial monitor at 115200 baud, watch the log for
+> 3 minutes and tell me the DEVICE ID and whether uploads to the server get OK replies. Follow docs/freematics-setup.md.
 
-1. Open Freematics Builder and pick the **telelogger** project / Freematics ONE+ target.
-2. Set the options:
+Claude installs the tools, checks for the USB driver, builds (the first build downloads the ESP32 toolchain, several
+minutes), flashes and reads the log.
 
-| Setting | Value |
+Which build:
+
+| Build | When |
 |---|---|
-| Enable OBD | On if testing in a vehicle; **off** on the bench (avoids OBD retry delays) |
-| Enable Motion Sensor | On |
-| GNSS | Standalone GNSS |
-| Storage | None (or MicroSD if a card is fitted) |
-| Cellular Network APN | Your SIM provider's APN (e.g. Soracom: `soracom.io`) |
-| WiFi Network | **On for first tests.** Enter your Wi-Fi or phone-hotspot name and password |
-| Server Host | Your host, **without** `https://`, e.g. `vs-lab-xyz.vercel.app` |
-| Server Port | `443` |
-| Transport Protocol | **HTTPS POST** |
-| Enable PSRAM | On (Model H has PSRAM, so the device can buffer more data while offline) |
+| `bench` | On the desk (OBD off, so it doesn't wait for a vehicle) |
+| `vehicle` | Plugged into a truck's or machine's OBD/diagnostic port (OBD data on) |
 
-3. Select the COM port from step 2 and click **Build & Upload** (or equivalent). It takes a couple of minutes.
-4. Open the **serial monitor** at **115200** baud. You'll see the device's log.
-
-**Alternative (PlatformIO, the route Claude uses):** on your PC, ask Claude Code:
-*"Clone the Freematics repo into firmware/vendor, set up telelogger for my Model H with server
-YOUR-HOST, port 443, HTTPS POST, APN X, Wi-Fi Y, then build, flash it on COM5 and watch the serial output."*
-Claude edits `config.h`, runs the build and upload, and reads the log for you.
+**Optional Wi-Fi** (handy if cellular gives trouble): tell Claude your Wi-Fi name and password and to set
+`VSLAB_WIFI_SSID` / `VSLAB_WIFI_PASSWORD` for the build. They're never saved in the repository. The device then uses
+Wi-Fi when it's in range and cellular otherwise. Only 2.4 GHz networks work.
 
 ## 4. What a healthy log looks like
 
 Roughly, in order:
 
 ```
-[WIFI] Connecting...  / [CELL] SIM7670 ...       ← network coming up
-LOGIN(your-host:443)...                          ← device announces itself
-[GNSS] ...                                       ← GPS starting (first fix can take 1–5 min outdoors)
-[WIFI] /hub/api/post/XXXXXXXX                    ← sending data; XXXXXXXX is the device ID
-[HTTP] OK 1                                      ← your platform accepted it
+DEVICE ID:XXXXXXXX                          ← write this down (Soracom name, label on the device)
+GNSS:OK(I)                                  ← built-in GPS found
+[CELL] Activating...
+CELL:SIM7670...                             ← modem found
+IMEI:...
+APN:soracom.io
+Operator:...                                ← registered on a network (Soracom roams on local carriers)
+[CELL] IP:...                               ← data connection up
+LOGIN(vs-lab-platform-tpj9.vercel.app:443)...
+[HTTP] OK ...                               ← our platform accepted the data (repeats every few seconds)
 ```
 
-The device appears on the **Platform** page (Veristart stock) under its 8-character device ID. Pair it with a machine there (add the machine first: **Fleet → Add machine**) and its data shows on that machine's page. See [machines-and-devices.md](machines-and-devices.md). GPS needs a view of the sky.
-Put the device by a window or outside for the first fix.
+## 5. On the platform
 
-## 5. Then test over cellular
+1. **Platform** (Veristart staff menu): the device appears in **Veristart stock** under its DEVICE ID as soon as it
+   reports. Click it for diagnostics: last report, battery, signal, position.
+2. Add a test machine: **Fleet → Add machine** (e.g. "Bench unit", type Pickup / light vehicle).
+3. **Pair** the device with that machine (Platform page, or the machine's *Tracking device* box).
+4. The machine's page now shows position, engine on/off and the rest. The simulator's demo machines are
+   unaffected.
 
-Once Wi-Fi works, turn Wi-Fi **off** in the settings (or move out of range) and re-flash. Then
-watch for `[CELL]` lines and `OK` replies.
+## 6. In a vehicle
 
-### Known risk: HTTPS over the SIM7670 modem
-
-Over cellular, the stock firmware uses the modem's built-in HTTPS client. Modern hosts (Vercel,
-Cloudflare) require a TLS feature called **SNI**. Some SIMCom modems leave it off by default.
-If Wi-Fi works but cellular shows connection or handshake errors on every send, that's the likely
-cause. The fix is one line added to the firmware (`AT+CSSLCFG="enableSNI",0,1`). That will be our
-first firmware change. Ask Claude Code to make it and flash it.
+Re-flash with the `vehicle` build, plug the device into the OBD-II port, start the engine and drive. Engine
+start/stop, speed and trips should appear on the machine's page. Heavy equipment often has a 9-pin Deutsch (J1939)
+port instead: that needs an adapter cable, and J1939 data needs our later firmware work ([can-data.md](can-data.md)).
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
+| Symptom | Likely cause / fix |
 |---|---|
-| No COM port appears | Charge-only USB cable, or driver missing (step 2) |
-| Upload fails "port busy" | Serial monitor is open — close it, then upload |
-| `[CELL]` errors, no network | Wrong APN, SIM not activated, antenna not attached, or not enough power on USB |
-| Logs in, but no position | Indoors; wait for a GPS fix by a window |
-| Platform shows device but data stops | Check the device's log; check Vercel → Logs for errors |
-| `Unknown device` replies | `DEVICE_AUTO_REGISTER=false` is set and the device isn't registered yet |
-| Device reports, but nothing shows on the Fleet page | It isn't paired yet: Platform page → pair it with a machine |
+| No COM port appears | Charge-only cable, or the USB driver (CH340 / CP210x) is missing. Claude can install it |
+| Upload fails "port busy" | The serial monitor is open: close it, then upload |
+| Modem not found / keeps restarting when it transmits | Not enough power over USB: use the 12 V supply or a vehicle |
+| No network / `CELL` errors | SIM not Ready/Active in Soracom, SIM not seated, wrong size, or no coverage indoors |
+| Registered, but every upload fails | Check the log for TLS/handshake errors and tell Claude. (The SNI fix should prevent the usual one) |
+| Reports arrive, no position | Indoors: put it by a window or outside for the first GPS fix |
+| Data arrives but nothing on the Fleet page | Not paired yet (step 5) |
+| Old settings seem to stick (wrong APN/Wi-Fi) | Settings saved by an earlier firmware override ours: ask Claude to erase the flash (`pio run -t erase`) and flash again |
 
-## Security notes for later (before real customer use)
+## Security notes (before real customer use)
 
-- Devices are identified only by their ID in the URL. Anyone who knows an ID could send fake data.
-  Set `DEVICE_AUTO_REGISTER=false` once your devices are registered. Device authentication comes in a later phase.
-- The stock firmware doesn't verify the server's certificate. That's acceptable for a lab, not for production.
+- Devices are identified only by their ID in the URL; anyone who knows an ID could send fake data. Set
+  `DEVICE_AUTO_REGISTER=false` once devices are registered; device authentication comes later.
+- The firmware doesn't check the server's certificate yet. OK for a lab, not for production.
+- Bluetooth is on (Freematics Controller app). Its commands have no password and can read back the Wi-Fi password.
+  Fine on the bench; to be locked down in our firmware work.

@@ -1,22 +1,30 @@
 # Firmware
 
-## Today: stock firmware
+## Today: our build of Telelogger
 
-The device runs Freematics' open-source **Telelogger** firmware, unmodified, configured to report
-to our platform. Setup steps: [docs/freematics-setup.md](../docs/freematics-setup.md).
+`firmware/telelogger` is Freematics' open-source **Telelogger** firmware, and `firmware/libraries` the libraries it
+needs, copied from github.com/stanleyhuangyc/Freematics at commit `9b0a68d8` (2025-12-16): `firmware_v5/telelogger`,
+`libraries/FreematicsPlus`, `FreematicsOLED`, `httpd`, `TinyGPS`. The first commit adding them is the untouched
+upstream copy, so `git diff 51160f1 -- firmware/` shows everything we've changed.
 
-- Source: github.com/stanleyhuangyc/Freematics, `firmware_v5/telelogger`
-- Device library (modem, GPS, OBD, buzzer): `libraries/FreematicsPlus`
-- Build system: PlatformIO (`platformio.ini` is included upstream), Arduino framework on ESP32
-- Our device: ONE+ Model H, SIM7670 modem (supported by `FreematicsPlus`; auto-detected)
+Our changes so far:
 
-## Next: our own fork
+| Change | Where |
+|---|---|
+| Settings for our platform: server `vs-lab-platform-tpj9.vercel.app:443`, HTTPS POST, Soracom APN, microSD storage, PSRAM, Wi-Fi from environment variables (never in the repo); `bench` (OBD off) and `vehicle` builds; platform pinned to espressif32 6.x (Arduino-ESP32 2.x, which this code needs) | `telelogger/platformio.ini` (config.h unchanged) |
+| **SNI for HTTPS over the SIM7670 modem** (`AT+CSSLCFG="enableSNI",0,1`). Without it Vercel refuses the TLS handshake, so cellular uploads fail | `libraries/FreematicsPlus/FreematicsNetwork.cpp`, `CellHTTP::init` |
 
-When Tier 2 needs device changes (see [product tiers](../docs/product-tiers.md)), we'll copy
-Telelogger into `firmware/telelogger/`, keep the upstream version noted, and change it in small,
-tested steps:
+Status: prepared 2026-10-24, **not yet built or flashed**. PlatformIO's servers are blocked in Claude's cloud
+sessions, so the first build happens on Craig's PC. Setup and flashing: [docs/freematics-setup.md](../docs/freematics-setup.md).
 
-1. Enable SNI for HTTPS on the SIM7670 (if cellular uploads fail against Vercel)
+- Device library (modem, GPS, OBD, buzzer): `libraries/FreematicsPlus`; the Model H's SIM7670 modem is auto-detected
+- Build system: PlatformIO, Arduino framework on ESP32
+
+## Next: further firmware changes
+
+Further changes, in small tested steps (see [product tiers](../docs/product-tiers.md)):
+
+1. ~~Enable SNI for HTTPS on the SIM7670~~ (done in code, to be confirmed on the device)
 2. Read commands from the server's reply to each upload and check-in, check their signature, run them and answer
    (format in [docs/device-commands.md](../docs/device-commands.md); the server side and a simulated device are built)
 3. BLE beacon scanning, adding nearby beacon IDs to each report
