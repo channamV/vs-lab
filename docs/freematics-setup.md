@@ -62,7 +62,9 @@ Which build:
 
 **Optional Wi-Fi** (handy if cellular gives trouble): tell Claude your Wi-Fi name and password and to set
 `VSLAB_WIFI_SSID` / `VSLAB_WIFI_PASSWORD` for the build. They're never saved in the repository. The device then uses
-Wi-Fi when it's in range and cellular otherwise. Only 2.4 GHz networks work.
+Wi-Fi when it's in range and cellular otherwise. Only 2.4 GHz networks work. For now Wi-Fi uploads need the
+`bench-nobt` build: with Bluetooth on, the ESP32 runs out of memory for the secure connection (see
+[firmware/README.md](../firmware/README.md), "Bluetooth must stay").
 
 ## 4. What a healthy log looks like
 
@@ -70,12 +72,12 @@ Roughly, in order:
 
 ```
 DEVICE ID:XXXXXXXX                          ← write this down (Soracom name, label on the device)
-GNSS:OK(I)                                  ← built-in GPS found
 [CELL] Activating...
 CELL:SIM7670...                             ← modem found
 IMEI:...
 APN:soracom.io
 Operator:...                                ← registered on a network (Soracom roams on local carriers)
+CELL GNSS:OK                                ← GPS on the modem switched on (the Model H has no separate GPS chip)
 [CELL] IP:...                               ← data connection up
 LOGIN(vs-lab-platform-tpj9.vercel.app:443)...
 [HTTP] OK ...                               ← our platform accepted the data (repeats every few seconds)
@@ -108,6 +110,9 @@ port instead: that needs an adapter cable, and J1939 data needs our later firmwa
 | Reports arrive, no position | Indoors: put it by a window or outside for the first GPS fix |
 | Data arrives but nothing on the Fleet page | Not paired yet (step 5) |
 | Old settings seem to stick (wrong APN/Wi-Fi) | Settings saved by an earlier firmware override ours: ask Claude to erase the flash (`pio run -t erase`) and flash again |
+| Build fails with `CreateProcess: No such file or directory` | The compile command is longer than Windows allows (32,767 characters). Happens when another PlatformIO project installed a different espressif32 version first, so ours lands in folders with long versioned names (`framework-arduinoespressif32@3.20017…`). Build with a separate, short PlatformIO folder: PowerShell `$env:PLATFORMIO_CORE_DIR="$env:USERPROFILE\.pio"` before `pio run` (the first build downloads the toolchain again) |
+| Build fails with `missing terminating " character` after setting Wi-Fi | The Wi-Fi name contains a space: PlatformIO splits build flags at spaces (and turns `\` into `/`, so escaping doesn't help). Leave `VSLAB_WIFI_SSID` empty and pass the name in a small header outside the repository instead: a file `wifi_ssid.h` containing `#undef CONFIG_WIFI_SSID` and `#define CONFIG_WIFI_SSID "My Wifi"`, then `$env:PLATFORMIO_BUILD_FLAGS="-include C:/path/to/wifi_ssid.h"` (forward slashes, a path without spaces). Claude does this for you |
+| Wi-Fi joins but every upload fails with `SSL - Memory allocation failed`, then the device reboots | Bluetooth uses the memory the secure connection needs: use the `bench-nobt` build for Wi-Fi tests |
 
 ## Security notes (before real customer use)
 
