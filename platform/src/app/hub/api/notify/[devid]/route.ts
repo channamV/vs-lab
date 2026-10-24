@@ -3,6 +3,7 @@ import { commandsForReply, withCommands } from "@/lib/commands";
 import { EVENT_NAMES } from "@/lib/freematics/protocol";
 import { noteFirmwareVersion } from "@/lib/firmware";
 import { isValidDeviceId, recordEvent, UnknownDeviceError } from "@/lib/telemetry/ingest";
+import { deviceReply } from "@/lib/freematics/reply";
 
 /**
  * Connection events from the Freematics Telelogger (login, logout, ping...).
@@ -11,7 +12,7 @@ import { isValidDeviceId, recordEvent, UnknownDeviceError } from "@/lib/telemetr
  */
 export async function GET(request: Request, ctx: RouteContext<"/hub/api/notify/[devid]">) {
   const { devid } = await ctx.params;
-  if (!isValidDeviceId(devid)) return new Response("Bad device ID", { status: 400 });
+  if (!isValidDeviceId(devid)) return deviceReply("Bad device ID", 400);
 
   const q = new URL(request.url).searchParams;
   const ev = Number(q.get("EV"));
@@ -23,9 +24,9 @@ export async function GET(request: Request, ctx: RouteContext<"/hub/api/notify/[
       vin: q.get("VIN") || null,
     });
     if (q.has("FW")) await noteFirmwareVersion(getDb(), devid, q.get("FW"));
-    return new Response(withCommands("OK", await commandsForReply(getDb(), devid)));
+    return deviceReply(withCommands("OK", await commandsForReply(getDb(), devid)));
   } catch (err) {
-    if (err instanceof UnknownDeviceError) return new Response("Unknown device", { status: 403 });
+    if (err instanceof UnknownDeviceError) return deviceReply("Unknown device", 403);
     throw err;
   }
 }

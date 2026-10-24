@@ -3,6 +3,7 @@ import { commandsForReply, withCommands } from "@/lib/commands";
 import { afterDeviceReport } from "@/lib/alert-jobs";
 import type { SampleFields } from "@/lib/freematics/protocol";
 import { ingestSamples, isValidDeviceId, UnknownDeviceError } from "@/lib/telemetry/ingest";
+import { deviceReply } from "@/lib/freematics/reply";
 
 const KNOTS_TO_KPH = 1.852;
 
@@ -14,7 +15,7 @@ const KNOTS_TO_KPH = 1.852;
 export async function GET(request: Request) {
   const q = new URL(request.url).searchParams;
   const id = q.get("id") ?? "";
-  if (!isValidDeviceId(id)) return new Response("Bad device ID", { status: 400 });
+  if (!isValidDeviceId(id)) return deviceReply("Bad device ID", 400);
 
   const sample: SampleFields = {};
   const set = (name: string, param: string, scale = 1) => {
@@ -32,9 +33,9 @@ export async function GET(request: Request) {
   try {
     const count = await ingestSamples(getDb(), id, Object.keys(sample).length ? [sample] : []);
     afterDeviceReport(id);
-    return new Response(withCommands(`OK ${count}`, await commandsForReply(getDb(), id)));
+    return deviceReply(withCommands(`OK ${count}`, await commandsForReply(getDb(), id)));
   } catch (err) {
-    if (err instanceof UnknownDeviceError) return new Response("Unknown device", { status: 403 });
+    if (err instanceof UnknownDeviceError) return deviceReply("Unknown device", 403);
     throw err;
   }
 }
