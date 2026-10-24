@@ -129,9 +129,21 @@ void WifiUDP::close()
 bool WifiHTTP::open(const char* host, uint16_t port)
 {
   if (!host) return true;
-  if (client.connect(host, port)) {
+  // VS Lab: upstream always used plain TCP over Wi-Fi, so a server on port 443 got unencrypted HTTP and Vercel
+  // answered every upload with a redirect to HTTPS. Use TLS on 443. Like the cellular path, the server's
+  // certificate isn't checked yet (lab only).
+  if (port == 443) {
+    secureClient.setInsecure();
+    client = &secureClient;
+  } else {
+    client = &plainClient;
+  }
+  // VS Lab: end any previous session first; reconnecting over a live TLS session leaks its memory
+  client->stop();
+  if (client->connect(host, port)) {
     m_state = HTTP_CONNECTED;
     m_host = host;
+    m_port = port;
     return true;
   } else {
     m_state = HTTP_ERROR;
@@ -141,20 +153,29 @@ bool WifiHTTP::open(const char* host, uint16_t port)
 
 void WifiHTTP::close()
 {
-  client.stop();
+  client->stop();
   m_state = HTTP_DISCONNECTED;
 }
 
 bool WifiHTTP::send(HTTP_METHOD method, const char* path, const char* payload, int payloadSize)
 {
+  // VS Lab: receive() closes the connection when the server says "Connection: close". Writing to a closed TLS
+  // client fails, so reconnect first.
+  if (!client->connected()) {
+    String host = m_host;
+    if (!host.length() || !open(host.c_str(), m_port)) {
+      m_state = HTTP_DISCONNECTED;
+      return false;
+    }
+  }
   String header = genHeader(method, path, payload, payloadSize);
   int len = header.length();
-  if (client.write(header.c_str(), len) != len) {
+  if (client->write(header.c_str(), len) != len) {
     m_state = HTTP_DISCONNECTED;
     return false;
   }
   if (payloadSize) {
-    if (client.write(payload, payloadSize) != payloadSize) {
+    if (client->write(payload, payloadSize) != payloadSize) {
       m_state = HTTP_ERROR;
       return false;
     }
@@ -172,11 +193,11 @@ char* WifiHTTP::receive(char* buffer, int bufsize, int* pbytes, unsigned int tim
   bool keepAlive = true;
 
   for (uint32_t t = millis(); millis() - t < timeout && bytes < bufsize; ) {
-    if (!client.available()) {
+    if (!client->available()) {
       delay(1);
       continue;
     }
-    buffer[bytes++] = client.read();
+    buffer[bytes++] = client->read();
     buffer[bytes] = 0;
     if (content) {
       if (++contentBytes == contentLen) break;
@@ -557,6 +578,8 @@ String CellSIMCOM::queryIP(const char* host)
 
 bool CellSIMCOM::sendCommand(const char* cmd, unsigned int timeout, const char* expected)
 {
+  // VS Lab: the modem isn't started while Wi-Fi is up; the cellular fallback must not crash then
+  if (!m_device) return false;
   if (cmd) {
     m_device->xbWrite(cmd);
     delay(10);
@@ -771,6 +794,7 @@ void CellHTTP::init()
 
 bool CellHTTP::open(const char* host, uint16_t port)
 {
+  if (!m_device) return false; // VS Lab: modem not started (see sendCommand)
   if (m_type == CELL_SIM7070) {
     sendCommand("AT+CNACT=0,1\r");
     sendCommand("AT+CACID=0\r");
