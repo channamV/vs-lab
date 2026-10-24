@@ -15,7 +15,8 @@ Windows PC). Explain changes in plain language and keep the docs in `docs/` curr
 ## Hardware
 
 Freematics ONE+ **Model H**, SIM7670 (LTE Cat 1) modem, ESP32. SIM cards: **Soracom, plan01s** (APN `soracom.io`). Runs **our build of Freematics
-Telelogger** (`firmware/telelogger`, PlatformIO envs `bench`/`vehicle`; settings as build flags in `platformio.ini`,
+Telelogger** (`firmware/telelogger`, PlatformIO envs `bench`/`vehicle`/`bench-nobt`; Bluetooth is required in deployment
+(beacons + phone app authorise operators; Craig 2026-10-24), off only for early Wi-Fi bench tests, see `firmware/README.md`; settings as build flags in `platformio.ini`,
 config.h untouched; SNI fix for the SIM7670 in `FreematicsPlus/FreematicsNetwork.cpp`) posting "HTTPS POST" to our
 server. Build/flash only on Craig's PC (PlatformIO's registry is blocked in cloud sessions); `docs/freematics-setup.md`. Source of truth for the
 device protocol: `firmware_v5/telelogger` and `libraries/FreematicsPlus` in

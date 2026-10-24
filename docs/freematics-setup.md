@@ -58,6 +58,7 @@ Which build:
 |---|---|
 | `bench` | On the desk (OBD off, so it doesn't wait for a vehicle) |
 | `vehicle` | Plugged into a truck's or machine's OBD/diagnostic port (OBD data on) |
+| `bench-nobt` | Early Wi-Fi tests only, if the device runs short of memory: Bluetooth off. Real deployments need Bluetooth (beacons and the phone app authorise operators), so don't use it beyond the bench |
 
 **Optional Wi-Fi** (handy if cellular gives trouble): tell Claude your Wi-Fi name and password and to set
 `VSLAB_WIFI_SSID` / `VSLAB_WIFI_PASSWORD` for the build. They're never saved in the repository. The device then uses

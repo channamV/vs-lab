@@ -20,6 +20,24 @@ sessions, so the first build happens on Craig's PC. Setup and flashing: [docs/fr
 - Device library (modem, GPS, OBD, buzzer): `libraries/FreematicsPlus`; the Model H's SIM7670 modem is auto-detected
 - Build system: PlatformIO, Arduino framework on ESP32
 
+## Bluetooth must stay (Craig, 2026-10-24)
+
+Bluetooth may be switched off **only for early Wi-Fi bench tests** (`-DCONFIG_ENABLE_BLE=0`). Deployed devices need
+it: operators will be authorised in the field by **BLE beacons** and a Bluetooth signal from our **mobile app**.
+Never make Bluetooth-off the default build.
+
+Why it was switched off: memory. Telelogger's Bluetooth uses Espressif's full Bluetooth stack ("Bluedroid", in
+`libraries/FreematicsPlus/utility/ble_spp_server.c`; already BLE-only, classic Bluetooth memory released). Bluedroid
+plus Wi-Fi plus a secure (TLS) connection made by the ESP32 itself is the tightest case for the ESP32's built-in
+memory. PSRAM doesn't help much there: the radios and TLS need the chip's own memory.
+
+What changes that:
+- **Over cellular, the SIM7670 modem does the TLS work itself**, so Bluetooth + cellular needs far less ESP32
+  memory than Bluetooth + Wi-Fi. Test Bluetooth on cellular before concluding it doesn't fit.
+- **Replace Bluedroid with NimBLE** (a much lighter Bluetooth stack, commonly about half the memory). We need our own
+  Bluetooth code anyway for beacon scanning and talking to the phone app (step 3 below), so we write that on NimBLE.
+- Log free memory (`ESP.getFreeHeap()`, `ESP.getMinFreeHeap()`) in bench builds so each change is measured, not guessed.
+
 ## Next: further firmware changes
 
 Further changes, in small tested steps (see [product tiers](../docs/product-tiers.md)):
@@ -27,7 +45,8 @@ Further changes, in small tested steps (see [product tiers](../docs/product-tier
 1. ~~Enable SNI for HTTPS on the SIM7670~~ (done in code, to be confirmed on the device)
 2. Read commands from the server's reply to each upload and check-in, check their signature, run them and answer
    (format in [docs/device-commands.md](../docs/device-commands.md); the server side and a simulated device are built)
-3. BLE beacon scanning, adding nearby beacon IDs to each report
+3. Bluetooth on NimBLE (replacing Bluedroid, see above): BLE beacon scanning, adding nearby beacon IDs to each
+   report, and the phone-app connection for operator authorisation
 4. Over-the-air firmware updates: download in 16 KB range pieces, check the whole file's SHA-256, install into the spare slot, roll back if the new
    version doesn't reach the server, wait for engine off; report `FW=` on login
    ([docs/firmware-updates.md](../docs/firmware-updates.md); the platform side and a simulated device are built)
