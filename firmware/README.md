@@ -13,6 +13,7 @@ Our changes so far:
 |---|---|
 | Settings for our platform: server `vs-lab-platform-tpj9.vercel.app:443`, HTTPS POST, Soracom APN, microSD storage, PSRAM, Wi-Fi from environment variables (never in the repo); `bench` (OBD off) and `vehicle` builds; platform pinned to espressif32 6.x (Arduino-ESP32 2.x, which this code needs) | `telelogger/platformio.ini` (config.h unchanged) |
 | **SNI for HTTPS over the SIM7670 modem** (`AT+CSSLCFG="enableSNI",0,1`). Without it Vercel refuses the TLS handshake, so cellular uploads fail | `libraries/FreematicsPlus/FreematicsNetwork.cpp`, `CellHTTP::init` |
+| **HTTPS over Wi-Fi.** Upstream sent plain HTTP over Wi-Fi even to port 443, and Vercel answered every upload with a redirect to HTTPS. Now TLS on port 443 (server certificate not checked yet, as on cellular). Also: reconnect when the server closed the connection, end the old TLS session before reconnecting (it leaked memory), and don't crash in the cellular fallback when the modem was never started. TLS over Wi-Fi only fits in the ESP32's internal RAM with Bluetooth off (`-DCONFIG_ENABLE_BLE=0`); with it on, the first connection fails. Confirmed on the device 2026-10-24: every upload answered OK | `libraries/FreematicsPlus/FreematicsNetwork.cpp/.h`, `WifiHTTP`, `CellSIMCOM::sendCommand`, `CellHTTP::open` |
 
 Status: prepared 2026-10-24, **not yet built or flashed**. PlatformIO's servers are blocked in Claude's cloud
 sessions, so the first build happens on Craig's PC. Setup and flashing: [docs/freematics-setup.md](../docs/freematics-setup.md).
