@@ -3,7 +3,7 @@
  * Telelogger firmware in "HTTPS POST" mode. It calls exactly the same URLs, with exactly the
  * same data format, as the real device. Use it to test the platform without hardware.
  *
- *   npm run simulate                       # 3 machines → http://localhost:3000, every 5 s
+ *   npm run simulate                       # 4 machines → http://localhost:3000, every 5 s
  *   npm run simulate -- --devices 5 --interval 2
  *   npm run simulate -- --host https://your-app.vercel.app
  *   npm run simulate -- --once             # send one report from each machine and stop
@@ -29,6 +29,10 @@
  * Each machine cycles its engine on and off (a few minutes each, so you can watch it happen),
  * unless --engine on / --engine off holds it in one state.
  * Machine 3 is a 24 V machine, like most heavy equipment, to exercise that detection path.
+ * Machine 4 of every 4 sends no supply voltage and no engine data, like a Telelogger built without OBD (the
+ * bench-beam build), so the platform falls back to vibration to tell whether its engine runs.
+ * The accelerometer is sent like the real device does: gravity removed (Telelogger subtracts its at-rest
+ * reading at start-up), so about 0;0;0 when the engine is off and small values when it shakes the machine.
  * Machines with OBD-II (--obd) also send what the stock Telelogger reads from the engine computer while it
  * runs: RPM, engine load, throttle, coolant and intake temperature, speed, fuel level. Heavy equipment
  * usually speaks J1939 instead, which the stock firmware doesn't read: J1939 machines (--j1939) send what our
@@ -41,7 +45,7 @@ import { encodePayload, type SampleFields } from "../src/lib/freematics/protocol
 const { values: args } = parseArgs({
   options: {
     host: { type: "string", default: process.env.SIM_HOST ?? "http://localhost:3000" },
-    devices: { type: "string", default: "3" },
+    devices: { type: "string", default: "4" },
     interval: { type: "string", default: "5" },
     once: { type: "boolean", default: false },
     engine: { type: "string", default: "cycle" },
@@ -102,6 +106,8 @@ interface SimDevice {
   fuelPct: number;
   /** Sends J1939 engine data (our firmware fork) instead of OBD-II. */
   j1939: boolean;
+  /** Sends no supply voltage or engine data (a Telelogger without OBD): only vibration shows the engine state. */
+  vibrationOnly: boolean;
   hourMeter: number;
   totalFuelL: number;
   idleHours: number;
@@ -118,33 +124,43 @@ interface SimDevice {
 }
 
 const minutes = (min: number, max: number) => (min + Math.random() * (max - min)) * 60_000;
+const g2 = (v: number) => Number(v.toFixed(2));
+/** A running engine's shake as Telelogger reports it: gravity removed, in g; always above the platform's 0.05 g. */
+const shake = () => [g2(Math.random() * 0.06 - 0.03), g2(Math.random() * 0.06 - 0.03), g2(0.05 + Math.random() * 0.04)];
 
-const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => ({
-  id: `SIM${String(i + 1).padStart(5, "0")}`,
-  center: SITES[i % SITES.length],
-  radiusM: 60 + 40 * (i % 3),
-  angle: Math.random() * Math.PI * 2,
-  duty: [0.8, 0.3, 0.6][i % 3],
-  startedAt: Date.now(),
-  rssi: -65 - Math.round(Math.random() * 20),
-  engineOn: engineMode === "cycle" ? i % 2 === 0 : engineMode === "on",
-  nextSwitchAt: Date.now() + minutes(1, 4),
-  system24V: i % 3 === 2,
-  j1939: args.j1939 === "all" || (args.j1939 === "some" && i % 3 === 2),
-  obd: !(args.j1939 === "all" || (args.j1939 === "some" && i % 3 === 2)) && (args.obd === "all" || (args.obd === "some" && i % 3 === 0)),
-  hourMeter: 1200 + i * 731.4,
-  totalFuelL: 18_000 + i * 9_000,
-  idleHours: 300 + i * 150.2,
-  idleFuelL: 900 + i * 450,
-  siphonLeft: 0,
-  siphoned: false,
-  firmware: args.firmware!,
-  lastCommandId: 0,
-  rateS: null,
-  defPct: 70 + Math.random() * 25,
-  coolantC: 20,
-  fuelPct: 60 + Math.random() * 35,
-}));
+const devices: SimDevice[] = Array.from({ length: deviceCount }, (_, i) => {
+  const vibrationOnly = i % 4 === 3;
+  // "some": machine 3 of every 3 speaks J1939, machine 1 of every 3 OBD-II, skipping vibration-only machines.
+  const j1939 = args.j1939 === "all" || (args.j1939 === "some" && i % 3 === 2 && !vibrationOnly);
+  const obd = !j1939 && (args.obd === "all" || (args.obd === "some" && i % 3 === 0 && !vibrationOnly));
+  return {
+    id: `SIM${String(i + 1).padStart(5, "0")}`,
+    center: SITES[i % SITES.length],
+    radiusM: 60 + 40 * (i % 3),
+    angle: Math.random() * Math.PI * 2,
+    duty: [0.8, 0.3, 0.6][i % 3],
+    startedAt: Date.now(),
+    rssi: -65 - Math.round(Math.random() * 20),
+    engineOn: engineMode === "cycle" ? i % 2 === 0 : engineMode === "on",
+    nextSwitchAt: Date.now() + minutes(1, 4),
+    system24V: i % 3 === 2,
+    j1939,
+    obd,
+    vibrationOnly,
+    hourMeter: 1200 + i * 731.4,
+    totalFuelL: 18_000 + i * 9_000,
+    idleHours: 300 + i * 150.2,
+    idleFuelL: 900 + i * 450,
+    siphonLeft: 0,
+    siphoned: false,
+    firmware: args.firmware!,
+    lastCommandId: 0,
+    rateS: null,
+    defPct: 70 + Math.random() * 25,
+    coolantC: 20,
+    fuelPct: 60 + Math.random() * 35,
+  };
+});
 
 const simStart = Date.now();
 /** Simulated tank size: the level falls by exactly what the engine burns. */
@@ -252,16 +268,14 @@ function nextSample(d: SimDevice): SampleFields {
     heading: headingDeg,
     satellites: 8 + Math.floor(Math.random() * 5),
     // Alternator charging voltage while the engine runs, resting battery voltage when off.
-    batteryCentivolts: Math.round(
-      (d.system24V ? (d.engineOn ? 27.9 : 25.2) : d.engineOn ? 13.9 : 12.6) * 100 + Math.random() * 20,
-    ),
+    ...(!d.vibrationOnly && {
+      batteryCentivolts: Math.round(
+        (d.system24V ? (d.engineOn ? 27.9 : 25.2) : d.engineOn ? 13.9 : 12.6) * 100 + Math.random() * 20,
+      ),
+    }),
     rssi: d.rssi,
     deviceTempC: 35 + Math.floor(Math.random() * 6),
-    accel: [
-      d.engineOn ? Number((Math.random() * 0.1 - 0.05).toFixed(2)) : 0,
-      d.engineOn ? Number((Math.random() * 0.1 - 0.05).toFixed(2)) : 0,
-      d.engineOn ? Number((0.95 + Math.random() * 0.1).toFixed(2)) : 1,
-    ],
+    accel: d.engineOn ? shake() : [0, 0, 0],
     ...obdFields(d, working, speedKph),
     ...j1939Fields(d, working),
   };

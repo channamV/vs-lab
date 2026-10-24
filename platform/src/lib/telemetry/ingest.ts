@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { deviceAssignments, deviceEvents, devices, engineSessions, machines, telemetry, type EngineSession } from "@/lib/db/schema";
 import { num, type SampleFields } from "@/lib/freematics/protocol";
@@ -166,6 +166,22 @@ export async function ingestSamples(
     }
     // Engine-on periods (and so engine hours, check-ins and alerts) belong to the machine.
     if (machineId) await updateEngineState(db, machineId, lastReading, now);
+  }
+
+  // Uploads with no engine signal (e.g. GPS only) leave the state alone, but note since when, so pages can
+  // show the engine as unknown once nothing has confirmed it for a while (engineStatus).
+  if (machineId) {
+    if (lastReading) {
+      await db
+        .update(machines)
+        .set({ engineUnknownSince: null })
+        .where(and(eq(machines.id, machineId), isNotNull(machines.engineUnknownSince)));
+    } else {
+      await db
+        .update(machines)
+        .set({ engineUnknownSince: now })
+        .where(and(eq(machines.id, machineId), isNull(machines.engineUnknownSince)));
+    }
   }
 
   // Engine computer data (J1939): hour meter and fault codes.

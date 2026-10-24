@@ -285,6 +285,8 @@ export const machines = pgTable(
     /** Latest engine state (null = unknown). See src/lib/telemetry/engine.ts. */
     engineOn: boolean("engine_on"),
     engineChangedAt: timestamp("engine_changed_at", { withTimezone: true }),
+    /** Since when the device's uploads have had no engine signal (null = the latest one had one). See engineStatus. */
+    engineUnknownSince: timestamp("engine_unknown_since", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("machines_code_idx").on(t.code),

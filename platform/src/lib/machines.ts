@@ -168,7 +168,7 @@ export async function unpairDevice(db: Db, deviceId: string, now = new Date()) {
       .from(engineSessions)
       .where(and(eq(engineSessions.machineId, pairing.machineId), isNull(engineSessions.endedAt)));
     if (open) await tx.update(engineSessions).set({ endedAt: open.lastSeenAt }).where(eq(engineSessions.id, open.id));
-    await tx.update(machines).set({ engineOn: null, engineChangedAt: now }).where(eq(machines.id, pairing.machineId));
+    await tx.update(machines).set({ engineOn: null, engineChangedAt: now, engineUnknownSince: null }).where(eq(machines.id, pairing.machineId));
   });
 }
 

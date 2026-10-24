@@ -8,8 +8,11 @@ import { num, type SampleFields } from "@/lib/freematics/protocol";
  *  2. Supply voltage — when the engine runs, the alternator charges the battery:
  *       12 V systems: ~13.8–14.4 V running, ~12.6 V or less off
  *       24 V systems (common on heavy equipment): ~27.5–28.5 V running, ~25 V or less off
- *  3. Vibration — accelerometer magnitude away from 1 g. Weakest signal: a parked machine
- *     can be bumped, and a smooth idle may not register. Used only when nothing else is available.
+ *  3. Vibration — how hard the device is shaking. Telelogger sends the accelerometer as averages over each
+ *     data interval, in g, with gravity removed: it measures its at-rest reading at start-up and subtracts it
+ *     (telelogger.ino:406–409), so a still device sends about 0;0;0. Weakest signal: averaging smooths out
+ *     an idling engine's shake, so a smooth idle may not register, and a parked machine can be bumped.
+ *     Used only when nothing else is available.
  */
 export const ENGINE_THRESHOLDS = {
   minRpm: 300,
@@ -44,11 +47,32 @@ export function detectEngine(fields: SampleFields): EngineReading {
 
   const accel = fields.accel;
   if (Array.isArray(accel) && accel.length === 3) {
-    const g = Math.hypot(accel[0], accel[1], accel[2]);
-    return { running: Math.abs(g - 1) >= t.vibrationG, source: "vibration" };
+    return { running: Math.hypot(...accel) >= t.vibrationG, source: "vibration" };
   }
 
   return { running: null, source: null };
+}
+
+export type EngineStatus = "running" | "off" | "stale" | "unknown";
+
+/**
+ * What to show for the engine. "stale" = last known running, but the device has gone quiet,
+ * so we can't confirm it's still running. (Off-and-quiet stays "off": the stock firmware
+ * stops reporting when a machine is parked, which is expected.) "unknown" also when the device
+ * is still reporting but nothing it sent for over staleMinutes showed the engine state (e.g.
+ * GPS-only reports), rather than repeating a state nothing has confirmed.
+ */
+export function engineStatus(
+  machine: { engineOn: boolean | null; lastSeenAt: Date | null; engineUnknownSince: Date | null },
+  now: number,
+): EngineStatus {
+  if (machine.engineOn === null || !machine.lastSeenAt) return "unknown";
+  const staleMs = ENGINE_THRESHOLDS.staleMinutes * 60_000;
+  const quietMs = now - machine.lastSeenAt.getTime();
+  const noSignalMs = machine.engineUnknownSince ? now - machine.engineUnknownSince.getTime() : 0;
+  if (quietMs <= staleMs && noSignalMs > staleMs) return "unknown";
+  if (!machine.engineOn) return "off";
+  return quietMs > staleMs ? "stale" : "running";
 }
 
 export interface SessionSpan {

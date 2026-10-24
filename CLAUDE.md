@@ -245,7 +245,10 @@ says it's compliant. Update that doc when items are done.
 - Forms using `useActionState`: React clears fields after every submit, so on an error return the
   submitted values and re-key the form (see `CheckinForms.tsx`, `OperatorForms.tsx`).
 - Engine on/off detection and engine-hours maths live in `src/lib/telemetry/engine.ts` (pure functions, tested).
-  Ingest keeps `engine_sessions` up to date: at most one open session per device.
+  Ingest keeps `engine_sessions` up to date: at most one open session per device. Telelogger's accelerometer is
+  gravity-removed (0;0;0 at rest), so vibration = `hypot(accel) >= vibrationG`. Uploads with no engine signal leave
+  the state alone but set `machines.engine_unknown_since`; `engineStatus` shows "unknown" when the device is still
+  reporting and that's older than `staleMinutes`.
 - Schema changes: edit `schema.ts`, run `db:generate`, commit the generated SQL. Never edit applied migrations.
 - Add a test for every parser/ingest change (`*.test.ts`, Vitest, in-memory PGlite).
 - Product language: tiers are "GPS & Telematics", "Safety & Access Monitoring",
