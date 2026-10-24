@@ -61,6 +61,7 @@ Which build:
 | `vehicle` | Plugged into a truck's or machine's OBD/diagnostic port (OBD data on) |
 | `bench-nobt` | Early Wi-Fi tests only, if the device runs short of memory: Bluetooth off. Real deployments need Bluetooth (beacons and the phone app authorise operators), so don't use it beyond the bench |
 | `bench-beam` | Cellular tests for now, on the desk or in a car (lab only): uploads go through Soracom Beam ([see below](#cellular-via-soracom-beam-lab)). Bluetooth on, OBD off, no Wi-Fi |
+| `bench-beam-obd` | Test: `bench-beam` plus the supply voltage, by turning OBD on. Use it when you need voltage readings (e.g. checking the engine thresholds in a car). Slower: a sample every ~3 s instead of 1–2 s while moving, and ~10 s later start, because it keeps looking for an engine computer |
 
 **Optional Wi-Fi** (handy if cellular gives trouble): tell Claude your Wi-Fi name and password and to set
 `VSLAB_WIFI_SSID` / `VSLAB_WIFI_PASSWORD` for the build. They're never saved in the repository. The device then uses
