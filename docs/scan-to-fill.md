@@ -13,6 +13,22 @@ Where it works today:
 The button opens the phone's camera (or lets you choose a photo or PDF on a computer). Photos are shrunk on the phone
 first. Anything the scan can't read clearly is left blank rather than guessed.
 
+## VIN and PIN check (machines)
+
+After a plate scan, and whenever you press **Check VIN / PIN** under the Serial # / VIN field, the number is checked:
+
+- **On-road vehicles (17-character VIN):** the 9th character is a check digit, so most misread characters are caught
+  ("one character is probably misread, compare it with the plate"). The VIN is decoded with NHTSA's free public
+  database (the US vehicle safety regulator; covers most vehicles sold in Canada): make, model, year and body type.
+- **Heavy equipment (17-character PIN):** there's no free public database for these. The first three characters name
+  the manufacturer (Caterpillar, Komatsu, Volvo, JCB, Hitachi, John Deere, Case, Develon/Doosan, Hyundai), so the make
+  is filled in; the model comes from the plate scan.
+- Shorter or older serial numbers can't be looked up; nothing changes.
+
+Empty fields are filled in. A field that already has a different value is **not** overwritten: the form lists it
+("the form says X, the VIN says Y") so you can decide. Only the number goes to NHTSA; nothing is saved until you
+save the machine. A VIN identifies a vehicle, not a person.
+
 ## Keeping the photo ("Retain images after processing")
 
 - **Settings → Scanning documents** (owners): on by default. When a certificate is scanned, its photo is attached to the
@@ -43,6 +59,8 @@ Cost: each scan is one small request, roughly 1–2 cents.
 - `platform/src/lib/scan.ts` (tested with a fake client in `scan.test.ts`): `scanTrainingCertificate`, `scanSerialPlate`,
   structured output (Zod) on `claude-opus-5-5` at low effort, server-side fallback on a refusal. Dates and years are
   validated after reading.
+- VIN/PIN check: `platform/src/lib/vin.ts` (check digit, manufacturer codes, NHTSA vPIC `DecodeVinValues`; tested in
+  `vin.test.ts`), action `lookupSerialAction`, form logic in `src/app/(admin)/machines/SerialLookup.tsx`.
 - Reusable button: `platform/src/components/ScanButton.tsx` (shrinks the photo, calls a server action, shows errors).
   To add scanning to another form: a schema + function in `scan.ts`, a manager-only server action, and a `ScanButton`
   whose `onScan` fills the form.

@@ -14,6 +14,7 @@ import { and, eq } from "drizzle-orm";
 import { machineCategories } from "@/lib/db/schema";
 import { scanAvailable, ScanError, scanSerialPlate, type PlateFields } from "@/lib/scan";
 import { guessCategory } from "@/lib/training";
+import { lookupSerial, type SerialLookup } from "@/lib/vin";
 
 /** What was typed, to refill the form after an error (React clears it after every submit). */
 export type MachineFields = Record<(typeof FIELDS)[number], string>;
@@ -135,4 +136,25 @@ export async function scanPlateAction(formData: FormData): Promise<PlateScanResu
     if (err instanceof ScanError) return { ok: false, error: err.message };
     throw err;
   }
+}
+
+export type SerialLookupResult = (SerialLookup & { categoryId: number | null }) | { kind: "error"; error: string };
+
+/**
+ * VIN / PIN lookup for the machine form (managers): checks a VIN's check digit and decodes it with NHTSA, or names
+ * an equipment PIN's manufacturer. Saves nothing; only the number is sent to NHTSA.
+ */
+export async function lookupSerialAction(serial: string): Promise<SerialLookupResult> {
+  const auth = await requireAuth("manager");
+  const value = z.string().trim().min(1).max(40).safeParse(serial);
+  if (!value.success) return { kind: "error", error: "Enter the serial number or VIN first." };
+  const result = await lookupSerial(value.data);
+  const name = result.kind === "vin" ? guessCategory(result.decoded.machineType) : null;
+  const [cat] = name
+    ? await getDb()
+        .select({ id: machineCategories.id })
+        .from(machineCategories)
+        .where(and(eq(machineCategories.organizationId, auth.organizationId), eq(machineCategories.name, name)))
+    : [];
+  return { ...result, categoryId: cat?.id ?? null };
 }

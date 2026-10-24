@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState, useRef } from "react";
+import { useActionState, useRef, useState } from "react";
 import { ScanButton } from "@/components/ScanButton";
 import type { Machine } from "@/lib/db/schema";
 import { TIER_LABELS } from "@/lib/format";
 import {
   addMachineAction,
+  lookupSerialAction,
   pairDeviceAction,
   scanPlateAction,
   updateMachineAction,
@@ -13,6 +14,7 @@ import {
   type MachineFormState,
   type PairingState,
 } from "./actions";
+import { applySerialLookup, LookupNotes, SerialLookupButton, type LookupNote } from "./SerialLookup";
 
 const field = "mt-1 w-full rounded border border-slate-300 bg-transparent px-2 py-1.5 dark:border-slate-700";
 const button = "rounded bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800 disabled:opacity-60";
@@ -30,13 +32,18 @@ export type DivisionChoice = {
   scan?: boolean;
 };
 
-/** Scan to fill: reads the serial plate and fills the empty-or-scanned fields for the manager to check. */
+/**
+ * Scan to fill: reads the serial plate and fills the form for the manager to check, then checks the serial number
+ * (VIN check digit + NHTSA decode, or the equipment maker from a PIN) and points out disagreements.
+ */
 function PlateScan({ form }: { form: React.RefObject<HTMLFormElement | null> }) {
+  const [notes, setNotes] = useState<LookupNote[]>([]);
   return (
     <div className="space-y-1 rounded border border-dashed border-slate-300 p-3 dark:border-slate-700">
       <ScanButton
         label="Scan serial plate"
         onScan={async (file) => {
+          setNotes([]);
           const data = new FormData();
           data.set("file", file);
           const result = await scanPlateAction(data);
@@ -56,10 +63,21 @@ function PlateScan({ form }: { form: React.RefObject<HTMLFormElement | null> }) 
           if (category instanceof HTMLSelectElement && !category.value) set("categoryId", result.categoryId);
           const name = form.current?.elements.namedItem("name");
           if (name instanceof HTMLInputElement && !name.value && f.make) set("name", [f.make, f.model, f.machineType].filter(Boolean).join(" "));
+          if (f.serialNumber && form.current) {
+            try {
+              setNotes(applySerialLookup(form.current, await lookupSerialAction(f.serialNumber)));
+            } catch {
+              // The scan itself worked; the serial check is a bonus.
+            }
+          }
           return null;
         }}
       />
-      <p className="text-xs text-slate-500">Take a photo of the machine&apos;s ID plate: make, model, year and serial number are filled in for you to check. The photo isn&apos;t kept.</p>
+      <p className="text-xs text-slate-500">
+        Take a photo of the machine&apos;s ID plate: make, model, year and serial number are filled in for you to check, and a VIN is
+        checked against NHTSA&apos;s records. The photo isn&apos;t kept.
+      </p>
+      <LookupNotes notes={notes} />
     </div>
   );
 }
@@ -108,6 +126,7 @@ function Fields({ values, choice }: { values: Values; choice: DivisionChoice }) 
       {text("model", "Model", { maxLength: 40, placeholder: "e.g. 320" })}
       {text("year", "Year", { inputMode: "numeric", pattern: "[0-9]{4}", maxLength: 4 })}
       {text("serialNumber", "Serial # / VIN", { maxLength: 40 })}
+      <SerialLookupButton />
       {text("fuelTankLitres", "Fuel tank size, litres (optional)", { inputMode: "decimal", maxLength: 8, placeholder: "e.g. 400" })}
       {text("speedLimitKph", "Top speed, km/h (optional; replaces the fleet speed limit)", { inputMode: "decimal", maxLength: 8, placeholder: "e.g. 25" })}
       <label className="block text-sm">

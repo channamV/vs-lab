@@ -213,6 +213,8 @@ says it's compliant. Update that doc when items are done.
   no Scan buttons). Saves nothing: manager-only actions (`scanCertificateAction`, `scanPlateAction`) return fields for the
   form; `src/components/ScanButton.tsx` is reusable. A certificate photo is kept only by attaching it as the record's
   document (`organizations.retain_scan_images` default, per-scan checkbox). Plate photos aren't kept.
+  VIN/PIN check (`src/lib/vin.ts`, tested): check digit + NHTSA vPIC decode for VINs, manufacturer from equipment PIN
+  prefixes (`EQUIPMENT_WMI`); `lookupSerialAction` after a plate scan and via "Check VIN / PIN"; fills empty fields only.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`
