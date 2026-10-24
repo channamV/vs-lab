@@ -933,8 +933,11 @@ bool CellHTTP::open(const char* host, uint16_t port)
     CELL_DBG_CMD(ctx1 ? "AT+HTTPPARA=\"SSLCFG\",1\r" : "AT+HTTPPARA=\"SSLCFG\",0\r", s_sniShow);
     return true;
 #else
+    // VS Lab: restart the HTTP service first: one left running (the modem stays on across ESP32 restarts) makes
+    // AT+HTTPINIT answer ERROR. The SSL settings are only for HTTPS (port 443).
+    sendCommand("AT+HTTPTERM\r");
     sendCommand("AT+HTTPINIT\r");
-    sendCommand("AT+HTTPPARA=\"SSLCFG\",0\r");
+    if (port == 443) sendCommand("AT+HTTPPARA=\"SSLCFG\",0\r");
     return true;
 #endif
   } else {
@@ -1001,7 +1004,12 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
       sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"https://%s%s\"\r", host, path);
     else
 #endif
-    sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"https://%s:%u%s\"\r", host, port, path);
+    // VS Lab: plain HTTP unless the port is 443 (upstream always used https://). Soracom Beam takes
+    // http://beam.soracom.io/... on port 80 and adds HTTPS itself; port 80 is left out of the URL.
+    if (port == 80)
+      sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"http://%s%s\"\r", host, path);
+    else
+      sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"%s://%s:%u%s\"\r", port == 443 ? "https" : "http", host, port, path);
     bool urlSet = sendCommand(m_buffer, 1000);
 #ifdef VSLAB_CELL_DEBUG
     if (s_sniShow) cellDebugReply("URL", urlSet, m_buffer);
