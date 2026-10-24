@@ -294,6 +294,58 @@ void CellSIMCOM::end()
   }
 }
 
+#ifdef VSLAB_CELL_DEBUG
+// VS Lab test build: one line per modem reply during the network search
+static void cellDebugLine(const char* what, int ret, uint32_t elapsed, const char* buf)
+{
+  Serial.print("[CELL DBG] ");
+  Serial.print(elapsed / 1000);
+  Serial.print("s ");
+  Serial.print(what);
+  Serial.print(" ret=");
+  Serial.print(ret);
+  Serial.print(": ");
+  for (const char* p = buf; *p; p++) Serial.print(*p == '\r' || *p == '\n' ? ' ' : *p);
+  Serial.println();
+}
+#define cellDebug(what, ret, elapsed) cellDebugLine(what, ret, elapsed, m_buffer)
+
+static void cellDebugText(const char* s)
+{
+  for (const char* p = s; *p; p++) Serial.print(*p == '\r' || *p == '\n' ? ' ' : *p);
+}
+
+static void cellDebugReply(const char* cmd, bool ok, const char* reply)
+{
+  Serial.print("[CELL DBG] ");
+  cellDebugText(cmd);
+  Serial.print(ok ? " -> OK: " : " -> FAIL: ");
+  cellDebugText(reply);
+  Serial.println();
+}
+
+// send a command and, when show is set, log the modem's reply
+#define CELL_DBG_CMD(cmd, show) do { const char* c_ = (cmd); bool ok_ = sendCommand(c_, 2000); if (show) cellDebugReply(c_, ok_, m_buffer); } while (0)
+
+// SNI experiments: each connection attempt uses a variant (2 attempts each, in turn) until one gets HTTP 200,
+// which is then kept. The first attempt of each variant logs the modem's replies.
+static uint8_t s_sniVariant = 1;
+static uint16_t s_sniOpens = 0;
+static uint8_t s_sniShown = 0;
+static bool s_sniShow = false;
+static bool s_sniLocked = false;
+
+static const char* sniVariantName(uint8_t v)
+{
+  switch (v) {
+  case 1: return "HTTP service restarted, URL without :443";
+  case 2: return "HTTP service restarted, URL with :443";
+  case 3: return "HTTP service restarted, SSL context 1 with SNI on, URL without :443";
+  }
+  return "?";
+}
+#endif
+
 bool CellSIMCOM::setup(const char* apn, const char* username, const char* password, unsigned int timeout)
 {
   uint32_t t = millis();
@@ -340,11 +392,21 @@ bool CellSIMCOM::setup(const char* apn, const char* username, const char* passwo
         m_buffer[0] = 0;
         const char* answers[] = {"NO SERVICE", ",Online", ",Offline", ",Low Power Mode"};
         int ret = m_device->xbReceive(m_buffer, RECV_BUF_SIZE, 500, answers, 4);
+#ifdef VSLAB_CELL_DEBUG
+        // VS Lab test build: log every reply; keep waiting on unrecognised text (e.g. the modem's start-up
+        // messages) and Low Power Mode instead of giving up at once
+        cellDebug("CPSI", ret, millis() - t);
+        if (ret == 2) {
+          success = true;
+          break;
+        }
+#else
         if (ret == 2) {
           success = true;
           break;
         }
         if (ret == -1 || ret == 4) break;
+#endif
         delay(500);
       } while (millis() - t < timeout);
       if (!success) break;
@@ -356,6 +418,9 @@ bool CellSIMCOM::setup(const char* apn, const char* username, const char* passwo
           char *p = strstr(m_buffer, "+CREG: 0,");
           success = (p && (*(p + 9) == '1' || *(p + 9) == '5') || *(p + 9) == '6');
         }
+#ifdef VSLAB_CELL_DEBUG
+        cellDebug("CREG", success, millis() - t);
+#endif
       } while (!success && millis() - t < timeout);
       if (!success) break;
       
@@ -781,11 +846,25 @@ char* CellUDP::receive(int* pbytes, unsigned int timeout)
 void CellHTTP::init()
 {
   if (m_type == CELL_SIM7670) {
+#ifdef VSLAB_CELL_DEBUG
+    // VS Lab test build: log the modem's firmware version and its replies to the SSL setup (first time only)
+    static bool logged = false;
+    if (!logged) {
+      CELL_DBG_CMD("AT+SIMCOMATI\r", true);
+      CELL_DBG_CMD("AT+CGMR\r", true);
+    }
+    CELL_DBG_CMD("AT+CSSLCFG=\"sslversion\",0,4\r", !logged);
+    CELL_DBG_CMD("AT+CSSLCFG=\"authmode\",0,0\r", !logged);
+    CELL_DBG_CMD("AT+CSSLCFG=\"enableSNI\",0,1\r", !logged);
+    if (!logged) CELL_DBG_CMD("AT+CSSLCFG=0\r", true);
+    logged = true;
+#else
     sendCommand("AT+CSSLCFG=\"sslversion\",0,4\r");
     sendCommand("AT+CSSLCFG=\"authmode\",0,0\r");
     // VS Lab: send the server name in the TLS handshake (SNI). Hosts like Vercel serve many sites from one
     // address and refuse a handshake without it, so HTTPS over cellular would fail on every upload.
     sendCommand("AT+CSSLCFG=\"enableSNI\",0,1\r");
+#endif
   } else if (m_type != CELL_SIM7070) {
     sendCommand("AT+CHTTPSSTOP\r");
     sendCommand("AT+CHTTPSSTART\r");
@@ -829,9 +908,35 @@ bool CellHTTP::open(const char* host, uint16_t port)
       }
     }
   } else if (m_type == CELL_SIM7670) {
+#ifdef VSLAB_CELL_DEBUG
+    if (!s_sniLocked) s_sniVariant = 1 + (s_sniOpens / 2) % 3;
+    s_sniOpens++;
+    s_sniShow = !(s_sniShown & (1 << s_sniVariant));
+    s_sniShown |= 1 << s_sniVariant;
+    if (s_sniShow) {
+      Serial.print("[CELL DBG] trying variant ");
+      Serial.print(s_sniVariant);
+      Serial.print(": ");
+      Serial.println(sniVariantName(s_sniVariant));
+    }
+    // the HTTP service was left running (AT+HTTPINIT gave ERROR): restart it so it starts after the SSL setup
+    CELL_DBG_CMD("AT+HTTPTERM\r", s_sniShow);
+    CELL_DBG_CMD("AT+HTTPINIT\r", s_sniShow);
+    bool ctx1 = false;
+    if (s_sniVariant == 3) {
+      CELL_DBG_CMD("AT+CSSLCFG=\"sslversion\",1,4\r", s_sniShow);
+      CELL_DBG_CMD("AT+CSSLCFG=\"authmode\",1,0\r", s_sniShow);
+      CELL_DBG_CMD("AT+CSSLCFG=\"enableSNI\",1,1\r", s_sniShow);
+      if (s_sniShow) CELL_DBG_CMD("AT+CSSLCFG=1\r", true);
+      ctx1 = true;
+    }
+    CELL_DBG_CMD(ctx1 ? "AT+HTTPPARA=\"SSLCFG\",1\r" : "AT+HTTPPARA=\"SSLCFG\",0\r", s_sniShow);
+    return true;
+#else
     sendCommand("AT+HTTPINIT\r");
     sendCommand("AT+HTTPPARA=\"SSLCFG\",0\r");
     return true;
+#endif
   } else {
     memset(m_buffer, 0, RECV_BUF_SIZE);
     sprintf(m_buffer, "AT+CHTTPSOPSE=\"%s\",%u,%u\r", host, port, port == 443 ? 2: 1);
@@ -891,8 +996,17 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
       }
     }
   } else if (m_type == CELL_SIM7670) {
+#ifdef VSLAB_CELL_DEBUG
+    if (port == 443 && s_sniVariant != 2)
+      sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"https://%s%s\"\r", host, path);
+    else
+#endif
     sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"https://%s:%u%s\"\r", host, port, path);
-    if (sendCommand(m_buffer, 1000)) {
+    bool urlSet = sendCommand(m_buffer, 1000);
+#ifdef VSLAB_CELL_DEBUG
+    if (s_sniShow) cellDebugReply("URL", urlSet, m_buffer);
+#endif
+    if (urlSet) {
       if (payload) {
         sprintf(m_buffer, "AT+HTTPDATA=%u,1000\r", payloadSize);
         sendCommand(m_buffer, 1000, "DOWNLOAD\r");
@@ -945,10 +1059,27 @@ char* CellHTTP::receive(int* pbytes, unsigned int timeout)
       }
     }
   } else if (m_type == CELL_SIM7670) {
+#ifdef VSLAB_CELL_DEBUG
+    m_code = 0;
+#endif
     if (sendCommand("AT+HTTPHEAD\r", timeout, "+HTTPHEAD:")) {
       char *p = strstr(m_buffer, "HTTP/1.");
       if (p) m_code = atoi(p + 9);
     }
+#ifdef VSLAB_CELL_DEBUG
+    if (s_sniShow) cellDebugReply("AT+HTTPHEAD", m_code != 0, m_buffer);
+    s_sniShow = false;
+    Serial.print("[CELL DBG] variant ");
+    Serial.print(s_sniVariant);
+    Serial.print(" -> HTTP ");
+    Serial.println(m_code);
+    if (m_code == 200 && !s_sniLocked) {
+      s_sniLocked = true;
+      Serial.print("[CELL DBG] variant ");
+      Serial.print(s_sniVariant);
+      Serial.println(" works: keeping it");
+    }
+#endif
     sprintf(m_buffer, "AT+HTTPREAD=0,%u\r", RECV_BUF_SIZE - 32);
     sendCommand(m_buffer);
     char *p = strstr(m_buffer, "+HTTPREAD:");
