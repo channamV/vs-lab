@@ -1,12 +1,12 @@
 # Freematics ONE+ Model H setup
 
 Goal: a new device reports to **our platform** (`vs-lab-platform-tpj9.vercel.app`) over Soracom cellular, and its
-data shows on a machine's page.
+data shows on a machine's page. For now cellular goes through Soracom Beam (lab only): the modem can't reach Vercel
+over HTTPS itself. See [Cellular via Soracom Beam](#cellular-via-soracom-beam-lab).
 
 The device runs **our build of Freematics Telelogger** (`firmware/telelogger`). It's the stock firmware with the
-settings already filled in, plus one fix the SIM7670 modem needs to reach Vercel over cellular (see
-[firmware/README.md](../firmware/README.md)). Freematics Builder can't apply that fix, so we flash from your PC with
-PlatformIO; Claude Code on your PC does it for you.
+settings already filled in, plus our fixes (see [firmware/README.md](../firmware/README.md)). Freematics Builder can't
+apply those, so we flash from your PC with PlatformIO; Claude Code on your PC does it for you.
 
 ## What you need
 
@@ -16,7 +16,8 @@ PlatformIO; Claude Code on your PC does it for you.
   there's no signal.
 - The device's **USB cable** (a data cable, not charge-only)
 - For cellular tests on the bench: a **12 V OBD-II bench power supply**, or test in a vehicle. Over USB alone the
-  modem can brown out when it transmits.
+  modem can brown out when it transmits (on our bench unit USB was enough, 2026-10-24).
+- For cellular: the SIM in a Soracom group with **Beam** set up ([see below](#cellular-via-soracom-beam-lab))
 - Your Windows PC with **Claude Code** and **git**, and the vs-lab repository cloned
 
 ## 1. Get the SIM ready (Soracom console)
@@ -59,6 +60,7 @@ Which build:
 | `bench` | On the desk (OBD off, so it doesn't wait for a vehicle) |
 | `vehicle` | Plugged into a truck's or machine's OBD/diagnostic port (OBD data on) |
 | `bench-nobt` | Early Wi-Fi tests only, if the device runs short of memory: Bluetooth off. Real deployments need Bluetooth (beacons and the phone app authorise operators), so don't use it beyond the bench |
+| `bench-beam` | Cellular tests for now, on the desk or in a car (lab only): uploads go through Soracom Beam ([see below](#cellular-via-soracom-beam-lab)). Bluetooth on, OBD off, no Wi-Fi |
 
 **Optional Wi-Fi** (handy if cellular gives trouble): tell Claude your Wi-Fi name and password and to set
 `VSLAB_WIFI_SSID` / `VSLAB_WIFI_PASSWORD` for the build. They're never saved in the repository. The device then uses
@@ -77,10 +79,11 @@ CELL:SIM7670...                             ← modem found
 IMEI:...
 APN:soracom.io
 Operator:...                                ← registered on a network (Soracom roams on local carriers)
-CELL GNSS:OK                                ← GPS on the modem switched on (the Model H has no separate GPS chip)
+CELL GNSS:OK                                ← GPS on the modem switched on (not yet: see firmware/README.md)
 [CELL] IP:...                               ← data connection up
-LOGIN(vs-lab-platform-tpj9.vercel.app:443)...
-[HTTP] OK ...                               ← our platform accepted the data (repeats every few seconds)
+LOGIN(beam.soracom.io:80)...                ← bench-beam; other builds show vs-lab-platform-tpj9.vercel.app:443
+[CELL] In service
+[HTTP] OK 1                                 ← our platform accepted the data (repeats every second or so)
 ```
 
 ## 5. On the platform
@@ -97,6 +100,40 @@ LOGIN(vs-lab-platform-tpj9.vercel.app:443)...
 Re-flash with the `vehicle` build, plug the device into the OBD-II port, start the engine and drive. Engine
 start/stop, speed and trips should appear on the machine's page. Heavy equipment often has a 9-pin Deutsch (J1939)
 port instead: that needs an adapter cable, and J1939 data needs our later firmware work ([can-data.md](can-data.md)).
+There's no `vehicle` build through Beam yet: for a cellular test in a car, use `bench-beam` (uploads and signal, but
+no OBD data).
+
+## Cellular via Soracom Beam (lab)
+
+The device sends **plain HTTP to Soracom Beam** (`beam.soracom.io`, port 80) and Soracom forwards it **over HTTPS,
+with SNI**, to our platform. It's a lab workaround: it only works with Soracom SIMs, Soracom charges a small fee per
+request, and the hop from the device to Soracom isn't encrypted by the device (it stays inside the cellular network).
+Long term the device will do HTTPS itself, on the ESP32.
+
+**Soracom console, once** (console.soracom.io):
+1. Put the SIM in a SIM group, e.g. `vs-lab-beam` (SIM Management → select the SIM → change group).
+2. In that group, SORACOM Beam → add a **Website entry point** that forwards to HTTPS, host
+   `vs-lab-platform-tpj9.vercel.app`, port 443.
+
+**Firmware:** the `bench-beam` build (`pio run -e bench-beam -t upload`): Bluetooth on, modem GPS, OBD off, server
+`beam.soracom.io` port 80. **No Wi-Fi**: the firmware uses one server for Wi-Fi and cellular, and Beam only answers
+Soracom SIMs. Healthy log: `LOGIN(beam.soracom.io:80)...` then `[HTTP] OK 1` for every upload.
+
+### HTTPS over the SIM7670 modem doesn't work
+
+Found 2026-10-24 on device `Y5725A32`: modem **SIM7670G-LNGV, firmware `2368B01SIM767XM5A`** (build
+`SIM767XM5_B01V03_240309`).
+- Vercel serves many sites from the same addresses, so a device has to name the site when it opens a secure connection
+  ("SNI"). Without it, Vercel answers **`421 Misdirected Request`** (with the header `X-Vercel-Mitigated: deny`).
+- The modem **accepts the SNI setting but never applies it**. `AT+CSSLCFG="enableSNI",0,1` answers OK, and reading
+  the settings back (`AT+CSSLCFG=0`) shows it on, yet every request gets the 421. That's true through the modem's HTTP
+  client (`AT+HTTP…`: URL with and without `:443`, SSL context 0 or 1, HTTP service restarted) and through its
+  secure-socket commands (`AT+CCH…`).
+- **The proof** (certificate test): with certificate checking on (`authmode` 1), the modem only completes the
+  connection when it trusts the root of Vercel's **no-SNI** certificate (`no-sni.vercel-infra.com`, Let's Encrypt
+  ISRG Root X1), never the root of the real one (`*.vercel.app`, Google GTS Root R1). So Vercel saw no server name.
+- Ways out: a newer modem firmware (ask SIMCom or the distributor), or HTTPS on the ESP32 over a plain modem
+  connection (later). Until then, Beam.
 
 ## Troubleshooting
 
@@ -106,7 +143,11 @@ port instead: that needs an adapter cable, and J1939 data needs our later firmwa
 | Upload fails "port busy" | The serial monitor is open: close it, then upload |
 | Modem not found / keeps restarting when it transmits | Not enough power over USB: use the 12 V supply or a vehicle |
 | No network / `CELL` errors | SIM not Ready/Active in Soracom, SIM not seated, wrong size, or no coverage indoors |
-| Registered, but every upload fails | Check the log for TLS/handshake errors and tell Claude. (The SNI fix should prevent the usual one) |
+| `421 Misdirected Request` over cellular (every upload) | The modem doesn't send the server name (SNI), so Vercel refuses the request ([details](#https-over-the-sim7670-modem-doesnt-work)): use the `bench-beam` build |
+| With `bench-beam`: replies `404` or `5xx` | The Beam settings are wrong: check the Website entry point (HTTPS, host `vs-lab-platform-tpj9.vercel.app`, port 443) |
+| With `bench-beam`: no reply, or modem errors `7xx` | The device isn't reaching Beam: the SIM isn't in the Beam group, or it isn't a Soracom SIM |
+| Registered, but every upload fails (anything else) | Check the log for errors and tell Claude |
+| `[CELL] Searching...` then `[CELL] Deactivated` within seconds | The firmware gives up when the modem answers with its start-up messages (an upstream quirk) and tries again 3 minutes later. A test build with `VSLAB_CELL_DEBUG` logs the modem's replies and keeps waiting |
 | Reports arrive, no position | Indoors: put it by a window or outside for the first GPS fix |
 | Data arrives but nothing on the Fleet page | Not paired yet (step 5) |
 | Old settings seem to stick (wrong APN/Wi-Fi) | Settings saved by an earlier firmware override ours: ask Claude to erase the flash (`pio run -t erase`) and flash again |
@@ -119,5 +160,7 @@ port instead: that needs an adapter cable, and J1939 data needs our later firmwa
 - Devices are identified only by their ID in the URL; anyone who knows an ID could send fake data. Set
   `DEVICE_AUTO_REGISTER=false` once devices are registered; device authentication comes later.
 - The firmware doesn't check the server's certificate yet. OK for a lab, not for production.
+- `bench-beam` sends plain HTTP from the device to Soracom; only the Soracom → Vercel hop is HTTPS. Lab only, not for
+  customer devices.
 - Bluetooth is on (Freematics Controller app). Its commands have no password and can read back the Wi-Fi password.
   Fine on the bench; to be locked down in our firmware work.

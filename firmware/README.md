@@ -12,14 +12,16 @@ Our changes so far:
 | Change | Where |
 |---|---|
 | Settings for our platform: server `vs-lab-platform-tpj9.vercel.app:443`, HTTPS POST, Soracom APN, microSD storage, PSRAM, Wi-Fi from environment variables (never in the repo); `bench` (OBD off) and `vehicle` builds; platform pinned to espressif32 6.x (Arduino-ESP32 2.x, which this code needs) | `telelogger/platformio.ini` (config.h unchanged) |
-| **SNI for HTTPS over the SIM7670 modem** (`AT+CSSLCFG="enableSNI",0,1`). Without it Vercel refuses the TLS handshake, so cellular uploads fail | `libraries/FreematicsPlus/FreematicsNetwork.cpp`, `CellHTTP::init` |
-| **HTTPS over Wi-Fi.** Upstream sent plain HTTP over Wi-Fi even to port 443, and Vercel answered every upload with a redirect to HTTPS. Now TLS on port 443 (server certificate not checked yet, as on cellular). Also: reconnect when the server closed the connection, end the old TLS session before reconnecting (it leaked memory), and don't crash in the cellular fallback when the modem was never started. TLS over Wi-Fi only fits in the ESP32's internal RAM with Bluetooth off (the `bench-nobt` build); with it on, the first connection fails (`SSL - Memory allocation failed`). Confirmed on the device 2026-10-24: every upload answered OK |
-| **GPS on the modem** (`CONFIG_GNSS=GNSS_CELLULAR`): the Model H has no separate GPS chip, so `GNSS_STANDALONE` logged `GNSS:NO`. The SIM7670G's own GPS is switched on once the cellular connection is up (`CELL GNSS:OK`) | `telelogger/platformio.ini` | `libraries/FreematicsPlus/FreematicsNetwork.cpp/.h`, `WifiHTTP`, `CellSIMCOM::sendCommand`, `CellHTTP::open` |
+| **SNI setting for HTTPS over the SIM7670 modem** (`AT+CSSLCFG="enableSNI",0,1`). Kept, but it doesn't work: the modem's firmware (`2368B01SIM767XM5A`) accepts the setting and never sends SNI, so Vercel answers every HTTPS request from the modem with `421 Misdirected Request` (proof in [the setup guide](../docs/freematics-setup.md#https-over-the-sim7670-modem-doesnt-work)) | `libraries/FreematicsPlus/FreematicsNetwork.cpp`, `CellHTTP::init` |
+| **HTTPS over Wi-Fi.** Upstream sent plain HTTP over Wi-Fi even to port 443, and Vercel answered every upload with a redirect to HTTPS. Now TLS on port 443 (server certificate not checked yet, as on cellular). Also: reconnect when the server closed the connection, end the old TLS session before reconnecting (it leaked memory), and don't crash in the cellular fallback when the modem was never started. TLS over Wi-Fi only fits in the ESP32's internal RAM with Bluetooth off (the `bench-nobt` build); with it on, the first connection fails (`SSL - Memory allocation failed`). Confirmed on the device 2026-10-24: every upload answered OK | `libraries/FreematicsPlus/FreematicsNetwork.cpp/.h`, `WifiHTTP`, `CellSIMCOM::sendCommand`, `CellHTTP::open` |
+| **GPS on the modem** (`CONFIG_GNSS=GNSS_CELLULAR`): the Model H has no separate GPS chip, so `GNSS_STANDALONE` logged `GNSS:NO`. Not working yet: the library switches the modem's GPS on with SIM7600 commands (`AT+CGPS`), which the SIM7670G doesn't accept, so `CELL GNSS:OK` doesn't appear (see Next) | `telelogger/platformio.ini` |
+| **Cellular through Soracom Beam** (`bench-beam` build, lab only): the device sends plain HTTP to `beam.soracom.io` (port 80) and Soracom forwards it over HTTPS, with SNI, to our platform. The modem's HTTP client now uses `http://` unless the port is 443 (upstream always used `https://`), sets the SSL context only for 443, and restarts its HTTP service (`AT+HTTPTERM`) before `AT+HTTPINIT`: one left running across an ESP32 restart made `HTTPINIT` answer ERROR. Confirmed on the device 2026-10-24 with Bluetooth on: every upload answered `OK` | `telelogger/platformio.ini`, `libraries/FreematicsPlus/FreematicsNetwork.cpp`, `CellHTTP::open`/`send` |
+| **Test-only switches**, off in every normal build: `VSLAB_CELL_DEBUG` (logs the modem's replies during the network search and its SSL setup, waits 3 minutes for the network, no standby on the desk, tries the SNI experiments) and `VSLAB_MODEM_PASSTHROUGH` (the ESP32 only relays USB ↔ modem, for typing AT commands by hand). Turn on with `$env:PLATFORMIO_BUILD_FLAGS="-DVSLAB_CELL_DEBUG"` | `libraries/FreematicsPlus/FreematicsNetwork.cpp`, `telelogger/telelogger.ino` |
 
-Status: built and flashed on Craig's PC 2026-10-24 (device `Y5725A32`). Wi-Fi uploads confirmed with
-`bench-nobt`. Cellular (SNI fix, Bluetooth on, modem GPS) not yet confirmed: over USB power alone the modem
-restarts while searching for a network, so it needs the 12 V supply or a vehicle. PlatformIO's servers are blocked in
-Claude's cloud sessions, so builds happen on Craig's PC. Setup and flashing: [docs/freematics-setup.md](../docs/freematics-setup.md).
+Status (2026-10-24, device `Y5725A32`, on USB power): Wi-Fi uploads work with `bench-nobt`. Cellular works through
+Soracom Beam with `bench-beam`, Bluetooth on: every upload answered `OK`. Direct HTTPS over the modem
+doesn't (the modem never sends SNI). Car test with `bench-beam` still to do; modem GPS not working yet. PlatformIO's
+servers are blocked in Claude's cloud sessions, so builds happen on Craig's PC. Setup and flashing: [docs/freematics-setup.md](../docs/freematics-setup.md).
 
 - Device library (modem, GPS, OBD, buzzer): `libraries/FreematicsPlus`; the Model H's SIM7670 modem is auto-detected
 - Build system: PlatformIO, Arduino framework on ESP32
@@ -36,8 +38,10 @@ plus Wi-Fi plus a secure (TLS) connection made by the ESP32 itself is the tighte
 memory. PSRAM doesn't help much there: the radios and TLS need the chip's own memory.
 
 What changes that:
-- **Over cellular, the SIM7670 modem does the TLS work itself**, so Bluetooth + cellular needs far less ESP32
-  memory than Bluetooth + Wi-Fi. Test Bluetooth on cellular before concluding it doesn't fit.
+- **Cellular doesn't need the ESP32 to do TLS**: through Soracom Beam the ESP32 sends plain HTTP and Soracom adds
+  HTTPS. Bluetooth + cellular via Beam is confirmed to fit (2026-10-24). The modem's own TLS can't be used with
+  Vercel (it never sends SNI), so the long-term, carrier-independent design is TLS on the ESP32 over a plain modem
+  connection, which brings this memory question back.
 - **Replace Bluedroid with NimBLE** (a much lighter Bluetooth stack, commonly about half the memory). We need our own
   Bluetooth code anyway for beacon scanning and talking to the phone app (step 3 below), so we write that on NimBLE.
 - Log free memory (`ESP.getFreeHeap()`, `ESP.getMinFreeHeap()`) in bench builds so each change is measured, not guessed.
@@ -46,7 +50,11 @@ What changes that:
 
 Further changes, in small tested steps (see [product tiers](../docs/product-tiers.md)):
 
-1. ~~Enable SNI for HTTPS on the SIM7670~~ (done in code, to be confirmed on the device)
+1. ~~Enable SNI for HTTPS on the SIM7670~~: tested 2026-10-24, the modem ignores it. Cellular goes through Soracom
+   Beam for now (lab only). Long term: TLS on the ESP32 over a plain modem connection (carrier-independent; also
+   where checking the server's certificate will live). Not started.
+   - Modem GPS: switch it on with the SIM7670G's own commands (`AT+CGNSSPWR=1`, read with `AT+CGNSSINFO`) instead of
+     the SIM7600 ones (`AT+CGPS`) the library uses
 2. Read commands from the server's reply to each upload and check-in, check their signature, run them and answer
    (format in [docs/device-commands.md](../docs/device-commands.md); the server side and a simulated device are built)
 3. Bluetooth on NimBLE (replacing Bluedroid, see above): BLE beacon scanning, adding nearby beacon IDs to each
