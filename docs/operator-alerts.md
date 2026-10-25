@@ -28,15 +28,16 @@ out the alert and, when it changes, queues a device command (the existing signed
 - expires after 10 minutes if unanswered; a newer alert cancels an unanswered older one
 - the last value sent is kept in `machines.operator_alert`
 
-## Firmware (to do, desktop session)
+## Firmware (done 2026-10-25, `feat/cell-beam` `a4648c2`)
 
-Our fork doesn't run device commands yet. Needed:
-
-1. **Read `CMD <id> <sig> <command>` lines** in the replies to uploads and notifications, check the signature (HMAC
-   per-device key, see device-commands.md), skip IDs already run, and answer at `GET /hub/api/ack/<DEVID>?id=&ok=&result=&sig=`.
-2. **`ALERT=<kind>`:** keep the kind; while the engine runs, play the pattern every 30 s:
-   - `not_checked_in`: two long beeps (about 700 ms on, 300 ms off, 700 ms on);
-   - `checklist_due`: three short beeps (about 150 ms on, 150 ms off, three times);
-   - `none`: stop. Also stop when the device goes to sleep (a new wake starts quiet; VS-lab resends if still needed).
-3. **Remove the routine beeps:** `beep(50)` when Wi-Fi connects and when cellular is "In service" (telelogger.ino).
-4. `BEEP=<n>` (staff "Sound the buzzer") comes with item 1.
+- Reads `CMD <id> <sig> <command>` lines in replies to uploads and sign-ins, runs each once (the last ID is kept
+  across restarts; a resent ID gets its answer again) and answers at `/hub/api/ack`.
+- Signatures are checked when the device has a key (`VSLAB_DEVICE_KEY` at build time). Without one it accepts
+  unsigned commands, which is what VS-lab sends until `DEVICE_KEY_SECRET` is set ([device-commands.md](device-commands.md)).
+- `ALERT=not_checked_in`: two long beeps (700 ms, 300 ms gap, 700 ms); `ALERT=checklist_due`: three short (150 ms
+  each, 150 ms gaps). A new alert sounds at once, then every 30 s while the engine runs (RPM if the build reads it,
+  else supply voltage, else it trusts VS-lab). `ALERT=none` or the device going to sleep stops it.
+- Also `BEEP=<n>` (Sound the buzzer), `REPORT` (send now) and `RESET`. Other commands answer "not supported yet".
+- The routine "connected" beeps are gone.
+- Tested on Y5725A32 with real commands from VS-lab: Sound the buzzer ×3, Report now, Sound the buzzer ×2, all run and
+  answered. The alerts themselves (VS-lab sending `ALERT=…` while the engine runs) still need a car test.

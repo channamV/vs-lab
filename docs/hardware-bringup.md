@@ -21,7 +21,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 | Engine on/off from supply voltage, no OBD | ✅ On the desk: `bench-beam` sends 0x24 from A0 in every upload, timing unchanged (`a742e40`). Values against a multimeter in a car still to check (car test 2) |
 | Store-and-forward / location history replay | ⏳ On hold. **Core requirement** (see below) |
 
-**Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading and GPS date (`b3c0ec9`). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
+**Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
 
 ---
 
@@ -132,10 +132,15 @@ sign-off (logout) ends the engine-on period. In order:
    own and VS-lab raises the tamper "power interrupted" incident.
 5. Then **merge `feat/cell-beam`** (item 8) and send the SIMCom report (item 9).
 
-6. **Operator alert beeps and device commands** (Craig, 2026-10-25): run VS-lab's signed device commands (our fork
-   doesn't yet), play `ALERT=not_checked_in` (two long beeps) / `ALERT=checklist_due` (three short beeps) every 30 s
-   while the engine runs, stop on `ALERT=none` or sleep, and remove the routine "connected" beeps. Spec:
-   [operator-alerts.md](operator-alerts.md). VS-lab side is done.
+6. ✅ **Operator alert beeps and device commands**, 2026-10-25, `feat/cell-beam` `a4648c2`, on the device now:
+   - commands from replies to uploads and sign-ins, run once (last ID in NVS), answered at `/hub/api/ack`; signatures
+     checked when the build has a key (`VSLAB_DEVICE_KEY`), unsigned accepted without one (VS-lab sends unsigned:
+     `DEVICE_KEY_SECRET` isn't set);
+   - `ALERT` patterns every 30 s while the engine runs, stopped by `ALERT=none` or sleep; `BEEP`, `REPORT`, `RESET`;
+     other commands answer "not supported yet"; routine "connected" beeps removed;
+   - tested with real VS-lab commands: #5 BEEP=3, #6 REPORT, #7 BEEP=2, all run and answered;
+   - ⏳ car: an `ALERT` from VS-lab while the engine runs (machine Access-Controlled, nobody checked in);
+   - ⏳ before real machines: turn signing on (`DEVICE_KEY_SECRET` in Vercel, then build each device with its key).
 
 Rules as before: mark changes `// VSLAB:`, keep Bluetooth on in deployment builds, build/flash on Craig's PC, update this
 file after each step.
