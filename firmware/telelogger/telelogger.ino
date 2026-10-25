@@ -869,12 +869,72 @@ bool initCell(bool quick = false)
 }
 
 /*******************************************************************************
+  VSLAB: store-and-forward. Readings stay in the buffer until the server answers 200, and go out oldest first,
+  several per upload, once the oldest has waited VSLAB_BATCH_SECONDS (or a batch is full). Upstream sent the
+  newest reading alone and discarded it before knowing whether the send worked. docs/store-and-forward.md
+*******************************************************************************/
+#ifndef VSLAB_BATCH_SECONDS
+#define VSLAB_BATCH_SECONDS 15
+#endif
+#define VSLAB_BATCH_MAX 15
+
+enum { BATCH_NONE, BATCH_SENT, BATCH_REJECTED, BATCH_FAILED };
+
+int sendBatch(CStorageRAM& store)
+{
+  CBuffer* batch[VSLAB_BATCH_MAX];
+  int n = bufman.takeOldest(batch, VSLAB_BATCH_MAX);
+  if (!n) return BATCH_NONE;
+#if SERVER_PROTOCOL == PROTOCOL_UDP
+  store.header(devid);
+#endif
+  // keep well inside the upload buffer: a reading that doesn't fit would be cut off
+  int used = 0;
+  for (; used < n && store.length() < SERIALIZE_BUFFER_SIZE * 2 / 3; used++) {
+    store.timestamp(batch[used]->timestamp);
+    batch[used]->serialize(store);
+  }
+  for (int i = used; i < n; i++) bufman.unlock(batch[i]);
+  store.tailer();
+  Serial.print("[DAT] ");
+  Serial.println(store.buffer());
+
+#ifdef VSLAB_TEST_OUTAGE
+  // VSLAB test build: a pretend dead zone from 40 to 120 s after start-up (no upload is attempted)
+  bool sent = (millis() > 40000 && millis() < 120000) ? false : teleClient.transmit(store.buffer(), store.length());
+  if (!sent && millis() < 120000) Serial.println("[TEST] pretend dead zone");
+#else
+  bool sent = teleClient.transmit(store.buffer(), store.length());
+#endif
+  store.purge();
+#if SERVER_PROTOCOL == PROTOCOL_UDP
+  int result = sent ? BATCH_SENT : BATCH_FAILED;
+#else
+  // a 4xx means the server refused the data itself: sending it again can't help
+  int code = teleClient.lastCode;
+  int result = !sent ? BATCH_FAILED : code == 200 ? BATCH_SENT : (code >= 400 && code < 500) ? BATCH_REJECTED : BATCH_FAILED;
+#endif
+  for (int i = 0; i < used; i++) {
+    if (result == BATCH_FAILED) bufman.unlock(batch[i]);
+    else bufman.free(batch[i]);
+  }
+  Serial.print("[NET] ");
+  Serial.print(used);
+  Serial.print(result == BATCH_SENT ? " readings sent" : result == BATCH_REJECTED ? " readings refused by the server, dropped" : " readings kept to send again");
+  Serial.print(", ");
+  Serial.print(bufman.filled(0));
+  Serial.println(" waiting");
+  return result;
+}
+
+/*******************************************************************************
   Initializing network, maintaining connection and doing transmissions
 *******************************************************************************/
 void telemetry(void* inst)
 {
   uint32_t lastRssiTime = 0;
   uint8_t connErrors = 0;
+  uint32_t retryAt = 0; // VSLAB: no upload attempt before this time (after a failed one)
   CStorageRAM store;
   store.init(
 #if BOARD_HAS_PSRAM
@@ -889,6 +949,8 @@ void telemetry(void* inst)
   for (;;) {
     if (state.check(STATE_STANDBY)) {
       if (state.check(STATE_CELL_CONNECTED) || state.check(STATE_WIFI_CONNECTED)) {
+        // VSLAB: send what's still waiting before signing off: the device restarts when it wakes, clearing memory
+        for (int i = 0; i < 80 && sendBatch(store) == BATCH_SENT; i++);
         teleClient.shutdown();
         netop = "";
         ip = "";
@@ -1003,32 +1065,25 @@ void telemetry(void* inst)
 #endif
       }
 
-      // get data from buffer
-      CBuffer* buffer = bufman.getNewest();
-      if (!buffer) {
+      // VSLAB: send in batches, oldest first, once the oldest reading has waited long enough (see sendBatch)
+      uint32_t oldest;
+      int waiting = bufman.filled(&oldest);
+      if (!waiting || (waiting < VSLAB_BATCH_MAX && millis() - oldest < VSLAB_BATCH_SECONDS * 1000UL) || millis() < retryAt) {
         delay(50);
         continue;
       }
-#if SERVER_PROTOCOL == PROTOCOL_UDP
-      store.header(devid);
-#endif
-      store.timestamp(buffer->timestamp);
-      buffer->serialize(store);
-      bufman.free(buffer);
-      store.tailer();
-      Serial.print("[DAT] ");
-      Serial.println(store.buffer());
 
       // start transmission
 #ifdef PIN_LED
       if (ledMode == 0) digitalWrite(PIN_LED, HIGH);
 #endif
 
-      if (teleClient.transmit(store.buffer(), store.length())) {
-        // successfully sent
+      int result = sendBatch(store);
+      if (result == BATCH_SENT) {
         connErrors = 0;
         showStats();
-      } else {
+      } else if (result == BATCH_FAILED) {
+        retryAt = millis() + 5000; // VSLAB: pause before trying again
         timeoutsNet++;
         connErrors++;
         printTimeoutStats();
@@ -1040,7 +1095,6 @@ void telemetry(void* inst)
 #ifdef PIN_LED
       if (ledMode == 0) digitalWrite(PIN_LED, LOW);
 #endif
-      store.purge();
 
       teleClient.inbound();
 

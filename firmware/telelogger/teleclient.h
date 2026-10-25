@@ -51,6 +51,10 @@ public:
     CBuffer* getFree();
     CBuffer* getOldest();
     CBuffer* getNewest();
+    // VSLAB: store-and-forward (see sendBatch in telelogger.ino)
+    int takeOldest(CBuffer** out, int max);
+    void unlock(CBuffer* slot);
+    int filled(uint32_t* oldest);
     void printStats();
 private:
     CBuffer** slots = 0;
@@ -81,6 +85,7 @@ public:
     uint32_t startTime = 0;
     uint8_t packets = 0;
     bool login = false;
+    uint16_t lastCode = 0; // VSLAB: HTTP status of the last transmit (0 = no reply)
 };
 
 class TeleClientUDP : public TeleClient

@@ -183,6 +183,35 @@ CBuffer* CBufferManager::getNewest()
   return 0;
 }
 
+// VSLAB: locks up to `max` of the oldest filled buffers, oldest first; returns how many
+int CBufferManager::takeOldest(CBuffer** out, int max)
+{
+  int n = 0;
+  while (n < max && (out[n] = getOldest())) n++;
+  return n;
+}
+
+// VSLAB: puts a locked buffer back to be sent again (its send failed)
+void CBufferManager::unlock(CBuffer* slot)
+{
+  if (slot->state == BUFFER_STATE_LOCKED) slot->state = BUFFER_STATE_FILLED;
+}
+
+// VSLAB: how many buffers are waiting to be sent, and when the oldest was filled
+int CBufferManager::filled(uint32_t* oldest)
+{
+  int count = 0;
+  uint32_t ts = 0xffffffff;
+  for (int n = 0; n < total; n++) {
+    if (slots[n]->state == BUFFER_STATE_FILLED) {
+      count++;
+      if (slots[n]->timestamp < ts) ts = slots[n]->timestamp;
+    }
+  }
+  if (oldest) *oldest = ts;
+  return count;
+}
+
 void CBufferManager::free(CBuffer* slot)
 {
   slot->purge();
@@ -603,6 +632,12 @@ bool TeleClientHTTP::transmit(const char* packetBuffer, unsigned int packetSize)
     Serial.println("[HTTP] No response");
     return false;
   }
+  // VSLAB: remember the status, so the caller only discards readings the server accepted
+#if ENABLE_WIFI
+  lastCode = wifi.connected() ? wifi.code() : cell.code();
+#else
+  lastCode = cell.code();
+#endif
   Serial.print("[HTTP] ");
   Serial.println(content);
 #if ENABLE_WIFI

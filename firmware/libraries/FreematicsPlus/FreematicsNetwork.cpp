@@ -1067,9 +1067,7 @@ char* CellHTTP::receive(int* pbytes, unsigned int timeout)
       }
     }
   } else if (m_type == CELL_SIM7670) {
-#ifdef VSLAB_CELL_DEBUG
-    m_code = 0;
-#endif
+    m_code = 0; // VSLAB: no stale status from an earlier reply if this one has no header
     if (sendCommand("AT+HTTPHEAD\r", timeout, "+HTTPHEAD:")) {
       char *p = strstr(m_buffer, "HTTP/1.");
       if (p) m_code = atoi(p + 9);
