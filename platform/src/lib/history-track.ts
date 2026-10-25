@@ -113,8 +113,11 @@ export type TrackPoint = { t: number; lat: number; lng: number; kph: number | nu
 export const TRACK_RULES = {
   /** A point that needs a faster speed than this to reach from its neighbours is a GPS glitch. */
   maxPlausibleKph: 250,
-  /** The line breaks where the device was silent this long and the machine reappears somewhere else. */
-  gapMinutes: 15,
+  /**
+   * The line breaks where the device was silent this long and the machine reappears somewhere else (moving, the
+   * device reports every 1–5 s, so a minute's silence is lost signal). The break is drawn dashed: "no data".
+   */
+  gapSeconds: 60,
   gapMeters: 300,
   /** A stop: the machine stayed within this distance for at least this long (engine on or off). */
   stopRadiusM: 60,
@@ -146,12 +149,12 @@ export function dropOutliers(points: TrackPoint[]): TrackPoint[] {
 }
 
 /** Splits the track where the device went quiet and the machine turned up elsewhere (we don't know the way it went). */
-export function splitSegments(points: TrackPoint[]): TrackPoint[][] {
-  const segments: TrackPoint[][] = [];
-  let current: TrackPoint[] = [];
+export function splitSegments<P extends { t: number; lat: number; lng: number }>(points: P[]): P[][] {
+  const segments: P[][] = [];
+  let current: P[] = [];
   for (const p of points) {
     const prev = current.at(-1);
-    if (prev && p.t - prev.t > TRACK_RULES.gapMinutes * 60_000 && distanceM(prev, p) > TRACK_RULES.gapMeters) {
+    if (prev && p.t - prev.t > TRACK_RULES.gapSeconds * 1000 && distanceM(prev, p) > TRACK_RULES.gapMeters) {
       segments.push(current);
       current = [];
     }
@@ -229,8 +232,20 @@ export function stopEngineLabel(s: Pick<Stop, "minutes" | "engineMinutes" | "idl
 export const formatMinutes = (m: number) => (m >= 90 ? `${Math.round(m / 6) / 10} h` : `${m} min`);
 
 /** Distance driven, counting only movement within segments (not jumps across gaps). */
+/** The gaps between segments: where the line is drawn dashed ("no data"), with how long and how far. */
+export function trackGaps<P extends { t: number; lat: number; lng: number }>(segments: P[][]) {
+  return segments.slice(1).map((seg, k) => {
+    const from = segments[k].at(-1)!;
+    const to = seg[0];
+    return { from, to, minutes: Math.round((to.t - from.t) / 60_000), km: distanceM(from, to) / 1000 };
+  });
+}
+
+/** Distance along the track; a gap counts as the straight line across it (the least it could have been). */
 export const trackDistanceKm = (segments: TrackPoint[][]) =>
-  segments.reduce((sum, seg) => sum + seg.slice(1).reduce((s, p, k) => s + distanceM(seg[k], p), 0), 0) / 1000;
+  (segments.reduce((sum, seg) => sum + seg.slice(1).reduce((s, p, k) => s + distanceM(seg[k], p), 0), 0) +
+    trackGaps(segments).reduce((s, g) => s + g.km * 1000, 0)) /
+  1000;
 
 /** The point the machine was at (or last at) at time t: index into points, or -1 before the first. */
 export function indexAt(points: { t: number }[], t: number): number {

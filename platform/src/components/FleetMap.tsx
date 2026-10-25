@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import type { ConnectionStatus } from "@/lib/data";
 import { WORKSITE_TYPES, worksiteColor, type WorksiteType } from "@/lib/worksite-types";
+import { splitSegments, trackGaps } from "@/lib/history-track";
 
 export interface MapMarker {
   /** Machine ID: clicking the marker opens the machine. */
@@ -41,7 +42,8 @@ export function FleetMap({
   height = 420,
 }: {
   markers: MapMarker[];
-  track?: { lat: number; lng: number }[];
+  /** With times (`at`), the line breaks where the device was silent and the gap is drawn dashed (no data). */
+  track?: { lat: number; lng: number; at?: Date | string }[];
   sites?: MapSite[];
   height?: number;
 }) {
@@ -77,9 +79,23 @@ export function FleetMap({
           .addTo(layer);
       }
       if (track && track.length > 1) {
-        const line = track.map((p) => [p.lat, p.lng] as [number, number]);
-        L.polyline(line, { color: "#0284c7", weight: 3, opacity: 0.8 }).addTo(layer);
-        bounds.push(...line);
+        const timed = track.map((p, i) => ({ lat: p.lat, lng: p.lng, t: p.at ? new Date(p.at).getTime() : i }));
+        const segments = track[0].at ? splitSegments(timed) : [timed];
+        for (const seg of segments) {
+          L.polyline(seg.map((p) => [p.lat, p.lng] as [number, number]), { color: "#0284c7", weight: 3, opacity: 0.8 }).addTo(layer);
+        }
+        for (const g of trackGaps(segments)) {
+          L.polyline(
+            [
+              [g.from.lat, g.from.lng],
+              [g.to.lat, g.to.lng],
+            ],
+            { color: "#64748b", weight: 2, opacity: 0.8, dashArray: "6 8" },
+          )
+            .bindTooltip(`No data for ${Math.max(1, g.minutes)} min (no signal?): route unknown`, { sticky: true })
+            .addTo(layer);
+        }
+        bounds.push(...timed.map((p) => [p.lat, p.lng] as [number, number]));
       }
       for (const m of markers) {
         L.circleMarker([m.lat, m.lng], {

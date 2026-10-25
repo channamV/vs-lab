@@ -68,3 +68,12 @@ Points are placed by **when the reading was taken** (the device's GPS time), not
 sends readings it couldn't send earlier newest first, after the newer ones; before this change those late points were
 mixed in with the current ones and the track fanned out from where the machine was parked. Tracks recorded before the
 change can still show this. Details: [store-and-forward.md](store-and-forward.md).
+
+## Gaps: dashed line (2026-10-25)
+
+When the device is silent for more than a minute while the machine moves more than 300 m (usually no cellular
+signal: today's firmware throws away readings it can't send), the track isn't joined with a solid line. A grey
+**dashed** line marks the gap ("No data for N min: route unknown"), on the history/replay map and on the machine
+page's 24-hour map. Distance counts a gap as the straight line across it (the least it could have been). Found on
+Craig's evening drive: a 4–5 minute dead zone was drawn as a straight solid line. The real fix is the device keeping
+and resending those readings ([store-and-forward.md](store-and-forward.md), step 2).

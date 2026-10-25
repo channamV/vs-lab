@@ -3,7 +3,7 @@
 import "leaflet/dist/leaflet.css";
 import type * as Leaflet from "leaflet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatMinutes, indexAt, replayTimeline, replayToReal, stopEngineLabel, type Stop, type TrackPoint } from "@/lib/history-track";
+import { formatMinutes, indexAt, replayTimeline, replayToReal, stopEngineLabel, trackGaps, type Stop, type TrackPoint } from "@/lib/history-track";
 import { WORKSITE_TYPES, worksiteColor, type WorksiteType } from "@/lib/worksite-types";
 
 type Site = { id: number; name: string; type: string; polygon: [number, number][] };
@@ -20,6 +20,7 @@ const SPEEDS = [
 const TRACK = "#2a78d6";
 const START = "#16a34a";
 const END = "#dc2626";
+const GAP = "#64748b";
 
 /** Builds a small popup from text lines (never HTML: operator and site names are typed by users). */
 function popup(lines: string[], strong?: string) {
@@ -167,6 +168,19 @@ export function HistoryReplay({
         leaflet.popup().setLatLng([p.lat, p.lng]).setContent(popup(describe(p), time.format(new Date(p.t)))).openOn(m);
       });
       lay.played.push(played);
+    }
+    // Where the device was silent and the machine turned up elsewhere: we don't know the way it went.
+    for (const g of trackGaps(segments.map((seg) => points.slice(seg.start, seg.end)))) {
+      leaflet
+        .polyline(
+          [
+            [g.from.lat, g.from.lng],
+            [g.to.lat, g.to.lng],
+          ],
+          { color: GAP, weight: 3, opacity: 0.8, dashArray: "6 8" },
+        )
+        .bindTooltip(`No data for ${formatMinutes(Math.max(1, g.minutes))} (no signal?): route unknown`, { sticky: true })
+        .addTo(lay.base);
     }
     for (const s of stops) {
       const c = leaflet
@@ -346,7 +360,7 @@ export function HistoryReplay({
       <div ref={box} style={{ height: 520 }} className="z-0 w-full overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800" />
       <p className="text-xs text-slate-500">
         <span style={{ color: START }}>●</span> Start · <span style={{ color: END }}>●</span> End · <span className="text-slate-700 dark:text-slate-300">●</span> Stop (5 min or
-        more). Click the track for the time, speed and operator at that spot. Gaps in the line: the device was silent and the machine turned up elsewhere.
+        more). Click the track for the time, speed and operator at that spot. Dashed line: no data (the device was silent, e.g. no signal), so the route there is unknown.
       </p>
       {stops.length > 0 && (
         <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">

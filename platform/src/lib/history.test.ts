@@ -12,6 +12,8 @@ import {
   replayToReal,
   splitSegments,
   stopEngineLabel,
+  trackDistanceKm,
+  trackGaps,
   voltageRuns,
   type TrackPoint,
 } from "./history-track";
@@ -62,6 +64,18 @@ describe("track helpers", () => {
     const track = [pt(0, 0), pt(1, 1), pt(40, 30), pt(41, 31), pt(80, 31.1)];
     // 40-minute gap + 3 km jump → break; the quiet hour at the same place doesn't break it.
     expect(splitSegments(track).map((s) => s.length)).toEqual([2, 3]);
+  });
+
+  it("breaks for a few minutes without signal while driving, and measures the gap", () => {
+    // Every minute ~100 m, then 5 minutes silent while 5 km further on.
+    const track = [pt(0, 0), pt(1, 1), pt(6, 50), pt(7, 51)];
+    const segments = splitSegments(track);
+    expect(segments.map((s) => s.length)).toEqual([2, 2]);
+    const [gap] = trackGaps(segments);
+    expect(gap.minutes).toBe(5);
+    expect(gap.km).toBeCloseTo(5.1, 0);
+    // Distance counts the gap as a straight line.
+    expect(trackDistanceKm(segments)).toBeCloseTo(0.1 + 5.1 + 0.1, 0);
   });
 
   it("finds stops: parked with the device asleep, and idling with the engine on", () => {
