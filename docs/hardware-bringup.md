@@ -116,7 +116,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 7. **Car test 2, `bench-beam` with A0 voltage.** Engine on/off from voltage only. Compare against a multimeter, engine off and running; thresholds are 13.2 V running and ≤12.6 V off. Add a calibration factor if the reading is consistently off.
 8. **Merge `feat/cell-beam`** after the car tests.
 9. **Send the SIMCom bug report** (`docs/simcom-sni-report.md`).
-10. **Fix the invalid Anthropic API key** for scan-to-fill: `POST /machines/new` returned 401 "Invalid bearer token" on 2026-10-24.
+10. ✅ **Fix the invalid Anthropic API key** (fixed 2026-10-25: Craig saved a new key at 01:08 UTC and redeployed; his scan worked and no scan errors since) for scan-to-fill: `POST /machines/new` returned 401 "Invalid bearer token" on 2026-10-24.
     - Checked 2026-10-25 (Vercel runtime errors and env list; key value not read): one failure, 2026-10-24 19:42 UTC. `ANTHROPIC_API_KEY` exists for Production and Preview, set the same day (~11:33 UTC), never changed.
     - The SDK in use (`@anthropic-ai/sdk` 1.x) sends the API key as `Authorization: Bearer <key>`, so "Invalid bearer token" means the key itself is rejected (mistyped, extra characters, or revoked), not a missing variable.
     - ⏳ Craig: create a new key in the Claude Console (API keys), paste it into Vercel → Settings → Environment Variables → `ANTHROPIC_API_KEY` (Production and Preview, no quotes or spaces), redeploy, then try a scan.
