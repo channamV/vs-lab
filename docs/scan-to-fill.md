@@ -7,15 +7,19 @@ Where it works today:
 - **Training records** (Operators → an operator → Add training record → **Scan certificate**): reads the certification
   name, issue and expiry dates, provider, card number and the holder's name. It picks the matching certification from
   your list, and warns if the name on the card isn't the operator's.
-- **Machines** (Add machine, or Edit on a machine page → **Scan serial plate**): reads make, model, year and serial
-  number / PIN, and suggests a category and name if those are empty.
+- **Machines** (Add machine, or Edit on a machine page → **Scan serial plate or VIN**): works with either an equipment
+  ID plate or a photo of a VIN (dashboard plate through the windshield, door-jamb sticker, registration). It reads the
+  number, checks it and decodes a VIN in the same step (see below), and fills make, model, year, serial number, and a
+  category and name if those are empty.
+  - **ID plate:** what's printed on the plate fills the form; the number check then points out anything that disagrees.
+  - **VIN:** the decoded VIN leads (make, model, year, type); anything else readable in the photo fills what's left.
 
 The button opens the phone's camera (or lets you choose a photo or PDF on a computer). Photos are shrunk on the phone
 first. Anything the scan can't read clearly is left blank rather than guessed.
 
 ## VIN and PIN check (machines)
 
-After a plate scan, and whenever you press **Check VIN / PIN** under the Serial # / VIN field, the number is checked:
+As part of every scan, and whenever you press **Check VIN / PIN** under the Serial # / VIN field, the number is checked:
 
 - **On-road vehicles (17-character VIN):** the 9th character is a check digit, so most misread characters are caught
   ("one character is probably misread, compare it with the plate"). The VIN is decoded with NHTSA's free public
@@ -24,6 +28,10 @@ After a plate scan, and whenever you press **Check VIN / PIN** under the Serial 
   the manufacturer (Caterpillar, Komatsu, Volvo, JCB, Hitachi, John Deere, Case, Develon/Doosan, Hyundai), so the make
   is filled in; the model comes from the plate scan.
 - Shorter or older serial numbers can't be looked up; nothing changes.
+- **Misread characters (scans only):** VINs never use I, O or Q, so a scan's I/O/Q become 1/0. If the check digit still
+  fails and swapping exactly one look-alike character (5/S, 8/B, 2/Z, 6/G, 0/D, U/V) makes it match, the corrected VIN
+  is used and the form says so ("the photo read X; corrected to Y, compare it with the plate"). With two misreads the
+  "fix" can occasionally be wrong, hence the note. Numbers typed by hand are never changed (`repairVin` in `vin.ts`).
 
 Empty fields are filled in. A field that already has a different value is **not** overwritten: the form lists it
 ("the form says X, the VIN says Y") so you can decide. Only the number goes to NHTSA; nothing is saved until you
@@ -35,7 +43,7 @@ save the machine. A VIN identifies a vehicle, not a person.
   training record as the certificate copy.
 - Each scan also has **Keep this photo with the record**, so a manager can choose per record.
 - Not kept: the photo is only sent to be read, then discarded. Only the details typed into the record are saved.
-- Serial plate photos are never kept.
+- Serial plate and VIN photos are never kept. On a registration, people's names and addresses are ignored.
 
 ## Setting it up
 

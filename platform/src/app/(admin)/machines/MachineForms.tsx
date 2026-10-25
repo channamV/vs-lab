@@ -7,7 +7,6 @@ import type { Machine } from "@/lib/db/schema";
 import { TIER_LABELS } from "@/lib/format";
 import {
   addMachineAction,
-  lookupSerialAction,
   pairDeviceAction,
   scanPlateAction,
   updateMachineAction,
@@ -34,49 +33,51 @@ export type DivisionChoice = {
 };
 
 /**
- * Scan to fill: reads the serial plate and fills the form for the manager to check, then checks the serial number
- * (VIN check digit + NHTSA decode, or the equipment maker from a PIN) and points out disagreements.
+ * Scan to fill: reads the serial plate, or a photo of the VIN, and fills the form for the manager to check. The server
+ * checks the number in the same step (VIN decoded by NHTSA, equipment PIN maker). A decoded VIN leads: its make, model
+ * and year go into empty fields and the photo's only fill what's left; otherwise the plate leads and the number check
+ * points out disagreements.
  */
 function PlateScan({ form }: { form: React.RefObject<HTMLFormElement | null> }) {
   const [notes, setNotes] = useState<LookupNote[]>([]);
   return (
     <div className="space-y-1 rounded border border-dashed border-slate-300 p-3 dark:border-slate-700">
       <ScanButton
-        label="Scan serial plate"
+        label="Scan serial plate or VIN"
         onScan={async (file) => {
           setNotes([]);
           const data = new FormData();
           data.set("file", file);
           const result = await scanPlateAction(data);
           if (!result.ok) return result.error;
-          const set = (name: string, value: string | number | null) => {
-            const el = form.current?.elements.namedItem(name);
-            if (value !== null && value !== "" && (el instanceof HTMLInputElement || el instanceof HTMLSelectElement)) el.value = String(value);
+          const el = (name: string) => {
+            const e = form.current?.elements.namedItem(name);
+            return e instanceof HTMLInputElement || e instanceof HTMLSelectElement ? e : null;
+          };
+          const set = (name: string, value: string | number | null, onlyIfEmpty: boolean) => {
+            const e = el(name);
+            if (e && value !== null && value !== "" && !(onlyIfEmpty && e.value.trim())) e.value = String(value);
           };
           const f = result.fields;
-          set("make", f.make);
-          set("model", f.model);
-          set("year", f.year);
-          set("serialNumber", f.serialNumber);
-          const type = form.current?.elements.namedItem("machineType");
-          if (type instanceof HTMLInputElement && !type.value) set("machineType", f.machineType);
-          const category = form.current?.elements.namedItem("categoryId");
-          if (category instanceof HTMLSelectElement && !category.value) set("categoryId", result.categoryId);
-          const name = form.current?.elements.namedItem("name");
-          if (name instanceof HTMLInputElement && !name.value && f.make) set("name", [f.make, f.model, f.machineType].filter(Boolean).join(" "));
-          if (f.serialNumber && form.current) {
-            try {
-              setNotes(applySerialLookup(form.current, await lookupSerialAction(f.serialNumber)));
-            } catch {
-              // The scan itself worked; the serial check is a bonus.
-            }
-          }
+          const vinLeads = result.lookup?.kind === "vin";
+          const next: LookupNote[] = [];
+          if (vinLeads && form.current) next.push(...applySerialLookup(form.current, result.lookup!));
+          set("make", f.make, vinLeads);
+          set("model", f.model, vinLeads);
+          set("year", f.year, vinLeads);
+          if (!vinLeads) set("serialNumber", f.serialNumber, false);
+          set("machineType", f.machineType, true);
+          set("categoryId", result.categoryId, true);
+          if (f.make) set("name", [f.make, f.model, f.machineType].filter(Boolean).join(" "), true);
+          if (!vinLeads && result.lookup && form.current) next.push(...applySerialLookup(form.current, result.lookup));
+          if (!f.serialNumber) next.push({ tone: "info", text: "No serial number or VIN was readable in the photo." });
+          setNotes(next);
           return null;
         }}
       />
       <p className="text-xs text-slate-500">
-        Take a photo of the machine&apos;s ID plate: make, model, year and serial number are filled in for you to check, and a VIN is
-        checked against NHTSA&apos;s records. The photo isn&apos;t kept.
+        Take a photo of the machine&apos;s ID plate, or of its VIN (dashboard, door-jamb sticker or registration). Make, model, year
+        and serial number are filled in for you to check; a VIN is decoded with NHTSA&apos;s records. The photo isn&apos;t kept.
       </p>
       <LookupNotes notes={notes} />
     </div>

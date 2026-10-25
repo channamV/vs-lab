@@ -41,7 +41,13 @@ const TrainingScan = z.object({
 });
 
 const PlateScan = z.object({
-  readable: z.boolean().describe("False if this isn't an equipment identification / serial plate, or it can't be read."),
+  readable: z.boolean().describe("False if no machine or vehicle identification (ID plate, serial number or VIN) is visible and legible."),
+  source: z
+    .enum(["equipment_plate", "vin_label", "document", "other"])
+    .describe(
+      "equipment_plate: a manufacturer's ID / serial plate. vin_label: a VIN plate or sticker (dashboard, door jamb, frame) " +
+        "showing mainly the VIN. document: a registration, insurance or bill of sale. other: anything else.",
+    ),
   make: z.string().nullable().describe("Manufacturer, e.g. Caterpillar, Komatsu, John Deere."),
   model: z.string().nullable().describe("Model, e.g. 320 or PC210LC-11."),
   year: z.number().int().nullable().describe("Year of manufacture, if printed."),
@@ -115,14 +121,29 @@ export async function scanTrainingCertificate(file: ScanFile, types: { id: numbe
   };
 }
 
-export type PlateFields = { make: string | null; model: string | null; year: number | null; serialNumber: string | null; machineType: string | null };
+export type PlateSource = z.infer<typeof PlateScan>["source"];
+export type PlateFields = {
+  source: PlateSource;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  serialNumber: string | null;
+  machineType: string | null;
+};
 
-/** Reads a machine's identification / serial plate. */
+const PLATE_PROMPT =
+  "Read this machine identification. It may be an equipment ID / serial plate, or a VIN: a VIN plate seen through the " +
+  "windshield, a door-jamb or frame sticker, or a vehicle document. Put the PIN, serial number or VIN in serialNumber, " +
+  "reading the printed characters (not a barcode). For a VIN label, report make, model and year only if printed as such; " +
+  "the VIN is decoded separately. Ignore names and addresses of people.";
+
+/** Reads a machine's identification / serial plate, or a photo of its VIN. */
 export async function scanSerialPlate(file: ScanFile, api: ScanClient = defaultClient(), now = new Date()): Promise<PlateFields> {
-  const out = await read(file, "Read this equipment identification plate.", PlateScan, api);
-  if (!out.readable) throw new ScanError("That doesn't look like a readable serial plate. Try a sharper, straight-on photo.");
+  const out = await read(file, PLATE_PROMPT, PlateScan, api);
+  if (!out.readable) throw new ScanError("That doesn't look like a readable serial plate or VIN. Try a sharper, straight-on photo.");
   const year = out.year !== null && out.year >= 1950 && out.year <= now.getFullYear() + 1 ? out.year : null;
   return {
+    source: out.source,
     make: text(out.make, 40),
     model: text(out.model, 40),
     year,

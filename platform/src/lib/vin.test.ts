@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { decodeVin, equipmentMaker, lookupSerial, normalizeSerial, titleCase, vinCheckDigit } from "./vin";
+import { decodeVin, equipmentMaker, lookupSerial, normalizeSerial, repairVin, titleCase, vinCheckDigit } from "./vin";
 
 /** A fake fetch answering like NHTSA vPIC's DecodeVinValues. */
 const vpic = (row: Record<string, string>) =>
@@ -16,6 +16,20 @@ describe("VIN check digit", () => {
 
   it("cleans up how serials are printed", () => {
     expect(normalizeSerial("1m8 gdm9a-xkp.042788")).toBe("1M8GDM9AXKP042788");
+  });
+});
+
+describe("repairVin (scanned numbers)", () => {
+  const VIN = "1M8GDM9AXKP042788";
+  it("turns I, O and Q into 1 and 0, and fixes one look-alike character when only one fix fits the check digit", () => {
+    expect(repairVin("1M8GDM9AXKP O42788")).toBe(VIN);
+    expect(repairVin("1MBGDM9AXKP042788")).toBe(VIN); // 8 read as B
+    expect(repairVin(VIN)).toBe(VIN);
+  });
+  it("leaves numbers alone when there's no single clear fix, and doesn't guess on equipment PINs", () => {
+    expect(repairVin("1MB6DM9AXKP042788")).toBe("1MB6DM9AXKP042788"); // two misreads, no single swap fits
+    expect(repairVin("CAT0320GXYZ1234O5")).toBe("CAT0320GXYZ123405"); // PIN: only the O → 0 fix
+    expect(repairVin("ABC123")).toBe("ABC123");
   });
 });
 

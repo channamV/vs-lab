@@ -220,12 +220,12 @@ says it's compliant. Update that doc when items are done.
   authorized. `sendTrainingReminders` (in `runWatchdog`) → `training_expiring/expired` events (machine-less; rules with
   machine/division filters skip them) + email to `operators.email`. Records/contacts are in export and erase.
 - Scan to fill (`src/lib/scan.ts`, tested with a fake client; `docs/scan-to-fill.md`): Claude (`claude-opus-5-5`, low effort,
-  Zod structured output, `fallbacks: "default"`) reads certificate / serial plate photos; needs `ANTHROPIC_API_KEY` (unset =
+  Zod structured output, `fallbacks: "default"`) reads certificate / serial plate or VIN photos (`scanPlateAction` also checks the number in the same step; a decoded VIN leads, `repairVin` fixes I/O/Q and one look-alike character on scans only); needs `ANTHROPIC_API_KEY` (unset =
   no Scan buttons). Saves nothing: manager-only actions (`scanCertificateAction`, `scanPlateAction`) return fields for the
   form; `src/components/ScanButton.tsx` is reusable. A certificate photo is kept only by attaching it as the record's
   document (`organizations.retain_scan_images` default, per-scan checkbox). Plate photos aren't kept.
   VIN/PIN check (`src/lib/vin.ts`, tested): check digit + NHTSA vPIC decode for VINs, manufacturer from equipment PIN
-  prefixes (`EQUIPMENT_WMI`); `lookupSerialAction` after a plate scan and via "Check VIN / PIN"; fills empty fields only.
+  prefixes (`EQUIPMENT_WMI`); `lookupSerialAction` via "Check VIN / PIN"; fills empty fields only.
 - History (`src/lib/history.ts` + browser-safe `src/lib/history-track.ts`, tested; `docs/location-history.md`; modelled on
   Insights): machine page Battery voltage (`voltageHistory`: per-slice min/max/avg via GROUP BY floor(epoch/slice) with the
   slice inlined, engine spans, 12/24 V; `VoltageChart.tsx`; CSV `machines/[id]/battery/export`) and `/machines/[id]/history`

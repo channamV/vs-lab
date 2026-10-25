@@ -50,6 +50,32 @@ export const EQUIPMENT_WMI: Record<string, string> = {
 
 export const equipmentMaker = (serial: string) => EQUIPMENT_WMI[serial.slice(0, 3)] ?? null;
 
+/** Characters a camera (or a person) commonly mixes up on stamped plates and stickers. */
+const LOOKALIKES: Record<string, string[]> = {
+  "5": ["S"], S: ["5"], "8": ["B"], B: ["8"], "2": ["Z"], Z: ["2"], "6": ["G"], G: ["6"], "0": ["D"], D: ["0"], U: ["V"], V: ["U"],
+};
+
+/**
+ * Fixes a misread 17-character VIN from a scan: I, O and Q become 1 and 0 (VINs never use them), and if the check
+ * digit then fails, tries swapping one look-alike character (5/S, 8/B, 2/Z, 6/G, 0/D, U/V). A swap is used only when
+ * exactly one makes the check digit match. Equipment PINs only get the I/O/Q fix (not all makers use a check digit).
+ * Returns the number unchanged when there's nothing to fix or no single clear fix.
+ */
+export function repairVin(raw: string): string {
+  const base = normalizeSerial(raw);
+  if (base.length !== VIN_LENGTH) return base;
+  const serial = base.replace(/I/g, "1").replace(/[OQ]/g, "0");
+  if (!looksLikeVin(serial) || equipmentMaker(serial) || vinCheckDigit(serial) === serial[8]) return serial;
+  const fixes: string[] = [];
+  for (let i = 0; i < VIN_LENGTH; i++) {
+    for (const alt of LOOKALIKES[serial[i]] ?? []) {
+      const candidate = serial.slice(0, i) + alt + serial.slice(i + 1);
+      if (vinCheckDigit(candidate) === candidate[8]) fixes.push(candidate);
+    }
+  }
+  return fixes.length === 1 ? fixes[0] : serial;
+}
+
 export type Decoded = { make: string | null; model: string | null; year: number | null; machineType: string | null };
 
 export type SerialLookup =

@@ -70,13 +70,22 @@ describe("training certificates", () => {
 
 describe("serial plates", () => {
   it("returns make, model, year and serial, ignoring impossible years", async () => {
-    const { client } = fake({ readable: true, make: "Caterpillar", model: "320", year: 2031, serialNumber: "CAT0320 GXYZ1234", machineType: "Excavator" });
+    const { client } = fake({ readable: true, source: "equipment_plate", make: "Caterpillar", model: "320", year: 2031, serialNumber: "CAT0320 GXYZ1234", machineType: "Excavator" });
     expect(await scanSerialPlate(photo, client, new Date("2026-10-22"))).toEqual({
+      source: "equipment_plate",
       make: "Caterpillar",
       model: "320",
       year: null,
       serialNumber: "CAT0320GXYZ1234",
       machineType: "Excavator",
     });
+  });
+
+  it("accepts a photo of just a VIN, and says so when nothing is readable", async () => {
+    const vin = fake({ readable: true, source: "vin_label", make: null, model: null, year: null, serialNumber: "1FDUF5HT 4DEA12345", machineType: null });
+    expect(await scanSerialPlate(photo, vin.client)).toMatchObject({ source: "vin_label", serialNumber: "1FDUF5HT4DEA12345", make: null });
+    expect(JSON.stringify(vin.parse.mock.calls[0][0].messages)).toContain("VIN");
+    const blurry = fake({ readable: false, source: "other", make: null, model: null, year: null, serialNumber: null, machineType: null });
+    await expect(scanSerialPlate(photo, blurry.client)).rejects.toThrow(/serial plate or VIN/);
   });
 });

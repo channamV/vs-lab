@@ -28,7 +28,13 @@ export function applySerialLookup(form: HTMLFormElement, result: SerialLookupRes
   };
   // A recognised VIN/PIN is written the standard way (no spaces or dashes); other serials stay as typed.
   const serial = input("serialNumber");
-  if (serial && result.kind !== "unknown") serial.value = result.serial;
+  if (serial && (result.kind !== "unknown" || result.correctedFrom)) serial.value = result.serial;
+  if (result.correctedFrom) {
+    notes.push({
+      tone: "warn",
+      text: `The photo read "${result.correctedFrom}"; corrected to ${result.serial} (look-alike characters such as O/0 or S/5). Compare it with the plate.`,
+    });
+  }
 
   if (result.kind === "vin") {
     const d = result.decoded;

@@ -14,7 +14,7 @@ import { and, eq } from "drizzle-orm";
 import { machineCategories } from "@/lib/db/schema";
 import { scanAvailable, ScanError, scanSerialPlate, type PlateFields } from "@/lib/scan";
 import { guessCategory } from "@/lib/training";
-import { lookupSerial, type SerialLookup } from "@/lib/vin";
+import { lookupSerial, normalizeSerial, repairVin, type SerialLookup } from "@/lib/vin";
 
 /** What was typed, to refill the form after an error (React clears it after every submit). */
 export type MachineFields = Record<(typeof FIELDS)[number], string>;
@@ -115,47 +115,67 @@ export async function unpairDeviceAction(formData: FormData) {
   refresh();
 }
 
-export type PlateScanResult = { ok: true; fields: PlateFields; categoryId: number | null } | { ok: false; error: string };
+export type SerialLookupResult = (SerialLookup & { categoryId: number | null; correctedFrom: string | null }) | { kind: "error"; error: string };
 
-/** Scan to fill: reads a serial plate photo for the machine form (managers). Saves nothing, and the photo isn't kept. */
+export type PlateScanResult = { ok: true; fields: PlateFields; categoryId: number | null; lookup: SerialLookupResult | null } | { ok: false; error: string };
+
+async function categoryFor(organizationId: number, machineType: string | null) {
+  const name = guessCategory(machineType);
+  if (!name) return null;
+  const [cat] = await getDb()
+    .select({ id: machineCategories.id })
+    .from(machineCategories)
+    .where(and(eq(machineCategories.organizationId, organizationId), eq(machineCategories.name, name)));
+  return cat?.id ?? null;
+}
+
+/** Checks a serial number (fixing an obvious misread when `repair`) and decodes a VIN; the category follows its type. */
+async function checkSerial(organizationId: number, serial: string, repair: boolean): Promise<SerialLookupResult> {
+  const typed = normalizeSerial(serial);
+  const fixed = repair ? repairVin(typed) : typed;
+  const result = await lookupSerial(fixed);
+  return {
+    ...result,
+    categoryId: result.kind === "vin" ? await categoryFor(organizationId, result.decoded.machineType) : null,
+    correctedFrom: fixed !== typed ? typed : null,
+  };
+}
+
+/**
+ * Scan to fill: reads a serial plate or VIN photo for the machine form (managers), then checks the number in the same
+ * step (VIN decoded with NHTSA, equipment PIN maker). Saves nothing, and the photo isn't kept.
+ */
 export async function scanPlateAction(formData: FormData): Promise<PlateScanResult> {
   const auth = await requireAuth("manager");
   if (!scanAvailable()) return { ok: false, error: "Scanning isn't set up yet (ANTHROPIC_API_KEY)." };
   const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choose a photo of the plate." };
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choose a photo of the plate or VIN." };
   try {
     const fields = await scanSerialPlate({ data: new Uint8Array(await file.arrayBuffer()), contentType: file.type });
-    const name = guessCategory(fields.machineType);
-    const [cat] = name
-      ? await getDb()
-          .select({ id: machineCategories.id })
-          .from(machineCategories)
-          .where(and(eq(machineCategories.organizationId, auth.organizationId), eq(machineCategories.name, name)))
-      : [];
-    return { ok: true, fields, categoryId: cat?.id ?? null };
+    let lookup: SerialLookupResult | null = null;
+    if (fields.serialNumber) {
+      try {
+        lookup = await checkSerial(auth.organizationId, fields.serialNumber, true);
+      } catch (err) {
+        // The scan itself worked; the number check is a bonus.
+        console.error("serial check after scan failed", err);
+      }
+    }
+    return { ok: true, fields, categoryId: await categoryFor(auth.organizationId, fields.machineType), lookup };
   } catch (err) {
     if (err instanceof ScanError) return { ok: false, error: err.message };
     throw err;
   }
 }
 
-export type SerialLookupResult = (SerialLookup & { categoryId: number | null }) | { kind: "error"; error: string };
-
 /**
  * VIN / PIN lookup for the machine form (managers): checks a VIN's check digit and decodes it with NHTSA, or names
- * an equipment PIN's manufacturer. Saves nothing; only the number is sent to NHTSA.
+ * an equipment PIN's manufacturer. Saves nothing; only the number is sent to NHTSA. A typed number isn't "repaired"
+ * (the manager can see what they typed); I/O/Q get the usual explanation instead.
  */
 export async function lookupSerialAction(serial: string): Promise<SerialLookupResult> {
   const auth = await requireAuth("manager");
   const value = z.string().trim().min(1).max(40).safeParse(serial);
   if (!value.success) return { kind: "error", error: "Enter the serial number or VIN first." };
-  const result = await lookupSerial(value.data);
-  const name = result.kind === "vin" ? guessCategory(result.decoded.machineType) : null;
-  const [cat] = name
-    ? await getDb()
-        .select({ id: machineCategories.id })
-        .from(machineCategories)
-        .where(and(eq(machineCategories.organizationId, auth.organizationId), eq(machineCategories.name, name)))
-    : [];
-  return { ...result, categoryId: cat?.id ?? null };
+  return checkSerial(auth.organizationId, value.data, false);
 }
