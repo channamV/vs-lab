@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { deviceAssignments, deviceEvents, devices, engineSessions, machines, telemetry, type EngineSession } from "@/lib/db/schema";
 import { num, type SampleFields } from "@/lib/freematics/protocol";
@@ -163,8 +163,10 @@ export async function ingestSamples(
       .where(eq(machines.id, machineId));
   }
 
-  // The newest sample with a reading decides the engine state.
-  const lastReading = readings.findLast((r) => r.running !== null);
+  // The newest sample with a reading decides the engine state, if it's recent: older readings in the same upload
+  // (a backlog) are history and mustn't restart or extend an engine-on period now.
+  const recentFrom = now.getTime() - SAMPLE_TIME_RULES.lateMs;
+  const lastReading = readings.findLast((r, i) => r.running !== null && recordedAt[i].getTime() >= recentFrom);
   if (machineId && lastFix) {
     await tamperChecks(() => checkMovement(db, machineId, { lat: lastFix.lat!, lng: lastFix.lng! }, now));
     // Worksites: entered / left / stayed too long (notifications are sent after the reply, in alert-jobs).
@@ -316,5 +318,45 @@ export async function recordEvent(
       .update(machines)
       .set({ lastSeenAt: now, ...(event.rssi != null && { lastRssi: event.rssi }) })
       .where(eq(machines.id, machineId));
+    // Telelogger signs off only when it goes to sleep (parked), and pings carry no engine data: so a sign-off ends
+    // the engine-on period, and a ping ends one nothing has confirmed for a while.
+    await endQuietEngineSessions(db, now, { machineId, signedOff: event.type === "logout" });
   }
+}
+
+/**
+ * Ends engine-on periods that no reading has confirmed for ENGINE_THRESHOLDS.staleMinutes (or straight away when
+ * the device signed off), at the last running reading, and shows the engine as off. Without this a parked machine
+ * whose device sleeps and pings stays "Running" (and its operator checked in). From device events and the watchdog.
+ * Returns the machines whose engine period was ended.
+ */
+export async function endQuietEngineSessions(db: Db, now: Date, opts: { machineId?: number; signedOff?: boolean } = {}) {
+  const cutoff = opts.signedOff ? now : new Date(now.getTime() - ENGINE_THRESHOLDS.staleMinutes * 60_000);
+  const quiet = await db
+    .select({ session: engineSessions, organizationId: machines.organizationId })
+    .from(engineSessions)
+    .innerJoin(machines, eq(machines.id, engineSessions.machineId))
+    .where(
+      and(
+        isNull(engineSessions.endedAt),
+        lte(engineSessions.lastSeenAt, cutoff),
+        opts.machineId ? eq(engineSessions.machineId, opts.machineId) : undefined,
+      ),
+    );
+  const ended: number[] = [];
+  for (const { session, organizationId } of quiet) {
+    const done = await db
+      .update(engineSessions)
+      .set({ endedAt: session.lastSeenAt })
+      .where(and(eq(engineSessions.id, session.id), isNull(engineSessions.endedAt)))
+      .returning({ id: engineSessions.id });
+    if (!done.length) continue;
+    await recordNotification(db, { organizationId, machineId: session.machineId, type: "stop", engineSessionId: session.id, occurredAt: session.lastSeenAt });
+    await db
+      .update(machines)
+      .set({ engineOn: false, engineChangedAt: session.lastSeenAt })
+      .where(and(eq(machines.id, session.machineId), eq(machines.engineOn, true)));
+    ended.push(session.machineId);
+  }
+  return ended;
 }

@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { checkins } from "@/lib/db/schema";
 import { deliverAlerts, processEvents, recordEvent } from "@/lib/notifications";
 import { syncCheckins } from "@/lib/operators";
-import { pairedMachineId } from "@/lib/telemetry/ingest";
+import { endQuietEngineSessions, pairedMachineId } from "@/lib/telemetry/ingest";
 import { notifyIncidents, watchdog } from "@/lib/tamper";
 import { checkDwell } from "@/lib/worksites";
 import { checkFuelTheft, checkFuelWhileRunning } from "@/lib/fuel";
@@ -87,6 +87,8 @@ export function afterEvents(eventIds: (number | null)[]) {
 /** The tamper watchdog (every 5 minutes, from Vercel Cron): find quiet devices, then alert and notify. */
 export async function runWatchdog(now = new Date()) {
   const db = getDb();
+  // Engines nothing has confirmed running for a while (device asleep, pinging): off, and their operators checked out.
+  for (const machineId of await endQuietEngineSessions(db, now)) await syncCheckins(db, machineId, now);
   const result = await watchdog(db, now);
   const raised = await notifyIncidents(db, {}, now);
   await deliverAlerts(db, raised);

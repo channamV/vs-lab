@@ -268,7 +268,9 @@ says it's compliant. Update that doc when items are done.
 - Engine on/off detection and engine-hours maths live in `src/lib/telemetry/engine.ts` (pure functions, tested).
   Ingest keeps `engine_sessions` up to date: at most one open session per device. Samples are dated `telemetry.recorded_at`
   (`sample-time.ts`, tested: GPS time of day `0x10` + inferred date, else uptime) and handled oldest first; an upload
-  whose newest reading is > 2 min old is a late backlog (stored only). Tracks/history/battery chart order by `recorded_at`. Telelogger's accelerometer is
+  whose newest reading is > 2 min old is a late backlog (stored only); only readings < 2 min old set the engine state.
+  `endQuietEngineSessions` (device logout = asleep → at once; otherwise no running reading for `staleMinutes`, from
+  notify events and `runWatchdog`) ends the session at its last reading, sets the machine's engine off, then check-outs. Tracks/history/battery chart order by `recorded_at`. Telelogger's accelerometer is
   gravity-removed (0;0;0 at rest), so vibration = `hypot(accel) >= vibrationG`. Uploads with no engine signal leave
   the state alone but set `machines.engine_unknown_since`; `engineStatus` shows "unknown" when the device is still
   reporting and that's older than `staleMinutes`.

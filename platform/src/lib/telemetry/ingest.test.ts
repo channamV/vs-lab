@@ -5,7 +5,7 @@ import { deviceEvents, devices, engineSessions, machines, organizations, telemet
 import { parsePayload } from "@/lib/freematics/protocol";
 import { createMachine, pairDevice, unpairDevice } from "@/lib/machines";
 import { engineStatus } from "./engine";
-import { ingestSamples, recordEvent, UnknownDeviceError } from "./ingest";
+import { endQuietEngineSessions, ingestSamples, recordEvent, UnknownDeviceError } from "./ingest";
 
 let db: Db;
 let machineId: number;
@@ -24,6 +24,57 @@ async function paired(deviceId: string, now?: Date) {
 }
 
 const getMachine = async () => (await db.select().from(machines).where(eq(machines.id, machineId)))[0];
+
+describe("engine off when the device sleeps", () => {
+  const t0 = new Date("2026-10-25T15:50:00Z");
+  const at = (min: number) => new Date(t0.getTime() + min * 60_000);
+  const running = (ms: number) => [{ deviceMs: ms, batteryCentivolts: 1420 }];
+
+  it("ends the engine-on period at the last running reading when the device signs off", async () => {
+    await paired("DEV00001");
+    await ingestSamples(db, "DEV00001", running(1000), { now: at(0) });
+    await ingestSamples(db, "DEV00001", running(181_000), { now: at(3) });
+    await recordEvent(db, "DEV00001", { type: "logout" }, { now: at(4) });
+    const [session] = await db.select().from(engineSessions);
+    expect(session.endedAt).toEqual(at(3));
+    expect(await getMachine()).toMatchObject({ engineOn: false, engineChangedAt: at(3) });
+  });
+
+  it("ends one that pings keep alive but nothing confirms, after the stale time", async () => {
+    await paired("DEV00001");
+    await ingestSamples(db, "DEV00001", running(1000), { now: at(0) });
+    await recordEvent(db, "DEV00001", { type: "ping" }, { now: at(5) });
+    expect((await getMachine()).engineOn).toBe(true); // too soon to tell
+    await recordEvent(db, "DEV00001", { type: "ping" }, { now: at(15) });
+    expect((await getMachine()).engineOn).toBe(false);
+    expect((await db.select().from(engineSessions))[0].endedAt).toEqual(at(0));
+  });
+
+  it("is also done by the watchdog for every machine, and leaves confirmed ones alone", async () => {
+    await paired("DEV00001");
+    await ingestSamples(db, "DEV00001", running(1000), { now: at(0) });
+    expect(await endQuietEngineSessions(db, at(9))).toEqual([]);
+    expect(await endQuietEngineSessions(db, at(11))).toEqual([machineId]);
+    expect(await endQuietEngineSessions(db, at(12))).toEqual([]);
+  });
+
+  it("doesn't let an old reading in an upload restart the engine", async () => {
+    await paired("DEV00001");
+    const now = new Date("2026-10-25T16:10:00Z");
+    // Parked readings now, plus a running one from 8 minutes ago (a backlog), all in one upload.
+    await ingestSamples(
+      db,
+      "DEV00001",
+      [
+        { deviceMs: 900_000, gpsTime: 16095500, lat: 47.5, lng: -52.8, batteryCentivolts: 1265 },
+        { deviceMs: 420_000, gpsTime: 16020000, lat: 47.4, lng: -52.9, batteryCentivolts: 1410 },
+      ],
+      { now },
+    );
+    expect(await db.select().from(engineSessions)).toHaveLength(0);
+    expect((await getMachine()).engineOn).toBe(false);
+  });
+});
 
 describe("late readings (backlog sent after newer ones)", () => {
   it("dates readings by GPS time, keeps the parked position current, and orders the track by when it happened", async () => {

@@ -4,6 +4,7 @@ import { EVENT_NAMES } from "@/lib/freematics/protocol";
 import { noteFirmwareVersion } from "@/lib/firmware";
 import { isValidDeviceId, recordEvent, UnknownDeviceError } from "@/lib/telemetry/ingest";
 import { deviceReply } from "@/lib/freematics/reply";
+import { afterDeviceReport } from "@/lib/alert-jobs";
 
 /**
  * Connection events from the Freematics Telelogger (login, logout, ping...).
@@ -24,6 +25,8 @@ export async function GET(request: Request, ctx: RouteContext<"/hub/api/notify/[
       vin: q.get("VIN") || null,
     });
     if (q.has("FW")) await noteFirmwareVersion(getDb(), devid, q.get("FW"));
+    // A sign-off can end the engine-on period: automatic check-out and the "stopped" notification follow.
+    afterDeviceReport(devid);
     return deviceReply(withCommands("OK", await commandsForReply(getDb(), devid)));
   } catch (err) {
     if (err instanceof UnknownDeviceError) return deviceReply("Unknown device", 403);
