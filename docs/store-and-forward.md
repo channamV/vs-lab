@@ -92,3 +92,14 @@ the earlier route. The drive's backlog arrived after the parked readings and, da
   ignore repeats by device and GPS time.
 
 Details of the current firmware behaviour: [hardware-bringup.md](hardware-bringup.md), Findings 5.
+
+## Step 2 as built (2026-10-25)
+
+Device (`feat/cell-beam`, desktop session; details in [hardware-bringup.md](hardware-bringup.md)): readings stay in
+memory until VS-lab answers 200, oldest first, up to 15 per upload about every 15–20 s; what's left is sent before
+signing off. Not kept across sleep yet (the device restarts on wake): step 3 (memory card) covers that.
+
+VS-lab: repeats are skipped (same device uptime within 60 s of a stored reading; a resent batch whose reply was lost),
+and the GPS date sent with each reading gives its exact time. A sign-off after the device was still for 3 minutes
+(not an "engine off" from the engine computer) still ends the engine-on period at its last reading: nothing more is
+known while the device sleeps.

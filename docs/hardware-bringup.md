@@ -112,9 +112,10 @@ sign-off (logout) ends the engine-on period. In order:
      (step 3 of the plan, the memory card, fixes that);
    - desk test with a pretend 80 s dead zone (test switch `VSLAB_TEST_OUTAGE`): 45 readings recorded, 45 delivered,
      the backlog in two uploads (`OK 15`, `OK 9`) right after; the last 3 sent before sign-off;
-   - ⏳ **VS-lab (cloud session): ignore duplicates by device + reading time, now.** The device resends a batch when
-     no 200 arrives, so if VS-lab stored it but the reply was lost, the same readings come again. Also: uploads now
-     carry up to 15 readings each (several `0:` timestamps per body).
+   - ✅ **VS-lab ignores repeats** (2026-10-25, cloud session): a reading with the same uptime (PID 0) as one stored from
+     the same device in the last 24 h, taken within 60 s of it, is skipped (`DUPLICATE_RULES` in `ingest.ts`, tested);
+     the reply is still 200 (`OK <new readings>`, e.g. `OK 0` for a full repeat), which the firmware counts as sent.
+     Uploads with up to 15 readings (several `0:` timestamps per body) were already handled by the parser.
 2. ✅ **Final "engine off" reading before sleeping**, 2026-10-25, `feat/cell-beam` `b3c0ec9`, on the device now:
    - on `[OBD] ECU OFF` the reading in progress is finished as an explicit RPM 0 (PID 0x10C) with voltage and position,
      and sent (with anything still waiting) before sign-off;
@@ -124,8 +125,9 @@ sign-off (logout) ends the engine-on period. In order:
    - can only be checked with a real engine computer: ⏳ in the car, switch off and look for the RPM 0 reading right
      before the sign-off.
 3. ✅ **GPS date**, 2026-10-25, `b3c0ec9`: PID 0x11 (`gpsDate`) in every GPS reading, format DDMMYY (`251026` = 25 Oct
-   2026), next to `gpsTime`. Desk check: in every reading, uploads accepted. ⏳ VS-lab (cloud session) can now use it in
-   `sample-time.ts` instead of assuming readings are under 6 hours old.
+   2026), next to `gpsTime`. Desk check: in every reading, uploads accepted. ✅ VS-lab uses it (2026-10-25,
+   `sample-time.ts`, tested): date + time give the exact moment, up to 30 days old; an impossible or out-of-range date
+   falls back to the time-of-day rule (stock firmware).
 4. **Unplug/replug recovery** (left from car test 1): unplug while running, plug back in; check it reconnects on its
    own and VS-lab raises the tamper "power interrupted" incident.
 5. Then **merge `feat/cell-beam`** (item 8) and send the SIMCom report (item 9).

@@ -25,6 +25,31 @@ async function paired(deviceId: string, now?: Date) {
 
 const getMachine = async () => (await db.select().from(machines).where(eq(machines.id, machineId)))[0];
 
+describe("resent readings (our firmware resends a batch when no 200 came back)", () => {
+  const now = new Date("2026-10-25T22:00:00Z");
+  const batch = [
+    { deviceMs: 600_000, gpsTime: 21592000, gpsDate: 251026, lat: 47.5, lng: -52.8, obdRpm: 900 },
+    { deviceMs: 601_000, gpsTime: 21592100, gpsDate: 251026, lat: 47.5, lng: -52.8, obdRpm: 950 },
+  ];
+
+  it("stores each reading once, and only the new ones of a partly repeated batch", async () => {
+    await paired("DEV00001");
+    expect(await ingestSamples(db, "DEV00001", batch, { now })).toBe(2);
+    expect(await ingestSamples(db, "DEV00001", batch, { now: new Date(now.getTime() + 20_000) })).toBe(0);
+    const next = { deviceMs: 602_000, gpsTime: 21592200, gpsDate: 251026, lat: 47.5, lng: -52.8, obdRpm: 1000 };
+    expect(await ingestSamples(db, "DEV00001", [...batch, next], { now: new Date(now.getTime() + 40_000) })).toBe(1);
+    expect(await db.select().from(telemetry)).toHaveLength(3);
+    expect(await db.select().from(engineSessions)).toHaveLength(1);
+  });
+
+  it("keeps a reading with the same uptime from a later boot", async () => {
+    await paired("DEV00001");
+    await ingestSamples(db, "DEV00001", [{ deviceMs: 5900, gpsTime: 21000000, gpsDate: 251026, lat: 47.5, lng: -52.8 }], { now: new Date("2026-10-25T21:00:05Z") });
+    await ingestSamples(db, "DEV00001", [{ deviceMs: 5900, gpsTime: 21300000, gpsDate: 251026, lat: 47.5, lng: -52.8 }], { now: new Date("2026-10-25T21:30:05Z") });
+    expect(await db.select().from(telemetry)).toHaveLength(2);
+  });
+});
+
 describe("engine times come from the readings", () => {
   it("starts at the first running reading of an upload and stops at the last one, not at arrival", async () => {
     await paired("DEV00001");

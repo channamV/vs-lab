@@ -267,7 +267,8 @@ says it's compliant. Update that doc when items are done.
   submitted values and re-key the form (see `CheckinForms.tsx`, `OperatorForms.tsx`).
 - Engine on/off detection and engine-hours maths live in `src/lib/telemetry/engine.ts` (pure functions, tested).
   Ingest keeps `engine_sessions` up to date: at most one open session per device. Samples are dated `telemetry.recorded_at`
-  (`sample-time.ts`, tested: GPS time of day `0x10` + inferred date, else uptime) and handled oldest first; an upload
+  (`sample-time.ts`, tested: GPS time `0x10` + GPS date `0x11` from our firmware, else inferred date, else uptime;
+  repeats skipped: same `device_ms` within 60 s of a stored reading, `DUPLICATE_RULES`) and handled oldest first; an upload
   whose newest reading is > 2 min old is a late backlog (stored only); only readings < 2 min old set the engine state;
   sessions start at the first and end at the last running reading's `recorded_at` (not arrival).
   `endQuietEngineSessions` (device logout = asleep → at once; otherwise no running reading for `staleMinutes`, from

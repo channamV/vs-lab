@@ -33,3 +33,16 @@ describe("sampleTimes", () => {
     expect(sampleTimes([{ lat: 1 }], NOW)).toEqual([NOW]);
   });
 });
+
+describe("GPS date (our firmware, PID 0x11 DDMMYY)", () => {
+  it("uses the date when it's plausible, even for readings days old", () => {
+    expect(gpsTimeToDate(14520050, NOW, 251026)).toBe(Date.parse("2026-10-25T14:52:00.500Z"));
+    expect(gpsTimeToDate(9000000, NOW, 221026)).toBe(Date.parse("2026-10-22T09:00:00Z")); // kept 3 days out of coverage
+  });
+  it("falls back to the time of day when the date is impossible, in the future or too old", () => {
+    expect(gpsTimeToDate(14520050, NOW, 310226)).toBe(Date.parse("2026-10-25T14:52:00.500Z")); // 31 Feb
+    expect(gpsTimeToDate(14520050, NOW, 10180)).toBe(Date.parse("2026-10-25T14:52:00.500Z")); // 2080
+    expect(gpsTimeToDate(14520050, NOW, 10125)).toBe(Date.parse("2026-10-25T14:52:00.500Z")); // a year ago
+  });
+});
+

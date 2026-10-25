@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { deviceAssignments, deviceEvents, devices, engineSessions, machines, telemetry, type EngineSession } from "@/lib/db/schema";
 import { num, type SampleFields } from "@/lib/freematics/protocol";
@@ -94,7 +94,17 @@ export async function ingestSamples(
 
   // Oldest first, by when each sample was taken: Telelogger sends late (backlogged) readings newest first.
   const times = sampleTimes(received, now);
-  const order = received.map((_, i) => i).sort((a, b) => times[a].getTime() - times[b].getTime() || a - b);
+  // Our firmware resends a batch when no 200 came back, so readings stored already (the reply was lost) are skipped.
+  const repeats = await alreadyStored(db, deviceId, received, times, now);
+  const order = received
+    .map((_, i) => i)
+    .filter((i) => !repeats.has(i))
+    .sort((a, b) => times[a].getTime() - times[b].getTime() || a - b);
+  if (order.length === 0) {
+    await db.update(devices).set({ lastSeenAt: now }).where(eq(devices.id, deviceId));
+    if (machineId) await db.update(machines).set({ lastSeenAt: now }).where(eq(machines.id, machineId));
+    return 0;
+  }
   const samples = order.map((i) => received[i]);
   const recordedAt = order.map((i) => times[i]);
   // An upload of only old readings (a backlog sent after a dead zone) is history: it's stored, but doesn't move
@@ -296,6 +306,40 @@ async function updateEngineState(db: Db, machineId: number, reading: EngineReadi
   if (prev?.engineOn !== reading.running || startedNewSession) {
     await db.update(machines).set({ engineOn: reading.running, engineChangedAt: changedAt }).where(eq(machines.id, machineId));
   }
+}
+
+export const DUPLICATE_RULES = {
+  /** A reading with the same device uptime taken within this of a stored one is the same reading sent again. */
+  sameReadingMs: 60_000,
+  /** Resends come soon after the original: only uploads that arrived this recently are compared. */
+  lookbackMs: 24 * 3_600_000,
+};
+
+/**
+ * Indexes of samples this device has already sent and we stored: same uptime (PID 0) and nearly the same reading
+ * time. Uptime restarts when the device does, so the time check keeps a new boot's readings apart from old ones.
+ * Samples without an uptime can't be matched and are always stored.
+ */
+async function alreadyStored(db: Db, deviceId: string, samples: SampleFields[], times: Date[], now: Date): Promise<Set<number>> {
+  const uptimes = samples.map((f) => num(f, "deviceMs"));
+  const known = uptimes.filter((u): u is number => u !== null);
+  if (known.length === 0) return new Set();
+  const span = DUPLICATE_RULES.sameReadingMs;
+  const stored = await db
+    .select({ deviceMs: telemetry.deviceMs, recordedAt: telemetry.recordedAt })
+    .from(telemetry)
+    .where(
+      and(
+        eq(telemetry.deviceId, deviceId),
+        gte(telemetry.receivedAt, new Date(now.getTime() - DUPLICATE_RULES.lookbackMs)),
+        inArray(telemetry.deviceMs, [...new Set(known)]),
+      ),
+    );
+  const repeats = new Set<number>();
+  uptimes.forEach((u, i) => {
+    if (u !== null && stored.some((r) => r.deviceMs === u && Math.abs(r.recordedAt.getTime() - times[i].getTime()) <= span)) repeats.add(i);
+  });
+  return repeats;
 }
 
 export async function recordEvent(
