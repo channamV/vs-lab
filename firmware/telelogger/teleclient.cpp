@@ -546,12 +546,54 @@ void TeleClientUDP::shutdown()
   Serial.println("[CELL] Deactivated");
 }
 
+// VSLAB: keeps the "CMD <id> <sig> <command>" lines of a reply (VS-lab sends up to 5 after the first line)
+void TeleClient::collectCommands(const char* reply)
+{
+  for (const char* p = strstr(reply, "CMD "); p && commandCount < 5; p = strstr(p + 1, "\nCMD ")) {
+    if (*p == '\n') p++;
+    int n = 0;
+    while (p[n] && p[n] != '\r' && p[n] != '\n' && n < (int)sizeof(commands[0]) - 1) n++;
+    memcpy(commands[commandCount], p, n);
+    commands[commandCount][n] = 0;
+    commandCount++;
+  }
+}
+
 bool TeleClientHTTP::notify(byte event, const char* payload)
 {
   char path[256];
   snprintf(path, sizeof(path), "%s/notify/%s?EV=%u&SSI=%d&VIN=%s", SERVER_PATH, devid,
     (unsigned int)event, (int)rssi, vin);
   if (event == EVENT_LOGOUT) login = false;
+  // VSLAB: keep the reply's commands (e.g. an operator alert queued while the machine was parked)
+  char* content = 0;
+  bool ok;
+#if ENABLE_WIFI
+  if (wifi.connected())
+  {
+    ok = wifi.send(METHOD_GET, path) && (content = wifi.receive(cell.getBuffer(), RECV_BUF_SIZE - 1)) && wifi.code() == 200;
+  }
+  else
+#endif
+  {
+    ok = cell.send(METHOD_GET, SERVER_HOST, SERVER_PORT, path) && (content = cell.receive()) && cell.code() == 200;
+  }
+  if (ok && content) collectCommands(content);
+  return ok;
+}
+
+// VSLAB: answers a device command at /hub/api/ack (the result is URL-encoded)
+bool TeleClientHTTP::ack(uint32_t id, bool ok, const char* result, const char* sig)
+{
+  char enc[96];
+  int n = 0;
+  for (const char* r = result; *r && n < (int)sizeof(enc) - 4; r++) {
+    if (isalnum((unsigned char)*r) || *r == '-' || *r == '_' || *r == '.') enc[n++] = *r;
+    else n += sprintf(enc + n, "%%%02X", (unsigned char)*r);
+  }
+  enc[n] = 0;
+  char path[256];
+  snprintf(path, sizeof(path), "%s/ack/%s?id=%u&ok=%d&result=%s&sig=%s", SERVER_PATH, devid, (unsigned int)id, ok ? 1 : 0, enc, sig);
 #if ENABLE_WIFI
   if (wifi.connected())
   {
@@ -640,6 +682,7 @@ bool TeleClientHTTP::transmit(const char* packetBuffer, unsigned int packetSize)
 #endif
   Serial.print("[HTTP] ");
   Serial.println(content);
+  if (lastCode == 200) collectCommands(content); // VSLAB: device commands ride along with the reply
 #if ENABLE_WIFI
   if ((wifi.connected() && wifi.code() == 200) || cell.code() == 200) {
 #else

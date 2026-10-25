@@ -15,6 +15,7 @@
 * THE SOFTWARE.
 ******************************************************************************/
 
+#include "mbedtls/md.h" // VSLAB: HMAC for device commands
 #include <FreematicsPlus.h>
 #include <httpd.h>
 #include "config.h"
@@ -176,6 +177,57 @@ void beep(int duration)
     delay(duration);
     // turn off buzzer
     sys.buzzer(0);
+}
+
+/*******************************************************************************
+  VSLAB: operator alerts (docs/operator-alerts.md). VS-lab sends ALERT=not_checked_in / checklist_due / none as a
+  device command; while the engine runs the pattern repeats every 30 s. BEEP=<n> sounds the buzzer n times.
+  Set by the network task (runCommands), played by the data loop (playAlerts).
+*******************************************************************************/
+enum { ALERT_NONE, ALERT_NOT_CHECKED_IN, ALERT_CHECKLIST_DUE };
+volatile uint8_t alertKind = ALERT_NONE;
+volatile uint8_t beepRequest = 0;
+uint32_t lastAlertBeep = 0;
+
+// Is the engine running, as far as the device can tell? Without RPM or machine power, trust VS-lab (it only asks
+// while it sees the engine running).
+bool engineRunning()
+{
+#if ENABLE_OBD
+  if (state.check(STATE_OBD_READY)) {
+    for (byte i = 0; i < sizeof(obdData) / sizeof(obdData[0]); i++) {
+      if (obdData[i].pid == PID_RPM) return obdData[i].value >= 300;
+    }
+  }
+#endif
+  if (batteryVoltage >= 8) return batteryVoltage >= (batteryVoltage > 18 ? 26.4f : 13.2f);
+  return true;
+}
+
+void playAlerts()
+{
+  if (beepRequest) {
+    for (byte i = 0; i < beepRequest; i++) {
+      beep(150);
+      delay(150);
+    }
+    beepRequest = 0;
+  }
+  if (alertKind == ALERT_NONE || !engineRunning()) return;
+  if (lastAlertBeep && millis() - lastAlertBeep < 30000) return;
+  if (alertKind == ALERT_NOT_CHECKED_IN) {
+    // two long beeps
+    beep(700);
+    delay(300);
+    beep(700);
+  } else {
+    // three short beeps
+    for (byte i = 0; i < 3; i++) {
+      beep(150);
+      if (i < 2) delay(150);
+    }
+  }
+  lastAlertBeep = millis();
 }
 
 #if LOG_EXT_SENSORS
@@ -799,6 +851,8 @@ void process()
 #else
   dataInterval = dataIntervals[0];
 #endif
+  playAlerts(); // VSLAB: operator alerts and BEEP commands
+
   do {
     long t = dataInterval - (millis() - startTime);
     processBLE(t > 0 ? t : 0);
@@ -896,6 +950,128 @@ bool initCell(bool quick = false)
 #define VSLAB_BATCH_MAX 15
 
 enum { BATCH_NONE, BATCH_SENT, BATCH_REJECTED, BATCH_FAILED };
+bool forceReport = false; // VSLAB: REPORT command: send now, without waiting for the batch timer
+
+/*******************************************************************************
+  VSLAB: device commands from VS-lab (docs/device-commands.md). Each "CMD <id> <sig> <command>" line is checked
+  (HMAC-SHA256 with this device's key, first 16 hex characters), run once (IDs only go up; the last one is kept in
+  NVS) and answered at /hub/api/ack. Without a key (VSLAB_DEVICE_KEY empty) unsigned commands ("-") are accepted,
+  as VS-lab sends while DEVICE_KEY_SECRET is unset; with a key, a wrong or missing signature is ignored.
+*******************************************************************************/
+#ifndef VSLAB_DEVICE_KEY
+#define VSLAB_DEVICE_KEY ""
+#endif
+uint32_t lastCommandId = 0;
+bool lastCommandOk = false;
+char lastCommandResult[48] = {0};
+
+// first 16 hex characters of HMAC-SHA256(key, text)
+void hmac16(const char* key, const char* text, char* out)
+{
+  uint8_t mac[32];
+  mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), (const uint8_t*)key, strlen(key),
+    (const uint8_t*)text, strlen(text), mac);
+  for (int i = 0; i < 8; i++) sprintf(out + i * 2, "%02x", mac[i]);
+  out[16] = 0;
+}
+
+void answerCommand(uint32_t id, bool ok, const char* result)
+{
+  char sig[17] = "-";
+  const char* key = VSLAB_DEVICE_KEY;
+  if (key[0]) {
+    char text[128];
+    snprintf(text, sizeof(text), "ack\n%s\n%u\n%d\n%s", devid, (unsigned int)id, ok ? 1 : 0, result);
+    hmac16(key, text, sig);
+  }
+  bool sent = teleClient.ack(id, ok, result, sig);
+  Serial.print("[CMD] #");
+  Serial.print(id);
+  Serial.print(ok ? " done: " : " failed: ");
+  Serial.print(result);
+  Serial.println(sent ? " (answered)" : " (answer not delivered; VS-lab will resend)");
+}
+
+void runCommand(const char* command, bool* ok, char* result, int resultSize)
+{
+  const char* eq = strchr(command, '=');
+  int nameLen = eq ? eq - command : strlen(command);
+  const char* value = eq ? eq + 1 : "";
+  *ok = true;
+  if (nameLen == 5 && !strncmp(command, "ALERT", 5)) {
+    if (!strcmp(value, "not_checked_in")) alertKind = ALERT_NOT_CHECKED_IN;
+    else if (!strcmp(value, "checklist_due")) alertKind = ALERT_CHECKLIST_DUE;
+    else if (!strcmp(value, "none")) alertKind = ALERT_NONE;
+    else { *ok = false; snprintf(result, resultSize, "unknown alert %s", value); return; }
+    lastAlertBeep = 0; // a new alert sounds straight away
+    snprintf(result, resultSize, "alert %s", value);
+  } else if (nameLen == 4 && !strncmp(command, "BEEP", 4)) {
+    int n = atoi(value);
+    if (n < 1) n = 1;
+    if (n > 10) n = 10;
+    beepRequest = n;
+    snprintf(result, resultSize, "beeping %d", n);
+  } else if (nameLen == 6 && !strncmp(command, "REPORT", 6)) {
+    forceReport = true;
+    snprintf(result, resultSize, "reported");
+  } else if (nameLen == 5 && !strncmp(command, "RESET", 5)) {
+    snprintf(result, resultSize, "restarting");
+  } else {
+    *ok = false;
+    snprintf(result, resultSize, "not supported yet");
+  }
+}
+
+void runCommands()
+{
+  const char* key = VSLAB_DEVICE_KEY;
+  bool restart = false;
+  for (uint8_t c = 0; c < teleClient.commandCount; c++) {
+    // CMD <id> <sig> <command>
+    char* line = teleClient.commands[c];
+    char* p = line + 4;
+    uint32_t id = strtoul(p, &p, 10);
+    while (*p == ' ') p++;
+    char sig[24] = {0};
+    int n = 0;
+    while (*p && *p != ' ' && n < (int)sizeof(sig) - 1) sig[n++] = *p++;
+    while (*p == ' ') p++;
+    const char* command = p;
+    if (!id || !*command) continue;
+    if (id < lastCommandId) continue;
+    if (id == lastCommandId) {
+      // already run: VS-lab didn't get the answer, so send it again
+      answerCommand(id, lastCommandOk, lastCommandResult);
+      continue;
+    }
+    if (key[0]) {
+      char text[200], expected[17];
+      snprintf(text, sizeof(text), "%s\n%u\n%s", devid, (unsigned int)id, command);
+      hmac16(key, text, expected);
+      if (strcmp(sig, expected)) {
+        Serial.print("[CMD] #");
+        Serial.print(id);
+        Serial.println(" ignored: bad signature");
+        continue;
+      }
+    }
+    Serial.print("[CMD] #");
+    Serial.print(id);
+    Serial.print(" ");
+    Serial.println(command);
+    runCommand(command, &lastCommandOk, lastCommandResult, sizeof(lastCommandResult));
+    lastCommandId = id;
+    nvs_set_u32(nvs, "VSLAB_CMDID", id);
+    nvs_commit(nvs);
+    answerCommand(id, lastCommandOk, lastCommandResult);
+    if (lastCommandOk && !strncmp(command, "RESET", 5)) restart = true;
+  }
+  teleClient.commandCount = 0;
+  if (restart) {
+    delay(500);
+    ESP.restart();
+  }
+}
 
 int sendBatch(CStorageRAM& store)
 {
@@ -1028,7 +1204,7 @@ void telemetry(void* inst)
           connErrors = 0;
           if (teleClient.connect()) {
             state.set(STATE_WIFI_CONNECTED | STATE_NET_READY);
-            beep(50);
+            // VSLAB: no routine "connected" beep: beeps are for operator alerts (docs/operator-alerts.md)
             // switch off cellular module when wifi connected
             if (state.check(STATE_CELL_CONNECTED)) {
               teleClient.cell.end();
@@ -1054,7 +1230,8 @@ void telemetry(void* inst)
         }
         Serial.println("[CELL] In service");
         state.set(STATE_NET_READY);
-        beep(50);
+        // VSLAB: no routine "connected" beep: beeps are for operator alerts (docs/operator-alerts.md)
+        runCommands();
       }
 
       if (millis() - lastRssiTime > SIGNAL_CHECK_INTERVAL * 1000) {
@@ -1085,7 +1262,7 @@ void telemetry(void* inst)
       // VSLAB: send in batches, oldest first, once the oldest reading has waited long enough (see sendBatch)
       uint32_t oldest;
       int waiting = bufman.filled(&oldest);
-      if (!waiting || (waiting < VSLAB_BATCH_MAX && millis() - oldest < VSLAB_BATCH_SECONDS * 1000UL) || millis() < retryAt) {
+      if (!waiting || (waiting < VSLAB_BATCH_MAX && millis() - oldest < VSLAB_BATCH_SECONDS * 1000UL && !forceReport) || millis() < retryAt) {
         delay(50);
         continue;
       }
@@ -1095,7 +1272,9 @@ void telemetry(void* inst)
       if (ledMode == 0) digitalWrite(PIN_LED, HIGH);
 #endif
 
+      forceReport = false;
       int result = sendBatch(store);
+      runCommands(); // VSLAB: device commands from the reply
       if (result == BATCH_SENT) {
         connErrors = 0;
         showStats();
@@ -1161,6 +1340,9 @@ void telemetry(void* inst)
 void standby()
 {
   state.set(STATE_STANDBY);
+  // VSLAB: a sleeping machine stays quiet; VS-lab resends the alert after the next wake if it's still needed
+  alertKind = ALERT_NONE;
+  beepRequest = 0;
 #if STORAGE != STORAGE_NONE
   if (state.check(STATE_STORAGE_READY)) {
     logger.end();
@@ -1274,6 +1456,7 @@ void showSysInfo()
 
 void loadConfig()
 {
+  nvs_get_u32(nvs, "VSLAB_CMDID", &lastCommandId); // VSLAB: device commands already run
   size_t len;
   len = sizeof(apn);
   apn[0] = 0;

@@ -86,6 +86,10 @@ public:
     uint8_t packets = 0;
     bool login = false;
     uint16_t lastCode = 0; // VSLAB: HTTP status of the last transmit (0 = no reply)
+    // VSLAB: device commands ("CMD <id> <sig> <command>" lines) from the latest replies, run by telelogger.ino
+    void collectCommands(const char* reply);
+    char commands[5][160];
+    uint8_t commandCount = 0;
 };
 
 class TeleClientUDP : public TeleClient
@@ -112,6 +116,7 @@ public:
     bool transmit(const char* packetBuffer, unsigned int packetSize);
     bool ping();
     void shutdown();
+    bool ack(uint32_t id, bool ok, const char* result, const char* sig); // VSLAB: answer a device command
 #if ENABLE_WIFI
     WifiHTTP wifi;
 #endif
