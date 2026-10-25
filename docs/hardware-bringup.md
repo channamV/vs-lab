@@ -129,7 +129,7 @@ The working record for the device phase: what's proven, what's decided, what's o
     - fork change markers: all 18 now start with `VSLAB` (`// VSLAB:`, `// VSLAB test build:`, `// VSLAB test mode:`), noted in `firmware/README.md` (`feat/cell-beam`, `11360c8`).
 12. **On hold: location history / store-and-forward.**
     - PSRAM: present (8 MB) and enabled in our builds ✅. Investigate `CONFIG_STORAGE` and the SD card.
-    - Write `docs/store-and-forward.md`. Device side: persist with GPS time, send oldest first in batches, advance only on HTTP 200, survive reboot, no purge on standby. Server side: GPS-time timestamps, out-of-order and duplicate handling.
+    - Plan written: [store-and-forward.md](store-and-forward.md) (2026-10-25). Recommended order: VS-lab uses the device's GPS time; then the device keeps failed readings, sends oldest first, doesn't wipe on sleep and sends in batches every 10–15 s (about 3–4 h in memory); then replay from the memory card to survive power cuts.
     - Small first step: `feat/gps-timestamps`, storing the device GPS time on each telemetry row.
 
 ---
