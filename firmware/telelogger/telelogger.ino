@@ -689,6 +689,17 @@ void process()
     uint16_t v = batteryVoltage * 100;
     buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
   }
+#else
+  // VSLAB: board type 15 (Model H) reads its supply voltage on the ESP32's A0 pin, as the OBD build does above,
+  // so send it without OBD too: no engine computer needed. (Upstream uses A0 for every board type above 12;
+  // only 15 is checked.) Other boards read it through the OBD co-processor.
+  if (sys.devType == 15) {
+    batteryVoltage = (float)(analogRead(A0) * 45) / 4095;
+    if (batteryVoltage) {
+      uint16_t v = batteryVoltage * 100;
+      buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
+    }
+  }
 #endif
 
 #if LOG_EXT_SENSORS
@@ -1435,7 +1446,12 @@ void setup()
     obd.begin(sys.link);
   }
 #else
-  sys.begin(false, true);
+  // VSLAB: start the co-processor link too, only to learn the board type: board type 15 (Model H) reads its
+  // supply voltage on A0, which we then send without OBD (see the voltage reading in the data loop).
+  if (sys.begin()) {
+    Serial.print("TYPE:");
+    Serial.println(sys.devType);
+  }
 #endif
 
 #if ENABLE_MEMS
