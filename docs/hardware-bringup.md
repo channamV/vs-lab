@@ -76,7 +76,7 @@ The working record for the device phase: what's proven, what's decided, what's o
   - the whole buffer is purged on standby and on high temperature.
 - **SD card logging is write-only:** nothing replays from it.
 - **PSRAM is on in our builds:** every boot logs `PSRAM:8MB`, and all our envs set `BOARD_HAS_PSRAM` (the stock `platformio.ini` didn't), so the 1024×384 B buffer applies.
-- **VS-lab timestamps:** VS-lab stamps samples with **arrival time** (`receivedAt`). It parses `gpsTime`/`gpsDate` but doesn't use them. Any backlog lands at the wrong time.
+- **VS-lab timestamps:** since 2026-10-25 VS-lab dates samples by **when they were taken** (`recorded_at`: GPS time `0x10`, else uptime); late backlogs are stored as history only. Telelogger sends no GPS date (`0x11` is never sent). Before, arrival time put backlogs in the wrong place (Craig's "fan" on the first drive). See [store-and-forward.md](store-and-forward.md).
 
 ---
 
@@ -130,7 +130,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 12. **On hold: location history / store-and-forward.**
     - PSRAM: present (8 MB) and enabled in our builds ✅. Investigate `CONFIG_STORAGE` and the SD card.
     - Plan written: [store-and-forward.md](store-and-forward.md) (2026-10-25). Recommended order: VS-lab uses the device's GPS time; then the device keeps failed readings, sends oldest first, doesn't wipe on sleep and sends in batches every 10–15 s (about 3–4 h in memory); then replay from the memory card to survive power cuts.
-    - Small first step: `feat/gps-timestamps`, storing the device GPS time on each telemetry row.
+    - ✅ Step 1 done 2026-10-25 (on `main`): `telemetry.recorded_at` from GPS time / uptime; found when the parked car's map fanned out to the earlier route.
 
 ---
 

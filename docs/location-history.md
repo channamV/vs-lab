@@ -61,3 +61,10 @@ history shows which operator was checked in, so the check-in privacy notice ment
   `history-track.ts` (ranges, outliers, segments, stops, replay timeline). Tested in `history.test.ts`.
 - UI: `src/components/VoltageChart.tsx` (SVG, hover, sr-only table), `machines/[id]/BatteryHistory.tsx`,
   `machines/[id]/history/` (page, `HistoryReplay.tsx`, CSV `export`), battery CSV at `machines/[id]/battery/export`.
+
+## Reading times (2026-10-25)
+
+Points are placed by **when the reading was taken** (the device's GPS time), not when it reached VS-lab. The device
+sends readings it couldn't send earlier newest first, after the newer ones; before this change those late points were
+mixed in with the current ones and the track fanned out from where the machine was parked. Tracks recorded before the
+change can still show this. Details: [store-and-forward.md](store-and-forward.md).

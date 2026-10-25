@@ -26,7 +26,7 @@ export const HISTORY_RULES = {
 };
 
 const range = (machineId: number, from: number, to: number) =>
-  and(eq(telemetry.machineId, machineId), gte(telemetry.receivedAt, new Date(from)), lt(telemetry.receivedAt, new Date(to)));
+  and(eq(telemetry.machineId, machineId), gte(telemetry.recordedAt, new Date(from)), lt(telemetry.recordedAt, new Date(to)));
 
 /** Engine-on periods overlapping the range, clipped to it. */
 async function engineSpans(db: Db, machineId: number, from: number, to: number, now: number) {
@@ -54,7 +54,7 @@ async function engineSpans(db: Db, machineId: number, from: number, to: number, 
 export async function voltageHistory(db: Db, machineId: number, from: number, to: number, now = Date.now()) {
   const bucketSeconds = Math.max(60, Math.ceil((to - from) / 1000 / HISTORY_RULES.voltageBuckets));
   // Inlined (a whole number we computed): GROUP BY must see the same expression as SELECT, not new parameters.
-  const bucket = sql<number>`floor(extract(epoch from ${telemetry.receivedAt}) / ${sql.raw(String(Math.trunc(bucketSeconds)))})`;
+  const bucket = sql<number>`floor(extract(epoch from ${telemetry.recordedAt}) / ${sql.raw(String(Math.trunc(bucketSeconds)))})`;
   const rows = await db
     .select({
       b: bucket,
@@ -77,10 +77,10 @@ export async function voltageHistory(db: Db, machineId: number, from: number, to
     engineOn: Boolean(r.engineOn),
   }));
   const [latest] = await db
-    .select({ v: telemetry.batteryV, at: telemetry.receivedAt })
+    .select({ v: telemetry.batteryV, at: telemetry.recordedAt })
     .from(telemetry)
     .where(and(range(machineId, from, to), isNotNull(telemetry.batteryV), gte(telemetry.batteryV, ENGINE_THRESHOLDS.machinePowerMinVolts)))
-    .orderBy(desc(telemetry.receivedAt))
+    .orderBy(desc(telemetry.recordedAt))
     .limit(1);
   const readings = points.reduce((s, p) => s + p.n, 0);
   // 12 V or 24 V system: judged from the typical reading, like the low battery warning.
@@ -110,7 +110,7 @@ export async function locationHistory(db: Db, machineId: number, from: number, t
   const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(telemetry).where(where);
   const total = Number(count);
   const columns = {
-    at: telemetry.receivedAt,
+    at: telemetry.recordedAt,
     lat: telemetry.lat,
     lng: telemetry.lng,
     kph: telemetry.speedKph,
@@ -120,16 +120,16 @@ export async function locationHistory(db: Db, machineId: number, from: number, t
   let rows: { at: Date; lat: number | null; lng: number | null; kph: number | null; heading: number | null; engineOn: boolean | null }[];
   let thinnedToSeconds: number | null = null;
   if (total <= HISTORY_RULES.maxTrackPoints) {
-    rows = await db.select(columns).from(telemetry).where(where).orderBy(asc(telemetry.receivedAt));
+    rows = await db.select(columns).from(telemetry).where(where).orderBy(asc(telemetry.recordedAt));
   } else {
     // One position per time slice: the first one in it.
     thinnedToSeconds = Math.ceil((to - from) / 1000 / HISTORY_RULES.maxTrackPoints);
-    const slice = sql`floor(extract(epoch from ${telemetry.receivedAt}) / ${sql.raw(String(Math.trunc(thinnedToSeconds)))})`;
+    const slice = sql`floor(extract(epoch from ${telemetry.recordedAt}) / ${sql.raw(String(Math.trunc(thinnedToSeconds)))})`;
     rows = await db
       .selectDistinctOn([slice], columns)
       .from(telemetry)
       .where(where)
-      .orderBy(slice, asc(telemetry.receivedAt));
+      .orderBy(slice, asc(telemetry.recordedAt));
   }
   const points: TrackPoint[] = dropOutliers(
     rows.map((r) => ({ t: r.at.getTime(), lat: r.lat!, lng: r.lng!, kph: r.kph, heading: r.heading, engineOn: r.engineOn })),

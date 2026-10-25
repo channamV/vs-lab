@@ -232,6 +232,13 @@
       "when": 1792927407506,
       "tag": "0032_posted_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792938534689,
+      "tag": "0033_telemetry_recorded_at",
+      "breakpoints": true
     }
   ]
 }

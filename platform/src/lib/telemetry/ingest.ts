@@ -9,6 +9,7 @@ import { checkBattery } from "@/lib/battery";
 import { updateEngineData } from "@/lib/faults";
 import { checkSpeedAndIdle } from "@/lib/safety";
 import { detectEngine, ENGINE_THRESHOLDS, type EngineReading } from "./engine";
+import { SAMPLE_TIME_RULES, sampleTimes } from "./sample-time";
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 
@@ -71,12 +72,13 @@ function validFix(lat: number | null, lng: number | null): lat is number {
 /**
  * Stores a batch of samples from a device. The data belongs to the machine the device is paired with
  * (if any): rows are stamped with that machine, and the machine's snapshot and engine sessions are
- * updated. The device keeps its own snapshot too, for diagnostics.
+ * updated. The device keeps its own snapshot too, for diagnostics. Samples are dated by when they were taken
+ * (sample-time.ts) and handled oldest first.
  */
 export async function ingestSamples(
   db: Db,
   deviceId: string,
-  samples: SampleFields[],
+  received: SampleFields[],
   opts: { autoRegister?: boolean; now?: Date } = {},
 ): Promise<number> {
   const now = opts.now ?? new Date();
@@ -84,11 +86,20 @@ export async function ingestSamples(
   await ensureDevice(db, deviceId, opts.autoRegister ?? autoRegisterEnabled());
   const machineId = await pairedMachineId(db, deviceId);
   if (machineId) await tamperChecks(() => noteContact(db, { deviceId, machineId, before, now }));
-  if (samples.length === 0) {
+  if (received.length === 0) {
     await db.update(devices).set({ lastSeenAt: now }).where(eq(devices.id, deviceId));
     if (machineId) await db.update(machines).set({ lastSeenAt: now }).where(eq(machines.id, machineId));
     return 0;
   }
+
+  // Oldest first, by when each sample was taken: Telelogger sends late (backlogged) readings newest first.
+  const times = sampleTimes(received, now);
+  const order = received.map((_, i) => i).sort((a, b) => times[a].getTime() - times[b].getTime() || a - b);
+  const samples = order.map((i) => received[i]);
+  const recordedAt = order.map((i) => times[i]);
+  // An upload of only old readings (a backlog sent after a dead zone) is history: it's stored, but doesn't move
+  // the machine's current position or change its engine state, worksite, safety or battery checks.
+  const live = now.getTime() - recordedAt[recordedAt.length - 1].getTime() <= SAMPLE_TIME_RULES.lateMs;
 
   const readings = samples.map(detectEngine);
   const rows = samples.map((f, i) => {
@@ -100,6 +111,7 @@ export async function ingestSamples(
       deviceId,
       machineId,
       receivedAt: now,
+      recordedAt: recordedAt[i],
       deviceMs: num(f, "deviceMs"),
       lat: hasFix ? lat : null,
       lng: hasFix ? lng : null,
@@ -115,6 +127,11 @@ export async function ingestSamples(
     };
   });
   await db.insert(telemetry).values(rows);
+  if (!live) {
+    await db.update(devices).set({ lastSeenAt: now }).where(eq(devices.id, deviceId));
+    if (machineId) await db.update(machines).set({ lastSeenAt: now }).where(eq(machines.id, machineId));
+    return rows.length;
+  }
 
   // Update the "latest" snapshots. Each value keeps its previous value
   // if this batch didn't include it (e.g. no GPS fix indoors).
@@ -146,7 +163,7 @@ export async function ingestSamples(
       .where(eq(machines.id, machineId));
   }
 
-  // Samples in one upload arrive together, so the last one with a reading decides the engine state.
+  // The newest sample with a reading decides the engine state.
   const lastReading = readings.findLast((r) => r.running !== null);
   if (machineId && lastFix) {
     await tamperChecks(() => checkMovement(db, machineId, { lat: lastFix.lat!, lng: lastFix.lng! }, now));

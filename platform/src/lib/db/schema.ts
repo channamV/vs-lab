@@ -369,6 +369,12 @@ export const telemetry = pgTable(
     /** The machine the device was paired with when this arrived. Null = unpaired (bench test, in stock). */
     machineId: bigint("machine_id", { mode: "number" }).references(() => machines.id, { onDelete: "set null" }),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * When the sample was taken: from its GPS time, else the device uptime (src/lib/telemetry/sample-time.ts). Late
+     * (backlogged) readings arrive after newer ones, so tracks and charts are ordered by this, not by arrival.
+     * Rows from before 2026-10-25 have their arrival time.
+     */
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
     /** Device uptime in ms when the sample was taken (not a wall-clock time). */
     deviceMs: bigint("device_ms", { mode: "number" }),
     lat: doublePrecision("lat"),
@@ -388,6 +394,7 @@ export const telemetry = pgTable(
   (t) => [
     index("telemetry_device_time_idx").on(t.deviceId, t.receivedAt),
     index("telemetry_machine_time_idx").on(t.machineId, t.receivedAt),
+    index("telemetry_machine_recorded_idx").on(t.machineId, t.recordedAt),
   ],
 );
 

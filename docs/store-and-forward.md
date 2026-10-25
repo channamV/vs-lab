@@ -4,7 +4,7 @@
 sends them, oldest first, once it's back in coverage. VS-lab then shows them at the time they happened, not the time
 they arrived. This is a **core requirement** (decided 2026-10-25), on hold until the car tests are done.
 
-Status: plan only, nothing built yet. Written 2026-10-25.
+Status: step 1 done (VS-lab dates readings by when they were taken, 2026-10-25). Steps 2 and 3 (device) not started.
 
 ---
 
@@ -21,7 +21,7 @@ The stock firmware was built to show "where is it now", not a full history.
 | When it goes to sleep | Memory is **wiped** |
 | If the power is cut | Everything in memory is lost |
 | Memory card | Everything is written to it, but **never sent** from it |
-| VS-lab | Dates each reading by **arrival time**, so a late reading lands at the wrong time |
+| VS-lab | Dates each reading by **when it was taken** (GPS time, else device uptime) since 2026-10-25. Before that, by arrival time, so late readings landed at the wrong time |
 
 So today a 20-minute dead zone loses most of those 20 minutes, even though the memory could hold them.
 
@@ -37,8 +37,7 @@ So today a 20-minute dead zone loses most of those 20 minutes, even though the m
 | **D. Send in batches** | Record as often as you like, but send several readings together every 10–15 s | Same as B or C | Same as B or C | Small, on top of B or C |
 
 **Recommended path (in order):**
-1. **VS-lab: use the device's GPS time** for each reading (small; the time is already in every upload). Without
-   this, any replay shows up at the wrong time.
+1. ✅ **VS-lab: use the device's GPS time** for each reading (done 2026-10-25, see "Step 1 as built" below).
 2. **Device: option B plus D.** Keep failed readings, send oldest first, don't wipe on sleep, and send in batches
    every 10–15 s. Covers the common case (dead zones of minutes to hours) and cuts data use.
 3. **Device: option C** when we need to survive power cuts or very long outages (for example, a machine parked for
@@ -61,6 +60,25 @@ without fixing the throw-away and wipe behaviour.
   fine for equipment on a site, coarse for road vehicles.
 
 ---
+
+## Step 1 as built (2026-10-25)
+
+Found by Craig on the first drive: parked in a lot, the map and replay fanned out from the parking spot to points along
+the earlier route. The drive's backlog arrived after the parked readings and, dated by arrival, was mixed in with them.
+
+- Each reading gets `telemetry.recorded_at` (`src/lib/telemetry/sample-time.ts`, tested). Telelogger sends the GPS time
+  of day (PID 0x10, `HHMMSScc` UTC) but **not the date**, so the date is today's, or yesterday's if that would be more
+  than 10 minutes in the future. Readings without a fix use the uptime difference (PID 0) from a GPS reading in the
+  same upload, else from the newest reading (taken as now). Never later than arrival.
+- A GPS time more than 6 hours old is treated as a bad clock and ignored (`SAMPLE_TIME_RULES.maxBacklogMs`); raise it
+  when the device keeps longer backlogs (steps 2 and 3).
+- Ingest handles an upload's readings oldest first. An upload whose newest reading is more than 2 minutes old is a
+  **late backlog**: stored for history, but it doesn't move the current position or change engine state, worksite,
+  safety or battery checks (those would otherwise act on old readings as if they were happening now).
+- The machine page map, location history and replay, the battery chart and the CSVs go by `recorded_at`. Readings from
+  before the change keep their arrival time, so tracks recorded before it can still show the fan.
+- Still by arrival time: reports, fuel checks, posted speed limits (in arrival batches, ordered by `recorded_at` within
+  one), retention.
 
 ## Things to decide or check
 

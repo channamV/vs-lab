@@ -122,7 +122,8 @@ export async function checkPostedSpeeds(db: Db, now = new Date(), fetchImpl: Fet
           sql`not (${telemetry.lat} = 0 and ${telemetry.lng} = 0)`,
         ),
       )
-      .orderBy(asc(telemetry.receivedAt));
+      // By arrival (the run's bookmark is arrival time), then by when taken within an upload.
+      .orderBy(asc(telemetry.receivedAt), asc(telemetry.recordedAt), asc(telemetry.id));
     const points: RoadPoint[] = data.map((d) => ({ t: d.at.getTime(), lat: d.lat!, lng: d.lng!, kph: d.kph, heading: d.heading, satellites: d.satellites }));
     let until = to.getTime();
     if (points.length) {

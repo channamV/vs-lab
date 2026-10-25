@@ -25,6 +25,35 @@ async function paired(deviceId: string, now?: Date) {
 
 const getMachine = async () => (await db.select().from(machines).where(eq(machines.id, machineId)))[0];
 
+describe("late readings (backlog sent after newer ones)", () => {
+  it("dates readings by GPS time, keeps the parked position current, and orders the track by when it happened", async () => {
+    await paired("DEV00001");
+    const now = new Date("2026-10-25T14:53:20Z");
+    // Parked: the live reading arrives first...
+    await ingestSamples(db, "DEV00001", [{ deviceMs: 900_000, gpsTime: 14531500, lat: 47.52, lng: -52.8, speedKph: 0 }], { now });
+    // ...then a backlog from the drive, newest first (Telelogger's order), arriving a few seconds later.
+    const later = new Date(now.getTime() + 5000);
+    await ingestSamples(
+      db,
+      "DEV00001",
+      [
+        { deviceMs: 420_000, gpsTime: 14450000, lat: 47.51, lng: -52.82, speedKph: 50, j1939Rpm: 1500 },
+        { deviceMs: 360_000, gpsTime: 14440000, lat: 47.5, lng: -52.84, speedKph: 50, j1939Rpm: 1500 },
+      ],
+      { now: later },
+    );
+    const machine = await getMachine();
+    expect([machine.lastLat, machine.lastLng]).toEqual([47.52, -52.8]); // still where it's parked
+    expect(await db.select().from(engineSessions)).toHaveLength(0); // old "running" readings don't start the engine now
+    const rows = await db.select().from(telemetry).orderBy(telemetry.recordedAt);
+    expect(rows.map((r) => [r.recordedAt.toISOString(), r.lat])).toEqual([
+      ["2026-10-25T14:44:00.000Z", 47.5],
+      ["2026-10-25T14:45:00.000Z", 47.51],
+      ["2026-10-25T14:53:15.000Z", 47.52],
+    ]);
+  });
+});
+
 describe("ingestSamples", () => {
   it("registers a new device and stores its position", async () => {
     const count = await ingestSamples(db, "DEV00001", [

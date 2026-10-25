@@ -118,6 +118,7 @@ describe("database history", () => {
     deviceId: "DEV1",
     machineId,
     receivedAt: new Date(T0 + min * MIN),
+    recordedAt: new Date(T0 + min * MIN),
     fields: {},
     ...extra,
   });
@@ -162,6 +163,7 @@ describe("database history", () => {
       deviceId: "DEV1",
       machineId,
       receivedAt: new Date(T0 + 2 * 60 * MIN + i * 1000),
+      recordedAt: new Date(T0 + 2 * 60 * MIN + i * 1000),
       fields: {},
       lat: 45,
       lng: -75 + i * 0.00001,

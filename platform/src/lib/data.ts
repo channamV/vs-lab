@@ -257,10 +257,10 @@ export async function getTrack(id: number, hours = 24, limit = 2000) {
   await requireMachine(id);
   const since = new Date(Date.now() - hours * 3_600_000);
   const rows = await getDb()
-    .select({ lat: telemetry.lat, lng: telemetry.lng, at: telemetry.receivedAt })
+    .select({ lat: telemetry.lat, lng: telemetry.lng, at: telemetry.recordedAt })
     .from(telemetry)
-    .where(and(eq(telemetry.machineId, id), gte(telemetry.receivedAt, since), isNotNull(telemetry.lat)))
-    .orderBy(desc(telemetry.receivedAt))
+    .where(and(eq(telemetry.machineId, id), gte(telemetry.recordedAt, since), isNotNull(telemetry.lat)))
+    .orderBy(desc(telemetry.recordedAt), desc(telemetry.id))
     .limit(limit);
   return rows.reverse().map((r) => ({ lat: r.lat!, lng: r.lng!, at: r.at }));
 }
