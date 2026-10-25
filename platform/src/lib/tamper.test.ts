@@ -62,6 +62,11 @@ describe("scoring a quiet device", () => {
     expect(scoreSilence({ ...base, lastRssi: -105, lastBatteryV: 11.2 })!.concern).toBe("low");
     expect(scoreSilence({ ...base, lastRssi: -105, lastBatteryV: 11.2, knownGaps: 2 })!.concern).toBe("low");
     expect(scoreSilence({ ...base, knownGaps: 1 })!.reasons).toContain("Has gone quiet near here 1 time before and come back by itself");
+    // A device on USB (Y5725A32 on a desk read 3.65 V) isn't on the machine's battery: no "may have run flat".
+    expect(scoreSilence({ ...base, lastBatteryV: 3.65 })).toMatchObject({
+      concern: "high",
+      reasons: expect.arrayContaining(["Was not on machine power (3.6 V: USB or a bench supply)"]),
+    });
     const night = new Date("2026-10-15T06:00:00Z"); // 2 AM Toronto
     const quietAtNight = { ...base, lastContactAt: night, now: new Date(night.getTime() + 30 * 60_000), lastRssi: -105 };
     expect(scoreSilence(quietAtNight)!.concern).toBe("medium");
