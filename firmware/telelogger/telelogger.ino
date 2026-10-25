@@ -341,6 +341,8 @@ bool processGPS(CBuffer* buffer)
 
   if (buffer) {
     buffer->add(PID_GPS_TIME, ELEMENT_UINT32, &gd->time, sizeof(uint32_t));
+    // VSLAB: the GPS date too (DDMMYY, e.g. 251026), so VS-lab doesn't have to infer it from the arrival time
+    if (gd->date) buffer->add(PID_GPS_DATE, ELEMENT_UINT32, &gd->date, sizeof(uint32_t));
     buffer->add(PID_GPS_LATITUDE, ELEMENT_FLOAT, &gd->lat, sizeof(float));
     buffer->add(PID_GPS_LONGITUDE, ELEMENT_FLOAT, &gd->lng, sizeof(float));
     buffer->add(PID_GPS_ALTITUDE, ELEMENT_FLOAT_D1, &gd->alt, sizeof(float)); /* m */
@@ -650,6 +652,33 @@ bool waitMotion(long timeout)
 /*******************************************************************************
   Collecting and processing data
 *******************************************************************************/
+// VSLAB: supply voltage (PID 0x24), moved out of process() so the final "engine off" reading can include it
+void addSupplyVoltage(CBuffer* buffer)
+{
+#if ENABLE_OBD
+  if (sys.devType > 12) {
+    batteryVoltage = (float)(analogRead(A0) * 45) / 4095;
+  } else {
+    batteryVoltage = obd.getVoltage();
+  }
+  if (batteryVoltage) {
+    uint16_t v = batteryVoltage * 100;
+    buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
+  }
+#else
+  // VSLAB: board type 15 (Model H) reads its supply voltage on the ESP32's A0 pin, as the OBD build does,
+  // so send it without OBD too: no engine computer needed. (Upstream uses A0 for every board type above 12;
+  // only 15 is checked.) Other boards read it through the OBD co-processor.
+  if (sys.devType == 15) {
+    batteryVoltage = (float)(analogRead(A0) * 45) / 4095;
+    if (batteryVoltage) {
+      uint16_t v = batteryVoltage * 100;
+      buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
+    }
+  }
+#endif
+}
+
 void process()
 {
   static uint32_t lastGPStick = 0;
@@ -666,6 +695,15 @@ void process()
       if (!obd.init()) {
         Serial.println("[OBD] ECU OFF");
         state.clear(STATE_OBD_READY | STATE_WORKING);
+        // VSLAB: finish this reading as an explicit "engine off" (RPM 0, OBD PID 0x0C, with voltage and position)
+        // instead of abandoning it, so it's sent before signing off and VS-lab sees the stop
+        int32_t rpm = 0;
+        buffer->add(0x100 | 0x0C, ELEMENT_INT32, &rpm, sizeof(rpm));
+        addSupplyVoltage(buffer);
+        processGPS(buffer);
+        buffer->add(PID_DEVICE_TEMP, ELEMENT_INT32, &deviceTemp, sizeof(deviceTemp));
+        buffer->timestamp = millis();
+        buffer->state = BUFFER_STATE_FILLED;
         return;
       }
     }
@@ -679,28 +717,7 @@ void process()
     int val = (rssiLast = rssi);
     buffer->add(PID_CSQ, ELEMENT_INT32, &val, sizeof(val));
   }
-#if ENABLE_OBD
-  if (sys.devType > 12) {
-    batteryVoltage = (float)(analogRead(A0) * 45) / 4095;
-  } else {
-    batteryVoltage = obd.getVoltage();
-  }
-  if (batteryVoltage) {
-    uint16_t v = batteryVoltage * 100;
-    buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
-  }
-#else
-  // VSLAB: board type 15 (Model H) reads its supply voltage on the ESP32's A0 pin, as the OBD build does above,
-  // so send it without OBD too: no engine computer needed. (Upstream uses A0 for every board type above 12;
-  // only 15 is checked.) Other boards read it through the OBD co-processor.
-  if (sys.devType == 15) {
-    batteryVoltage = (float)(analogRead(A0) * 45) / 4095;
-    if (batteryVoltage) {
-      uint16_t v = batteryVoltage * 100;
-      buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
-    }
-  }
-#endif
+  addSupplyVoltage(buffer);
 
 #if LOG_EXT_SENSORS
   processExtInputs(buffer);
