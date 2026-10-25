@@ -75,12 +75,13 @@ Roughly, in order:
 
 ```
 DEVICE ID:XXXXXXXX                          ← write this down (Soracom name, label on the device)
+TYPE:15                                     ← board type (Model H)
+GNSS:OK(I)                                  ← built-in GPS found; position follows within a minute or two
 [CELL] Activating...
 CELL:SIM7670...                             ← modem found
 IMEI:...
 APN:soracom.io
 Operator:...                                ← registered on a network (Soracom roams on local carriers)
-CELL GNSS:OK                                ← GPS on the modem switched on (not yet: see firmware/README.md)
 [CELL] IP:...                               ← data connection up
 LOGIN(beam.soracom.io:80)...                ← bench-beam; other builds show vs-lab-platform-tpj9.vercel.app:443
 [CELL] In service
