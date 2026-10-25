@@ -89,6 +89,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 | 2026-10-25 | `bench-beam` keeps OBD off (retry cost). `bench-beam-obd` is for vehicles with an ECU |
 | 2026-10-25 | **Location history with store-and-forward is a core requirement.** Current location alone is not a success. Work is on hold for now; raise it again for ESP32 TLS, custom PCB storage choice and pilot readiness |
 | 2026-10-25 | A0 supply voltage only on board type 15, the only type checked (upstream uses A0 for every type above 12). OBD-off builds start the co-processor link at boot just to read the board type |
+| 2026-10-25 | No multimeter check of the device's voltage reading for now: the readings look right (Craig). Revisit if voltage-based engine on/off misbehaves |
 | 2026-10-25 | Supply floor 8 V. USB reads about 3.6 V and never more than about 5 V; a 12 V system the device runs on reads 10.5 V or more even when flat, and rarely under 9.5 V while cranking; below 8 V the machine couldn't start anyway |
 
 ---
@@ -117,7 +118,7 @@ The working record for the device phase: what's proven, what's decided, what's o
    - voltage running vs. off;
    - no repeating beep;
    - unplug and replug recovery.
-7. **Car test 2, `bench-beam` with A0 voltage.** Engine on/off from voltage only. Compare against a multimeter, engine off and running; thresholds are 13.2 V running and ≤12.6 V off. Add a calibration factor if the reading is consistently off.
+7. **Car test 2, `bench-beam` with A0 voltage.** Multimeter comparison skipped (Craig, 2026-10-25: no meter, readings look believable; revisit if engine on/off by voltage misbehaves). Engine on/off from voltage only. Compare against a multimeter, engine off and running; thresholds are 13.2 V running and ≤12.6 V off. Add a calibration factor if the reading is consistently off.
 8. **Merge `feat/cell-beam`** after the car tests.
 9. **Send the SIMCom bug report** (`docs/simcom-sni-report.md`).
 10. ✅ **Fix the invalid Anthropic API key** (fixed 2026-10-25: Craig saved a new key at 01:08 UTC and redeployed; his scan worked and no scan errors since) for scan-to-fill: `POST /machines/new` returned 401 "Invalid bearer token" on 2026-10-24.
@@ -127,6 +128,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 11. ✅ **Small clean-ups**, 2026-10-25:
     - tamper watchdog: a reading under the 8 V floor is now "Was not on machine power", with no change to the concern (`fix/battery-floor`, `8a14d5c`, tested);
     - fork change markers: all 18 now start with `VSLAB` (`// VSLAB:`, `// VSLAB test build:`, `// VSLAB test mode:`), noted in `firmware/README.md` (`feat/cell-beam`, `11360c8`).
+- **Drive test 2026-10-25 evening (CX-9, DEMO):** engine off at 18:36 NDT (21:06 UTC). No runtime errors during the drive. Checks after today's fixes (company time zone, engine off on sign-off/quiet, map zoom, reading times): ⏳ Craig to confirm the engine showed Off from about 18:36 with automatic check-out, and that the replay of this drive is one clean line.
 12. **On hold: location history / store-and-forward.**
     - PSRAM: present (8 MB) and enabled in our builds ✅. Investigate `CONFIG_STORAGE` and the SD card.
     - Plan written: [store-and-forward.md](store-and-forward.md) (2026-10-25). Recommended order: VS-lab uses the device's GPS time; then the device keeps failed readings, sends oldest first, doesn't wipe on sleep and sends in batches every 10–15 s (about 3–4 h in memory); then replay from the memory card to survive power cuts.
