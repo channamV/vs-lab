@@ -105,6 +105,7 @@ The working record for the device phase: what's proven, what's decided, what's o
    - floor 8 V (see Decisions), one constant (`ENGINE_THRESHOLDS.machinePowerMinVolts`) used by `detectEngine` and `battery.ts`;
    - tests with the real 361/365/369 cV values and the 7.99 / 8.00 V boundary; `npm run check` passes (267 tests);
    - merge after `fix/engine-vibration`: on its own, desk readings would fall through to the old vibration rule (running). A trial merge of the two is clean.
+   - also on this branch (`8a14d5c`): the tamper watchdog notes a reading under the floor as "Was not on machine power" instead of "Battery was low: may have run flat" (item 11).
 5. **Modem GPS on the SIM7670G.** Switch it on with the SIM7670G's commands (`AT+CGNSSPWR=1`, wait for `+CGNSSPWR: READY!`) and read `AT+CGNSSINFO` into the GPS fields, instead of the SIM7600 ones (`AT+CGPS`). Try the commands by hand first with the pass-through build. Without this, car test 1 can't show a fix.
 6. **Car test 1, `bench-beam-obd`.** Engine running, sky view, 3–5 min. Check:
    - GPS fix appears in VS-lab (only after item 5);
@@ -116,9 +117,12 @@ The working record for the device phase: what's proven, what's decided, what's o
 8. **Merge `feat/cell-beam`** after the car tests.
 9. **Send the SIMCom bug report** (`docs/simcom-sni-report.md`).
 10. **Fix the invalid Anthropic API key** for scan-to-fill: `POST /machines/new` returned 401 "Invalid bearer token" on 2026-10-24.
-11. **Small clean-ups:**
-    - the tamper watchdog (`tamper.ts:117`) explains a quiet device with a reading under the floor as "Battery was low (3.6 V): may have run flat"; apply the 8 V floor there too;
-    - fork change markers: the earlier changes use `// VS Lab:`, the A0 change `// VSLAB:`; pick one so a search finds them all.
+    - Checked 2026-10-25 (Vercel runtime errors and env list; key value not read): one failure, 2026-10-24 19:42 UTC. `ANTHROPIC_API_KEY` exists for Production and Preview, set the same day (~11:33 UTC), never changed.
+    - The SDK in use (`@anthropic-ai/sdk` 1.x) sends the API key as `Authorization: Bearer <key>`, so "Invalid bearer token" means the key itself is rejected (mistyped, extra characters, or revoked), not a missing variable.
+    - ⏳ Craig: create a new key in the Claude Console (API keys), paste it into Vercel → Settings → Environment Variables → `ANTHROPIC_API_KEY` (Production and Preview, no quotes or spaces), redeploy, then try a scan.
+11. ✅ **Small clean-ups**, 2026-10-25:
+    - tamper watchdog: a reading under the 8 V floor is now "Was not on machine power", with no change to the concern (`fix/battery-floor`, `8a14d5c`, tested);
+    - fork change markers: all 18 now start with `VSLAB` (`// VSLAB:`, `// VSLAB test build:`, `// VSLAB test mode:`), noted in `firmware/README.md` (`feat/cell-beam`, `11360c8`).
 12. **On hold: location history / store-and-forward.**
     - PSRAM: present (8 MB) and enabled in our builds ✅. Investigate `CONFIG_STORAGE` and the SD card.
     - Write `docs/store-and-forward.md`. Device side: persist with GPS time, send oldest first in batches, advance only on HTTP 200, survive reboot, no purge on standby. Server side: GPS-time timestamps, out-of-order and duplicate handling.
