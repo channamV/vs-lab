@@ -14,6 +14,7 @@ import { checkFatigue, checkRestrictedAreas } from "@/lib/safety";
 import { applyModeTimers, checkLockedUse } from "@/lib/modes";
 import { runSchedules } from "@/lib/schedules";
 import { sendTrainingReminders } from "@/lib/training";
+import { syncOperatorAlert } from "@/lib/operator-alerts";
 
 /**
  * Runs alert rules after the response has been sent, so devices and operators never wait on them
@@ -29,6 +30,8 @@ export function afterDeviceReport(deviceId: string) {
       if (!machineId) return;
       // First link/end check-ins to match the engine (automatic check-out), then check for unauthorized use.
       await syncCheckins(db, machineId);
+      // Beeps for the operator (not checked in / checklist due), sent to the device when they change.
+      await syncOperatorAlert(db, machineId);
       await deliverAlerts(db, await checkUnauthorizedUse(db, machineId));
       // Fuel level lower at this start than at the last stop.
       await deliverAlerts(db, await checkFuelTheft(db, machineId));
@@ -55,6 +58,8 @@ export function afterCheckin(checkinId: number) {
       await deliverAlerts(db, await raiseCheckinAlerts(db, checkinId));
       // Locked out for repair: an "Equipment Locked" notification (with the operator who did it).
       const [c] = await db.select().from(checkins).where(eq(checkins.id, checkinId));
+      // A check-in can stop the "not checked in" beeps straight away.
+      if (c) await syncOperatorAlert(db, c.machineId);
       if (c?.lockoutRequested) {
         const id = await recordEvent(db, {
           organizationId: c.organizationId,

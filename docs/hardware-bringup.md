@@ -132,6 +132,11 @@ sign-off (logout) ends the engine-on period. In order:
    own and VS-lab raises the tamper "power interrupted" incident.
 5. Then **merge `feat/cell-beam`** (item 8) and send the SIMCom report (item 9).
 
+6. **Operator alert beeps and device commands** (Craig, 2026-10-25): run VS-lab's signed device commands (our fork
+   doesn't yet), play `ALERT=not_checked_in` (two long beeps) / `ALERT=checklist_due` (three short beeps) every 30 s
+   while the engine runs, stop on `ALERT=none` or sleep, and remove the routine "connected" beeps. Spec:
+   [operator-alerts.md](operator-alerts.md). VS-lab side is done.
+
 Rules as before: mark changes `// VSLAB:`, keep Bluetooth on in deployment builds, build/flash on Craig's PC, update this
 file after each step.
 

@@ -1,0 +1,1 @@
+ALTER TABLE "machines" ADD COLUMN "operator_alert" text DEFAULT 'none' NOT NULL;

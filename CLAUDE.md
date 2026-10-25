@@ -132,6 +132,10 @@ says it's compliant. Update that doc when items are done.
   covered check-ins store `checklist_from_checkin_id`, no answers/confirmation.
   Question kinds also include `textOnly` (written answer, e.g. odometer; the text is the answer). Ready-made checklists
   (`src/lib/checklist-library.ts`, tested; Checklists → Ready-made → Add): NL trip inspection Schedule A (NLR 27/12).
+- Operator alerts (`src/lib/operator-alerts.ts`, tested; `docs/operator-alerts.md`; Craig 2026-10-25): `desiredAlert` (pure)
+  → not_checked_in / checklist_due / none (Access-Controlled, monitor/control tier, engine running only);
+  `syncOperatorAlert` (after device reports and check-ins) queues `ALERT=<kind>` when `machines.operator_alert` changes
+  (10-min expiry, replaces unanswered older ones). Firmware plays two long / three short beeps (to do). QR sticker legend.
 - Checklist photos (`src/lib/photos.ts`, tested): questions have `photoRequired` / `photoOnly` (missing = false).
   The phone shrinks photos (CheckinForms.tsx) and sends them with the check-in action as `photo:<questionId>`
   files (server action body limit 4mb in next.config.ts; Vercel caps requests at 4.5 MB). `checkIn` validates

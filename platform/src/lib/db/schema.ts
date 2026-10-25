@@ -264,6 +264,11 @@ export const machines = pgTable(
      * out. Nobody can check in until a manager clears it. (Physically preventing a start needs the
      * starter relay of Safety & Access Control.)
      */
+    /**
+     * What the device is told to beep for the operator (src/lib/operator-alerts.ts): none, not_checked_in or
+     * checklist_due. Last sent value; a change queues an ALERT command.
+     */
+    operatorAlert: text("operator_alert").notNull().default("none"),
     lockedOutAt: timestamp("locked_out_at", { withTimezone: true }),
     lockedOutReason: text("locked_out_reason"),
     lockedOutCheckinId: bigint("locked_out_checkin_id", { mode: "number" }),

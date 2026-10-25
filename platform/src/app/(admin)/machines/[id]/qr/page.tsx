@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OPERATOR_ALERTS } from "@/lib/operator-alerts";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
@@ -46,6 +47,16 @@ async function QrSticker({ params }: { params: PageProps<"/machines/[id]/qr">["p
         {machine.unitNumber && <p className="text-2xl font-bold">Unit {machine.unitNumber}</p>}
         <p className="font-semibold">{machine.name}</p>
         <p className="text-sm">Scan with your phone camera before starting.</p>
+        {machine.tier !== "gps" && (
+          <div className="space-y-1 border-t border-slate-300 pt-2 text-left text-xs">
+            <p className="font-semibold">If you hear:</p>
+            {(["not_checked_in", "checklist_due"] as const).map((kind) => (
+              <p key={kind}>
+                <span className="font-semibold">{OPERATOR_ALERTS[kind].pattern}</span>: {OPERATOR_ALERTS[kind].meaning}
+              </p>
+            ))}
+          </div>
+        )}
         <p className="font-mono text-xs">{machine.code}</p>
       </div>
       <p className="text-center text-xs break-all text-slate-500 print:hidden">{url}</p>
