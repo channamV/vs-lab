@@ -3,10 +3,22 @@
 import { useActionState } from "react";
 import { saveSafetySettingsAction, type SettingsFormState } from "./actions";
 
-type Current = { speedLimitKph: number | null; idleAlertMinutes: number | null; fatigueDailyHours: number | null; fatigueContinuousHours: number | null };
+type Current = {
+  speedLimitKph: number | null;
+  idleAlertMinutes: number | null;
+  fatigueDailyHours: number | null;
+  fatigueContinuousHours: number | null;
+  postedLimitTolerancePct: number | null;
+};
 
 const FIELDS = [
   { name: "speedLimitKph", label: "Fleet speed limit (km/h)", help: "Speeding = over this for more than 10 seconds (GPS speed). Worksites can set a lower limit of their own.", step: "1" },
+  {
+    name: "postedLimitTolerancePct",
+    label: "Over posted speed limits: tolerance (%)",
+    help: "On-road vehicles only (tick \"On-road vehicle\" on the machine). Flags driving more than this % over the road's posted limit for more than 10 seconds, e.g. 10 → over 55 km/h in a 50 zone. Limits from OpenStreetMap; roads without a recorded limit aren't checked.",
+    step: "1",
+  },
   { name: "idleAlertMinutes", label: "Excessive idling after (minutes)", help: "Engine running at low RPM and not moving for this long. Only machines whose device reads engine RPM.", step: "1" },
   { name: "fatigueDailyHours", label: "Operator hours per day", help: "An operator running machines for more than this in a day (from check-ins and engine time).", step: "0.5" },
   { name: "fatigueContinuousHours", label: "Operator hours without a break", help: "Running machines this long without a 15-minute break.", step: "0.5" },

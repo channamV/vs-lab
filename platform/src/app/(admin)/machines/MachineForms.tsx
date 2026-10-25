@@ -2,6 +2,7 @@
 
 import { useActionState, useRef, useState } from "react";
 import { ScanButton } from "@/components/ScanButton";
+import { ON_ROAD_CATEGORIES } from "@/lib/road-limits";
 import type { Machine } from "@/lib/db/schema";
 import { TIER_LABELS } from "@/lib/format";
 import {
@@ -96,6 +97,7 @@ function fromMachine(m: Machine): Values {
     tier: m.tier,
     divisionId: m.divisionId?.toString() ?? "",
     categoryId: m.categoryId?.toString() ?? "",
+    onRoad: m.onRoad ? "on" : "",
   };
 }
 
@@ -113,7 +115,17 @@ function Fields({ values, choice }: { values: Values; choice: DivisionChoice }) 
       {text("machineType", "Type", { maxLength: 40, placeholder: "e.g. Excavator" })}
       <label className="block text-sm">
         <span className="text-slate-600 dark:text-slate-400">Category (which training covers it)</span>
-        <select name="categoryId" defaultValue={values.categoryId ?? ""} className={field}>
+        <select
+          name="categoryId"
+          defaultValue={values.categoryId ?? ""}
+          className={field}
+          onChange={(e) => {
+            // Pickups and on-road dump trucks drive on public roads.
+            const name = e.currentTarget.selectedOptions[0]?.textContent ?? "";
+            const box = e.currentTarget.form?.elements.namedItem("onRoad");
+            if (box instanceof HTMLInputElement && ON_ROAD_CATEGORIES.includes(name)) box.checked = true;
+          }}
+        >
           <option value="">No category</option>
           {choice.categories.map((c) => (
             <option key={c.id} value={c.id}>
@@ -127,6 +139,13 @@ function Fields({ values, choice }: { values: Values; choice: DivisionChoice }) 
       {text("year", "Year", { inputMode: "numeric", pattern: "[0-9]{4}", maxLength: 4 })}
       {text("serialNumber", "Serial # / VIN", { maxLength: 40 })}
       <SerialLookupButton />
+      <label className="flex items-start gap-2 text-sm sm:col-span-2">
+        <input type="checkbox" name="onRoad" defaultChecked={values.onRoad === "on"} className="mt-1" />
+        <span>
+          On-road vehicle
+          <span className="block text-xs text-slate-500">Drives on public roads: checked against posted speed limits (Settings → Safety rules).</span>
+        </span>
+      </label>
       {text("fuelTankLitres", "Fuel tank size, litres (optional)", { inputMode: "decimal", maxLength: 8, placeholder: "e.g. 400" })}
       {text("speedLimitKph", "Top speed, km/h (optional; replaces the fleet speed limit)", { inputMode: "decimal", maxLength: 8, placeholder: "e.g. 25" })}
       <label className="block text-sm">

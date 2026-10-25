@@ -57,6 +57,11 @@ export const organizations = pgTable("organizations", {
   idleAlertMinutes: integer("idle_alert_minutes").default(30),
   fatigueDailyHours: real("fatigue_daily_hours").default(12),
   fatigueContinuousHours: real("fatigue_continuous_hours").default(5),
+  /**
+   * Posted speed limits (src/lib/posted-speed.ts): on-road vehicles are flagged when they drive more than this % over
+   * the road's posted limit (OpenStreetMap). Null = off.
+   */
+  postedLimitTolerancePct: integer("posted_limit_tolerance_pct"),
   workingDays: integer("working_days").array().notNull().default(sql`'{1,2,3,4,5}'`),
   /** Fleet timezone (IANA): the default for new schedules (src/lib/schedules.ts). */
   timezone: text("timezone").notNull().default("America/Toronto"),
@@ -213,6 +218,10 @@ export const machines = pgTable(
     fuelTankLitres: real("fuel_tank_litres"),
     /** This machine's own top speed (km/h) for the Speeding notification; replaces the fleet limit. Null = fleet limit. */
     speedLimitKph: real("speed_limit_kph"),
+    /** Drives on public roads: checked against posted speed limits (src/lib/posted-speed.ts). */
+    onRoad: boolean("on_road").notNull().default(false),
+    /** Posted speed limits: telemetry up to here has been checked. */
+    roadCheckedUntil: timestamp("road_checked_until", { withTimezone: true }),
     tier: tierEnum("tier").notNull().default("gps"),
     /**
      * Operating mode (src/lib/modes.ts; docs/operating-modes.md): access_controlled, unlocked or locked. A timed
@@ -1109,6 +1118,46 @@ export const safetyEvents = pgTable(
 
 export type Organization = typeof organizations.$inferSelect;
 export type SafetyEvent = typeof safetyEvents.$inferSelect;
+
+/**
+ * Roads with their posted speed limits from OpenStreetMap, cached per map square (src/lib/posted-speed.ts). Shared by
+ * all organizations (public map data); refreshed after a month.
+ */
+export const roadTiles = pgTable("road_tiles", {
+  key: text("key").primaryKey(),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+  roads: jsonb("roads").$type<CachedRoad[]>().notNull(),
+});
+export type CachedRoad = {
+  id: number;
+  name: string | null;
+  highway: string;
+  /** 1 = one way along the points, -1 = one way against them, 0 = both ways. */
+  oneway: number;
+  /** km/h; forward/backward limits when they differ by direction. Null = not recorded. */
+  limit: number | null;
+  forward: number | null;
+  backward: number | null;
+  points: [number, number][];
+};
+
+/**
+ * Road kilometres driven by on-road vehicles per month, by whether the posted limit was known (OpenStreetMap
+ * coverage, to decide when paid map data is worth it). Off-road = not on a mapped road (yards, worksites).
+ */
+export const roadCoverage = pgTable(
+  "road_coverage",
+  {
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    month: text("month").notNull(),
+    knownKm: doublePrecision("known_km").notNull().default(0),
+    unknownKm: doublePrecision("unknown_km").notNull().default(0),
+    offRoadKm: doublePrecision("off_road_km").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.organizationId, t.month] })],
+);
 export type DeviceCommand = typeof deviceCommands.$inferSelect;
 export type FirmwareRelease = typeof firmwareReleases.$inferSelect;
 export type FuelEvent = typeof fuelEvents.$inferSelect;

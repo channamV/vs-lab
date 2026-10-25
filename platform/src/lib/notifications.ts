@@ -92,6 +92,11 @@ export const EVENT_TYPES = {
     label: "Speeding",
     description: "A machine went over the fleet speed limit, or a worksite's own limit, for more than 10 seconds (GPS speed).",
   },
+  posted_speeding: {
+    label: "Over Posted Speed Limit",
+    description:
+      "An on-road vehicle drove over the road's posted limit (plus the company's % tolerance) for more than 10 seconds. Checked every few minutes against OpenStreetMap limits.",
+  },
   excessive_idle: {
     label: "Excessive Idling",
     description: "A machine has idled (engine running at low RPM, not moving) longer than the company's limit. Needs a device that reads engine RPM.",

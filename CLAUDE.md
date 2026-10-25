@@ -177,6 +177,14 @@ says it's compliant. Update that doc when items are done.
   `restricted_area` event. `checkFatigue` (in `runWatchdog`): engine time while checked in, per operator; daily and
   continuous (gaps < 15 min merged) → `operator_fatigue`, deduped by `safety_events.dedupe_key`. Reports → Safety tab + CSV.
   Safety log is in retention (check-in period), operator export and erase.
+- Posted speed limits (Craig 2026-10-25; `src/lib/road-limits.ts` pure + `src/lib/posted-speed.ts`, tested;
+  `docs/posted-speed-limits.md`): on-road machines only (`machines.on_road`, auto-ticked for the Pickup / on-road Dump truck
+  categories), org `posted_limit_tolerance_pct` (null = off; Settings → Safety rules). Cron `/api/jobs/posted-speed` every
+  5 min → `checkPostedSpeeds`: telemetry since `machines.road_checked_until` (≤6 h per run, 3 min settle), roads from
+  Overpass per 0.05° square (`road_tiles`, 30-day cache, ≤3 downloads per run, only square corners sent), matching
+  (25 m, heading, one-way, sticky), spells > limit×(1+tol) for ≥10 s → safety event `posted_speeding` (dedupe
+  machine+start; open spells re-checked next run) + `posted_speeding` notification; `road_coverage` km known/unknown/
+  off-road per org+month (Settings table, to decide on paid data such as TomTom).
 - Firmware updates (`src/lib/firmware.ts`, tested; `docs/firmware-updates.md`): staff upload releases at `/platform/firmware`
   (`firmware_releases`: version unique, sha256, file in the private Blob store under `firmware/`, `.data/firmware` locally).
   `queueUpdate` adds `UPDATE=<version>\t<bytes>\t<sha256>\t<path>` commands (`device_commands.firmware_release_id`, 7-day

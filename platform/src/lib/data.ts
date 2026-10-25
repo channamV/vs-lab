@@ -47,6 +47,7 @@ import { todayIn } from "@/lib/schedule-time";
 import { scanAvailable } from "@/lib/scan";
 import { locationHistory, voltageHistory } from "@/lib/history";
 import { historyRange } from "@/lib/history-track";
+import { onRoadMachineCount, roadCoverageByMonth } from "@/lib/posted-speed";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -1113,4 +1114,12 @@ export async function machineLocationHistory(id: number, params: { range?: strin
   const tz = appTimeZone();
   const r = historyRange(params, now, tz);
   return { range: r, timeZone: tz, history: await locationHistory(getDb(), id, r.from, r.to, now) };
+}
+
+/** Settings (owners): road kilometres with/without a known posted limit by month, and how many on-road machines. */
+export async function postedLimitCoverage() {
+  const auth = await requireRoleForPage("owner");
+  const db = getDb();
+  const [months, onRoad] = await Promise.all([roadCoverageByMonth(db, auth.organizationId), onRoadMachineCount(db, auth.organizationId)]);
+  return { months, onRoad };
 }

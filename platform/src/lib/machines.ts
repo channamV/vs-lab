@@ -36,6 +36,8 @@ export type MachineInput = {
   divisionId?: number | null;
   /** Machine category (training coverage). Null = none. Left out = unchanged. */
   categoryId?: number | null;
+  /** Drives on public roads: checked against posted speed limits. Left out = unchanged. */
+  onRoad?: boolean;
 };
 
 const clean = (v: string | undefined) => v?.trim() || null;
@@ -96,6 +98,7 @@ async function cleanInput(db: Db, organizationId: number, input: MachineInput, e
     ...(input.tier && { tier: input.tier }),
     ...(input.divisionId !== undefined && { divisionId: input.divisionId }),
     ...(input.categoryId !== undefined && { categoryId: input.categoryId }),
+    ...(input.onRoad !== undefined && { onRoad: input.onRoad }),
   };
 }
 

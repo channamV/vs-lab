@@ -52,30 +52,33 @@ export const SAFETY_RULES = {
     idleMinutes: [5, 240],
     dailyHours: [4, 24],
     continuousHours: [1, 12],
+    /** % over a road's posted limit before it counts (src/lib/posted-speed.ts). */
+    postedTolerancePct: [0, 50],
   },
 };
 
 export class SafetyError extends Error {}
 
-export type SafetySettings = Pick<Organization, "speedLimitKph" | "idleAlertMinutes" | "fatigueDailyHours" | "fatigueContinuousHours">;
+export type SafetySettings = Pick<Organization, "speedLimitKph" | "idleAlertMinutes" | "fatigueDailyHours" | "fatigueContinuousHours" | "postedLimitTolerancePct">;
 
 /** Checks and saves the company's safety rules (owner-only Settings). Blank = off. */
 export async function updateSafetySettings(db: Db, organizationId: number, input: Record<keyof SafetySettings, string>) {
   const L = SAFETY_RULES.limits;
-  const read = (value: string, [min, max]: number[], what: string, integer = false) => {
+  const read = (value: string, [min, max]: number[], what: string, integer: false | string = false) => {
     const v = value.trim();
     if (!v) return null;
     const n = Number(v);
     if (!Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n))) {
-      throw new SafetyError(`${what} must be between ${min} and ${max}${integer ? " (whole minutes)" : ""}, or blank for off.`);
+      throw new SafetyError(`${what} must be between ${min} and ${max}${integer ? ` (whole ${integer})` : ""}, or blank for off.`);
     }
     return n;
   };
   const values = {
     speedLimitKph: read(input.speedLimitKph, L.speedKph, "The speed limit"),
-    idleAlertMinutes: read(input.idleAlertMinutes, L.idleMinutes, "The idling limit", true),
+    idleAlertMinutes: read(input.idleAlertMinutes, L.idleMinutes, "The idling limit", "minutes"),
     fatigueDailyHours: read(input.fatigueDailyHours, L.dailyHours, "Hours in a day"),
     fatigueContinuousHours: read(input.fatigueContinuousHours, L.continuousHours, "Hours without a break"),
+    postedLimitTolerancePct: read(input.postedLimitTolerancePct, L.postedTolerancePct, "The posted limit tolerance", "percent"),
   };
   await db.update(organizations).set(values).where(eq(organizations.id, organizationId));
   return values;

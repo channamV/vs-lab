@@ -97,3 +97,8 @@ log.
 
 `SAFETY_RULES` in `platform/src/lib/safety.ts` holds the speed margin, the 10-second grace period, the idle
 RPM, the break length and the limits Settings accepts.
+
+## Posted speed limits
+
+On-road vehicles can also be checked against each road's **posted** limit (OpenStreetMap), with a % tolerance set in
+Settings: see [posted-speed-limits.md](posted-speed-limits.md).

@@ -12,6 +12,7 @@ import { checkFatigue } from "../src/lib/safety";
 import { applyModeTimers } from "../src/lib/modes";
 import { runSchedules } from "../src/lib/schedules";
 import { sendTrainingReminders } from "../src/lib/training";
+import { checkPostedSpeeds } from "../src/lib/posted-speed";
 
 async function main() {
   const db = createDb(defaultDbOptions());
@@ -24,8 +25,9 @@ async function main() {
   const scheduled = await runSchedules(db);
   await deliverAlerts(db, scheduled.late);
   const training = (await sendTrainingReminders(db)).length;
+  const posted = await checkPostedSpeeds(db);
   await processEvents(db, {});
-  console.log(`Checked ${result.checked} paired devices; ${result.changed} incidents opened or escalated; ${raised.length} alerts; ${dwell} stayed-too-long; ${fatigue} operator fatigue; ${modeChanges} timed mode changes ended; ${scheduled.changes} scheduled changes; ${training} training reminders.`);
+  console.log(`Checked ${result.checked} paired devices; ${result.changed} incidents opened or escalated; ${raised.length} alerts; ${dwell} stayed-too-long; ${fatigue} operator fatigue; ${modeChanges} timed mode changes ended; ${scheduled.changes} scheduled changes; ${training} training reminders; ${posted} over posted limits.`);
   process.exit(0);
 }
 
