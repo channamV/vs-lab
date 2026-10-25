@@ -12,8 +12,10 @@ import {
   operators,
   pinFailures,
   checkinPhotos,
+  type ChecklistAnswer,
 } from "@/lib/db/schema";
-import { checklistForMachine, evaluateAnswers, recordIssues } from "@/lib/checklists";
+import { checklistForMachine, coveringChecklist, evaluateAnswers, recordIssues, type Defect } from "@/lib/checklists";
+import { orgTimeZone } from "@/lib/org-time";
 import { PHOTO_RULES, photoStorageAvailable, savePhoto, type PhotoFile } from "@/lib/photos";
 import { effectiveEnd, type SessionSpan } from "@/lib/telemetry/engine";
 
@@ -369,6 +371,7 @@ export type CheckinFailure =
   | "photo-required"
   | "photo-invalid"
   | "not-confirmed"
+  | "checklist-needed"
   | "machine-locked-out"
   | "machine-locked"
   | "training-required"
@@ -415,6 +418,11 @@ export async function checkIn(
     confirmed: boolean;
     /** After a major defect: lock the machine out for repair. */
     lockout?: boolean;
+    /**
+     * The operator says today's checklist is already done (the checklist's frequency allows once a day). Checked here:
+     * refused with "checklist-needed" when no earlier checklist covers them.
+     */
+    skipChecklist?: boolean;
     /** Photos attached to checklist questions (already shrunk by the phone). */
     photos?: PhotoFile[];
     phoneLocation?: PhoneLocation | null;
@@ -450,8 +458,19 @@ export async function checkIn(
   if (training.missing.length) return { ok: false, reason: "training-required", questions: training.missing };
 
   const { template, options } = await checklistForMachine(db, machine);
+  // Once a day: an earlier checklist today (this operator's, or anyone's) covers this check-in.
+  const covering = input.skipChecklist
+    ? await coveringChecklist(db, {
+        machineId: machine.id,
+        operatorId: operator.id,
+        frequency: template.frequency,
+        timeZone: await orgTimeZone(db, organizationId),
+        now,
+      })
+    : null;
+  if (input.skipChecklist && !covering) return { ok: false, reason: "checklist-needed" };
   // Photos: only for this checklist's questions, a few per question, real images of a sensible size.
-  const photos = input.photos ?? [];
+  const photos = covering ? [] : (input.photos ?? []);
   const questionIds = new Set(template.sections.flatMap((sec) => sec.questions.map((q) => q.id)));
   const photoCounts: Record<string, number> = {};
   for (const p of photos) photoCounts[p.questionId] = (photoCounts[p.questionId] ?? 0) + 1;
@@ -464,16 +483,19 @@ export async function checkIn(
   ) {
     return { ok: false, reason: "photo-invalid" };
   }
-  const evaluation = evaluateAnswers(template.sections, options, {
-    answers: input.answers,
-    notes: input.answerNotes,
-    photoCounts,
-    enforcePhotos: photoStorageAvailable(),
-  });
+  const evaluation = covering
+    ? { ok: true as const, answers: [] as ChecklistAnswer[], defects: [] as Defect[], hasMajor: false }
+    : evaluateAnswers(template.sections, options, {
+        answers: input.answers,
+        notes: input.answerNotes,
+        photoCounts,
+        enforcePhotos: photoStorageAvailable(),
+      });
   if (!evaluation.ok) return { ok: false, reason: evaluation.reason, questions: evaluation.questions };
   const { answers, defects } = evaluation;
   const lockout = Boolean(input.lockout) && evaluation.hasMajor;
-  if (!lockout && !input.confirmed) return { ok: false, reason: "not-confirmed" };
+  // Covered by an earlier checklist: nothing inspected now, so no confirmation statement to agree to.
+  if (!covering && !lockout && !input.confirmed) return { ok: false, reason: "not-confirmed" };
   const failedItems = defects.map((d) => `${d.question} (${d.answerLabel})`);
   // Store the photos before saving the check-in (a failed upload then doesn't leave a check-in without them).
   const stored = await Promise.all(
@@ -531,8 +553,9 @@ export async function checkIn(
         authorized,
         checklistOk: defects.length === 0,
         answers,
+        checklistFromCheckinId: covering?.id ?? null,
         templateName: template.name,
-        confirmationText: lockout ? null : template.confirmationText,
+        confirmationText: lockout || covering ? null : template.confirmationText,
         lockoutRequested: lockout,
         notes: input.notes?.trim() || null,
         phoneLat: phone?.lat ?? null,

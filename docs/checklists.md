@@ -117,3 +117,26 @@ What the rules require, and how vs-lab covers it:
 
 The confirmation statement says the inspection was done under the NL regulations (Schedule A) and that the driver
 won't drive with a major defect.
+
+## How often (Craig, 2026-10-25)
+
+Each checklist has a **How often** setting (Checklists → Edit):
+
+| Setting | What it means |
+|---|---|
+| **Before every start** (default) | Every check-in needs the checklist, as before. |
+| **Once a day per operator** | Each operator does it once a day on each machine. A restart later the same day doesn't need another; a new operator (shift change) does their own. |
+| **Once a day per machine** | The first checklist of the day on the machine covers everyone who uses it that day. |
+
+- "A day" is the company's calendar day (Settings → Time zone).
+- On the check-in page: when the machine's checklist for today is done (once a day per machine), the page says so
+  ("Today's checklist was done at 7:02 AM") and the operator checks in with just their PIN. For once a day per
+  operator, the page can't know who is checking in before the PIN, so it offers **Check in without the checklist**;
+  VS-lab then checks that this operator did one on this machine today, and refuses if not ("You haven't done today's
+  checklist on this machine yet").
+- An operator can always **do the checklist anyway**, e.g. to report a problem.
+- A check-in without a checklist records which earlier check-in covered it (`checkins.checklist_from_checkin_id`), has
+  no answers and no confirmation statement, and shows as "Done earlier today" in the machine's check-in history.
+  Only check-ins where the checklist was actually done count as covering others.
+- The ready-made NL trip inspection uses **once a day per machine** (the rules ask for an inspection at least every
+  24 hours, and a later driver may rely on a valid one; a calendar day is a little stricter).

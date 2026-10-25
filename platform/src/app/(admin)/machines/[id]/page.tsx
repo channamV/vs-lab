@@ -330,7 +330,11 @@ async function MachineDetail({
                       <td className={`py-1.5 ${where.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{where.text}</td>
                       <td className={`py-1.5 ${timing.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{timing.text}</td>
                       <td className="py-1.5">
-                        {failed.length === 0 && written.length === 0 && !c.notes && c.photos.length === 0 ? (
+                        {c.checklistFromCheckinId ? (
+                          <span className="text-slate-600 dark:text-slate-400" title="The checklist's frequency allows once a day">
+                            Done earlier today
+                          </span>
+                        ) : failed.length === 0 && written.length === 0 && !c.notes && c.photos.length === 0 ? (
                           <span className="text-emerald-700 dark:text-emerald-400">All OK</span>
                         ) : (
                           <details>

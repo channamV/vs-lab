@@ -337,3 +337,44 @@ describe("ready-made checklists", () => {
     expect(set.options.map((o) => o.severity)).toEqual(["pass", "minor", "major", "na"]);
   });
 });
+
+describe("how often (once a day)", () => {
+  const setFrequency = async (frequency: string) => {
+    await ensureChecklistDefaults(db, org);
+    await db.update(checklistTemplates).set({ frequency }).where(eq(checklistTemplates.organizationId, org));
+  };
+  const skip = (pin: string, min: number) => checkIn(db, { machineCode: "EXC14", pin, answers: {}, confirmed: false, skipChecklist: true }, at(min));
+
+  it("before every start: a check-in without the checklist is refused", async () => {
+    await ensureChecklistDefaults(db, org);
+    await checkInWith({});
+    expect(await skip("1111", 60)).toMatchObject({ ok: false, reason: "checklist-needed" });
+  });
+
+  it("once a day per operator: the same operator restarts without it, a new operator (shift change) does their own", async () => {
+    await setFrequency("operator_daily");
+    await createOperator(db, org, { name: "Bob", pin: "2222" });
+    expect(await skip("1111", 0)).toMatchObject({ ok: false, reason: "checklist-needed" }); // none done yet today
+    const first = await checkInWith({}, {}, 5);
+    const again = await skip("1111", 240);
+    expect(again).toMatchObject({ ok: true });
+    const [row] = await db.select().from(checkins).where(eq(checkins.id, again.ok ? again.checkinId : 0));
+    expect(row).toMatchObject({ checklistFromCheckinId: first.ok ? first.checkinId : -1, answers: [], confirmationText: null });
+    expect(await skip("2222", 480)).toMatchObject({ ok: false, reason: "checklist-needed" });
+    // The next day (company time zone) needs a new one.
+    expect(await skip("1111", 24 * 60)).toMatchObject({ ok: false, reason: "checklist-needed" });
+  });
+
+  it("once a day per machine: the first checklist covers everyone that day", async () => {
+    await setFrequency("machine_daily");
+    await createOperator(db, org, { name: "Bob", pin: "2222" });
+    await checkInWith({}, {}, 0);
+    expect(await skip("2222", 480)).toMatchObject({ ok: true });
+  });
+
+  it("lets an operator do the checklist anyway (and report a defect)", async () => {
+    await setFrequency("machine_daily");
+    await checkInWith({}, {}, 0);
+    expect(await checkInWith({ walkaround: "service_soon" }, {}, 60)).toMatchObject({ ok: true, failedItems: [expect.stringContaining("Walk-around")] });
+  });
+});

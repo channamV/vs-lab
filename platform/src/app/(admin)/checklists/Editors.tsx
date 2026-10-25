@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CHECKLIST_FREQUENCIES, isChecklistFrequency, type ChecklistFrequency } from "@/lib/checklist-frequency";
 import { useActionState, useState } from "react";
 import type { AnswerOption, ChecklistSection, Severity } from "@/lib/db/schema";
 import { saveAnswerSetAction, saveTemplateAction, type EditorState } from "./actions";
@@ -66,20 +67,21 @@ export function TemplateEditor({
   template,
   answerSets,
 }: {
-  template: { id: number | null; name: string; answerSetId: number; confirmationText: string; sections: ChecklistSection[] };
+  template: { id: number | null; name: string; answerSetId: number; confirmationText: string; frequency?: string; sections: ChecklistSection[] };
   answerSets: { id: number; name: string; options: AnswerOption[] }[];
 }) {
   const [state, action, pending] = useActionState(saveTemplateAction, { error: null, version: 0 } as EditorState);
   const [name, setName] = useState(template.name);
   const [answerSetId, setAnswerSetId] = useState(template.answerSetId);
   const [confirmationText, setConfirmationText] = useState(template.confirmationText);
+  const [frequency, setFrequency] = useState<ChecklistFrequency>(isChecklistFrequency(template.frequency) ? template.frequency : "every_checkin");
   const [sections, setSections] = useState<EditableSection[]>(template.sections);
   const setSection = (i: number, change: Partial<EditableSection>) => setSections((all) => all.map((s, n) => (n === i ? { ...s, ...change } : s)));
   const set = answerSets.find((a) => a.id === answerSetId);
 
   return (
     <form action={action} className="space-y-4">
-      <input type="hidden" name="template" value={JSON.stringify({ id: template.id, name, answerSetId, confirmationText, sections })} />
+      <input type="hidden" name="template" value={JSON.stringify({ id: template.id, name, answerSetId, confirmationText, frequency, sections })} />
       <div className={card}>
         <label className="block space-y-1">
           <span className="font-semibold">Checklist name</span>
@@ -104,6 +106,19 @@ export function TemplateEditor({
             ))}
           </div>
         )}
+        <fieldset className="space-y-1.5">
+          <legend className="font-semibold">How often</legend>
+          {(Object.keys(CHECKLIST_FREQUENCIES) as ChecklistFrequency[]).map((key) => (
+            <label key={key} className="flex items-start gap-2 text-sm">
+              <input type="radio" name="frequency-choice" className="mt-1" checked={frequency === key} onChange={() => setFrequency(key)} />
+              <span>
+                <span className="font-medium">{CHECKLIST_FREQUENCIES[key].label}</span>
+                <span className="block text-xs text-slate-500">{CHECKLIST_FREQUENCIES[key].help}</span>
+              </span>
+            </label>
+          ))}
+          <p className="text-xs text-slate-500">&ldquo;A day&rdquo; is the company&apos;s time zone. Operators can always do the checklist anyway.</p>
+        </fieldset>
       </div>
 
       {sections.map((section, i) => (

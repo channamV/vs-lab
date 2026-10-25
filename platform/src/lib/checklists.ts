@@ -1,7 +1,10 @@
-import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, ne, sql } from "drizzle-orm";
+import { isChecklistFrequency, type ChecklistFrequency } from "@/lib/checklist-frequency";
+import { startOfLocalDay } from "@/lib/telemetry/engine";
 import type { Db } from "@/lib/db";
 import {
   checklistAnswerSets,
+  checkins,
   checklistIssues,
   checklistTemplates,
   machines,
@@ -292,6 +295,8 @@ function slug(text: string, taken: Set<string>): string {
 
 export type TemplateInput = {
   name: string;
+  /** How often it's needed (src/lib/checklist-frequency.ts); missing = before every start. */
+  frequency?: string;
   answerSetId: number;
   confirmationText: string;
   sections: { id?: string; title: string; questions: { id?: string; text: string; noteRequired?: boolean; photoRequired?: boolean; photoOnly?: boolean; textOnly?: boolean }[] }[];
@@ -346,7 +351,8 @@ async function cleanTemplate(db: Db, organizationId: number, input: TemplateInpu
     sections.push({ id, title, questions });
   }
   if (sections.length === 0) throw new ChecklistError("Add at least one question.");
-  return { name, answerSetId: input.answerSetId, confirmationText, sections };
+  const frequency: ChecklistFrequency = isChecklistFrequency(input.frequency) ? input.frequency : "every_checkin";
+  return { name, answerSetId: input.answerSetId, confirmationText, sections, frequency };
 }
 
 export async function createTemplate(db: Db, organizationId: number, input: TemplateInput) {
@@ -462,4 +468,36 @@ export async function deleteAnswerSet(db: Db, organizationId: number, answerSetI
   await db
     .delete(checklistAnswerSets)
     .where(and(eq(checklistAnswerSets.id, answerSetId), eq(checklistAnswerSets.organizationId, organizationId)));
+}
+
+// ---------- How often (once a day) ----------
+
+/**
+ * The check-in whose checklist already covers this one today, per the checklist's frequency: the same operator's
+ * (operator_daily) or anyone's (machine_daily) completed checklist on this machine since the start of the company's
+ * day. Null when a checklist is needed (always for every_checkin). A check-in that relied on an earlier one doesn't
+ * count itself; the original does.
+ */
+export async function coveringChecklist(
+  db: Db,
+  input: { machineId: number; operatorId?: number | null; frequency: string; timeZone: string; now?: Date },
+) {
+  const now = input.now ?? new Date();
+  if (input.frequency !== "operator_daily" && input.frequency !== "machine_daily") return null;
+  if (input.frequency === "operator_daily" && !input.operatorId) return null;
+  const since = new Date(startOfLocalDay(now.getTime(), input.timeZone));
+  const [row] = await db
+    .select({ id: checkins.id, startedAt: checkins.startedAt, operatorId: checkins.operatorId })
+    .from(checkins)
+    .where(
+      and(
+        eq(checkins.machineId, input.machineId),
+        gte(checkins.startedAt, since),
+        isNull(checkins.checklistFromCheckinId),
+        input.frequency === "operator_daily" ? eq(checkins.operatorId, input.operatorId!) : undefined,
+      ),
+    )
+    .orderBy(desc(checkins.startedAt))
+    .limit(1);
+  return row ?? null;
 }

@@ -336,6 +336,7 @@ const checkinWithOperator = {
   authorized: checkins.authorized,
   checklistOk: checkins.checklistOk,
   answers: checkins.answers,
+  checklistFromCheckinId: checkins.checklistFromCheckinId,
   lockoutRequested: checkins.lockoutRequested,
   notes: checkins.notes,
   locationCheck: checkins.locationCheck,

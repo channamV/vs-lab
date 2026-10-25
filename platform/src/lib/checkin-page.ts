@@ -5,7 +5,8 @@ import { connection } from "next/server";
 import { getDb } from "@/lib/db";
 import { checkins, engineSessions, machines, operators, organizations } from "@/lib/db/schema";
 import { isCheckinCurrent } from "@/lib/operators";
-import { checklistForMachine } from "@/lib/checklists";
+import { checklistForMachine, coveringChecklist } from "@/lib/checklists";
+import { clockTime } from "@/lib/format";
 import { photoStorageAvailable } from "@/lib/photos";
 
 /**
@@ -58,6 +59,11 @@ export async function getCheckinMachine(code: string) {
       .from(organizations)
       .where(eq(organizations.id, machine.organizationId)),
   ]);
+  // Once a day per machine: today's checklist (its time only) covers everyone. Per operator, only the PIN can tell.
+  const doneToday =
+    template.frequency === "machine_daily"
+      ? await coveringChecklist(db, { machineId: machine.id, frequency: template.frequency, timeZone: org.timeZone })
+      : null;
   return {
     code: machine.code,
     name: machine.name,
@@ -69,6 +75,14 @@ export async function getCheckinMachine(code: string) {
     /** The company's time zone, for the "since" time. */
     timeZone: org.timeZone,
     privacy: { name: org.name, privacyContact: org.privacyContact, locationDays: org.locationDays, photoDays: org.photoDays, checkinDays: org.checkinDays },
-    checklist: { sections: template.sections, options, confirmationText: template.confirmationText, photosEnabled: photoStorageAvailable() },
+    checklist: {
+      sections: template.sections,
+      options,
+      confirmationText: template.confirmationText,
+      photosEnabled: photoStorageAvailable(),
+      frequency: template.frequency,
+      /** Today's checklist time in the company's time zone ("7:02 AM"), or null. */
+      doneTodayAt: doneToday ? clockTime(doneToday.startedAt, org.timeZone) : null,
+    },
   };
 }

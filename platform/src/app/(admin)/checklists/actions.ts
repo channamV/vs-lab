@@ -31,6 +31,7 @@ const TemplateJson = z.object({
   name: z.string().max(200),
   answerSetId: z.number().int().positive(),
   confirmationText: z.string().max(2000),
+  frequency: z.string().max(40).optional(),
   sections: z
     .array(
       z.object({

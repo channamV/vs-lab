@@ -45,7 +45,16 @@ function getPhoneLocation(): Promise<GeolocationPosition | null> {
   });
 }
 
-export type PublicChecklist = { sections: ChecklistSection[]; options: AnswerOption[]; confirmationText: string; photosEnabled: boolean };
+export type PublicChecklist = {
+  sections: ChecklistSection[];
+  options: AnswerOption[];
+  confirmationText: string;
+  photosEnabled: boolean;
+  /** How often it's needed (src/lib/checklist-frequency.ts). */
+  frequency: string;
+  /** Once a day per machine: when today's checklist was done, as a time in the company's zone (null = not yet). */
+  doneTodayAt: string | null;
+};
 
 const MAX_PHOTOS_PER_QUESTION = 3;
 
@@ -119,12 +128,16 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
   const [confirmed, setConfirmed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, { file: File; url: string }[]>>({});
   const [photoError, setPhotoError] = useState<string | null>(null);
+  // Once a day: the operator can check in without the checklist when today's is done (the server checks it).
+  const canSkip = checklist.frequency === "operator_daily" || checklist.frequency === "machine_daily";
+  const [skip, setSkip] = useState(checklist.frequency === "machine_daily" && checklist.doneTodayAt !== null);
 
   // Get the phone's location first, then submit it with the form.
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const missing = checklist.photosEnabled
-      ? checklist.sections.flatMap((s) => s.questions).filter((q) => (q.photoRequired || q.photoOnly) && !photos[q.id]?.length)
+    const missing =
+      checklist.photosEnabled && !skip
+        ? checklist.sections.flatMap((s) => s.questions).filter((q) => (q.photoRequired || q.photoOnly) && !photos[q.id]?.length)
       : [];
     if (missing.length) {
       setPhotoError(`Take the required photo${missing.length > 1 ? "s" : ""}: ${missing.map((q) => q.text).join("; ")}`);
@@ -220,7 +233,37 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
         <PinInput />
       </label>
 
-      <fieldset className="space-y-3">
+      {canSkip && (
+        <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+          {skip ? (
+            <>
+              <p className="font-medium">
+                {checklist.doneTodayAt
+                  ? `Today's checklist was done at ${checklist.doneTodayAt}. You don't need to do it again today.`
+                  : "You're checking in without the checklist: you did it on this machine earlier today."}
+              </p>
+              <button type="button" className="text-sm underline" onClick={() => setSkip(false)}>
+                Do the checklist anyway (e.g. to report a problem)
+              </button>
+            </>
+          ) : (
+            <>
+              <p>
+                {checklist.frequency === "machine_daily"
+                  ? "This checklist is needed once a day per machine."
+                  : "This checklist is needed once a day per operator on each machine."}{" "}
+                Already done today?
+              </p>
+              <button type="button" className="rounded border border-sky-700 px-3 py-1.5 text-sm font-medium" onClick={() => setSkip(true)}>
+                Check in without the checklist
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {skip && <input type="hidden" name="skipChecklist" value="on" />}
+
+      <fieldset hidden={skip} disabled={skip} className="space-y-3">
         <legend className="font-medium">2. Pre-start checklist</legend>
         {checklist.sections.map((section) => (
           <div key={section.id} className="space-y-2">
@@ -321,7 +364,7 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
         />
       </label>
 
-      {hasMajor && (
+      {hasMajor && !skip && (
         <fieldset className="space-y-2 rounded-lg border-2 border-red-300 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950">
           <legend className="sr-only">Lock out</legend>
           <p className="font-medium text-red-800 dark:text-red-300">
@@ -338,7 +381,7 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
         </fieldset>
       )}
 
-      {!lockingOut && (
+      {!lockingOut && !skip && (
         <label className="flex items-start gap-3 rounded-lg border border-slate-300 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
           <input
             type="checkbox"

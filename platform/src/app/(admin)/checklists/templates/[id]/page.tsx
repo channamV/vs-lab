@@ -36,6 +36,7 @@ async function Template({ params, searchParams }: PageProps<"/checklists/templat
         name: isNew ? `${source.name} (copy)` : source.name,
         answerSetId: source.answerSetId,
         confirmationText: source.confirmationText,
+        frequency: source.frequency,
         // A copy gets fresh ids, so its issues don't stack with the original's questions by accident.
         sections: isNew ? source.sections.map((s) => ({ title: s.title, questions: s.questions.map((q) => ({ text: q.text, noteRequired: q.noteRequired, photoRequired: q.photoRequired, photoOnly: q.photoOnly, textOnly: q.textOnly })) })) : source.sections,
       }

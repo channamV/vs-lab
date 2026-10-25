@@ -570,6 +570,12 @@ export const checklistTemplates = pgTable(
     sections: jsonb("sections").$type<ChecklistSection[]>().notNull(),
     /** The statement the operator confirms at the end (wording can be required by regulations). */
     confirmationText: text("confirmation_text").notNull(),
+    /**
+     * How often it's needed (src/lib/checklists.ts CHECKLIST_FREQUENCIES): every_checkin, operator_daily (once per
+     * operator per machine per day) or machine_daily (once per machine per day, whoever did it). Days are the
+     * company's time zone.
+     */
+    frequency: text("frequency").notNull().default("every_checkin"),
     /** The organization's default, used for machines without a template of their own. Exactly one per organization. */
     isDefault: boolean("is_default").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -609,6 +615,11 @@ export const checkins = pgTable(
     /** True when every checklist item was answered OK. */
     checklistOk: boolean("checklist_ok").notNull(),
     answers: jsonb("answers").$type<ChecklistAnswer[]>().notNull(),
+    /**
+     * Checked in without a checklist because today's was already done (the checklist's frequency): the check-in whose
+     * checklist covered it. Null = the checklist was done on this check-in.
+     */
+    checklistFromCheckinId: bigint("checklist_from_checkin_id", { mode: "number" }),
     notes: text("notes"),
     /** The checklist as asked: template name and the confirmation statement the operator agreed to. */
     templateName: text("template_name"),

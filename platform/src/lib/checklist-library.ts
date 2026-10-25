@@ -15,6 +15,8 @@ export type LibraryTemplate = {
   /** Uses an answer set with Minor defect / Major defect / Not applicable (created if the company has none). */
   sections: TemplateInput["sections"];
   confirmationText: string;
+  /** How often (src/lib/checklist-frequency.ts). */
+  frequency: string;
 };
 
 /** Each Schedule A system: a defect needs a description (the report must list the defects found). */
@@ -135,6 +137,9 @@ const NL_SCHEDULE_A: LibraryTemplate = {
       ],
     },
   ],
+  // The rules ask for an inspection at least every 24 hours, and a later driver may rely on a valid one: once a day
+  // per machine (a calendar day, a little stricter than 24 hours).
+  frequency: "machine_daily",
   confirmationText:
     "I conducted this trip inspection of the vehicle (and any trailer listed) in accordance with the Trip Inspection Report " +
     "Regulations under the Highway Traffic Act (Newfoundland and Labrador), Schedule A. The defects I found, if any, are " +
@@ -170,6 +175,7 @@ export async function addLibraryTemplate(db: Db, organizationId: number, key: st
     name: item.name,
     answerSetId: await inspectionAnswerSet(db, organizationId),
     confirmationText: item.confirmationText,
+    frequency: item.frequency,
     sections: item.sections,
   });
 }

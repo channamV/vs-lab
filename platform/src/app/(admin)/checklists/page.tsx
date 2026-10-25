@@ -4,6 +4,7 @@ import { canEditChecklists, checklistSettings } from "@/lib/data";
 import { requireRoleForPage } from "@/lib/session";
 import { connection } from "next/server";
 import { CHECKLIST_LIBRARY } from "@/lib/checklist-library";
+import { CHECKLIST_FREQUENCIES, type ChecklistFrequency } from "@/lib/checklist-frequency";
 import { addLibraryTemplateAction, deleteAnswerSetAction, deleteTemplateAction, setDefaultTemplateAction } from "./actions";
 
 const card = "rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
@@ -51,6 +52,7 @@ async function Checklists() {
               </h3>
               <p className="text-sm text-slate-500">
                 {t.sections.length} section{t.sections.length === 1 ? "" : "s"} · {t.questionCount} questions · {t.answerSetName} answers ·{" "}
+                {CHECKLIST_FREQUENCIES[t.frequency as ChecklistFrequency]?.label ?? CHECKLIST_FREQUENCIES.every_checkin.label} ·{" "}
                 {t.machines} machine{t.machines === 1 ? "" : "s"}
               </p>
             </div>
