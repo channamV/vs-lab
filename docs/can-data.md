@@ -84,4 +84,7 @@ faults as they are. Parser: `platform/src/lib/freematics/protocol.ts`; fault wor
 - `--siphon` takes 15% from J1939 machines while running, after ~4 minutes (fuel lost while running);
 - `--fault` makes the J1939 machines report a coolant temperature fault (SPN 110 FMI 15, amber lamp) after a
   minute of running, clearing two minutes later;
-- `--obd all|none` and `--j1939 all|none` change who sends what.
+- `--obd all|none` and `--j1939 all|none` change who sends what;
+- machine 4 of every 4 sends no supply voltage and no engine data (like a device built without OBD), so the
+  platform falls back to vibration. Every machine sends the accelerometer with gravity removed, as the real
+  device does: about 0;0;0 with the engine off, small values when it runs.

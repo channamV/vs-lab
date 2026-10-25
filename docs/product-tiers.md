@@ -25,7 +25,13 @@ sends, best signal first:
 2. **Alternator voltage:** a running engine charges the battery.
    - 12 V machines: 13.2 V or more means running
    - 24 V machines (most heavy equipment): 26.4 V or more means running. The system type is picked automatically from the voltage.
-3. **Vibration** from the accelerometer, only if neither of the above is available.
+3. **Vibration** from the accelerometer, only if neither of the above is available. The device sends it with
+   gravity removed (about 0;0;0 when still), so a reading of 0.05 g or more means running. Weak signal: the
+   device averages it, so a smooth idle may not register, and a parked machine can be bumped. Devices built
+   without OBD (e.g. `bench-beam`) send no voltage, so they rely on this.
+
+If a device keeps reporting but nothing it sends shows the engine state (e.g. GPS only) for 10+ minutes, the
+Fleet and machine pages show the engine as **Unknown** rather than its last state.
 
 Each on-period is stored as an **engine session**. If a running machine's device goes quiet for
 10+ minutes, the session is ended at its last report rather than counted until it reappears.

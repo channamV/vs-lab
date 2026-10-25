@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createDb, migrateDb, type Db } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { deviceEvents, devices, engineSessions, machines, organizations, telemetry } from "@/lib/db/schema";
+import { parsePayload } from "@/lib/freematics/protocol";
 import { createMachine, pairDevice, unpairDevice } from "@/lib/machines";
+import { engineStatus } from "./engine";
 import { ingestSamples, recordEvent, UnknownDeviceError } from "./ingest";
 
 let db: Db;
@@ -166,5 +168,52 @@ describe("engine sessions", () => {
     const rows = await db.select().from(telemetry).orderBy(telemetry.id);
     expect(rows.map((r) => r.engineOn)).toEqual([true, null]);
     expect((await getMachine()).engineOn).toBe(true);
+  });
+
+  it("doesn't count a still device as running (Telelogger sends acceleration with gravity removed)", async () => {
+    // Real uploads from Y5725A32 on a desk, which used to show its machine as running.
+    for (const [i, raw] of ["0:173812,81:-77,20:0;0;0,82:32*D", "0:178812,20:0;0;0,82:32*A8"].entries()) {
+      await ingestSamples(db, "DEV1", parsePayload(raw).samples, { now: at(i) });
+    }
+    expect(await db.select().from(engineSessions)).toHaveLength(0);
+    expect(await getMachine()).toMatchObject({ engineOn: false, engineChangedAt: at(0) });
+  });
+
+  it("leaves the engine state, sessions and 'since' time alone on uploads with no engine signal", async () => {
+    const noSignal = { deviceMs: 5, rssi: -80 };
+    await ingestSamples(db, "DEV1", [on], { now: at(0) });
+    await ingestSamples(db, "DEV1", [noSignal], { now: at(2) });
+    expect(await getMachine()).toMatchObject({ engineOn: true, engineChangedAt: at(0) });
+    expect((await db.select().from(devices))[0].engineOn).toBe(true);
+    expect(await db.select().from(engineSessions)).toEqual([
+      expect.objectContaining({ startedAt: at(0), endedAt: null, lastSeenAt: at(0) }),
+    ]);
+
+    await ingestSamples(db, "DEV1", [off], { now: at(3) });
+    await ingestSamples(db, "DEV1", [noSignal], { now: at(4) });
+    expect(await getMachine()).toMatchObject({ engineOn: false, engineChangedAt: at(3) });
+    expect(await db.select().from(engineSessions)).toEqual([expect.objectContaining({ startedAt: at(0), endedAt: at(3) })]);
+  });
+
+  it("shows the engine as unknown when uploads keep arriving with no engine signal", async () => {
+    const gpsOnly = { lat: 43.6, lng: -79.4 };
+    await ingestSamples(db, "DEV1", [on], { now: at(0) });
+    expect((await getMachine()).engineUnknownSince).toBeNull();
+
+    await ingestSamples(db, "DEV1", [gpsOnly], { now: at(1) });
+    await ingestSamples(db, "DEV1", [gpsOnly], { now: at(6) });
+    let machine = await getMachine();
+    expect(machine.engineUnknownSince).toEqual(at(1)); // since the first upload without a signal
+    expect(engineStatus(machine, at(6).getTime())).toBe("running");
+
+    await ingestSamples(db, "DEV1", [gpsOnly], { now: at(12) });
+    machine = await getMachine();
+    expect(engineStatus(machine, at(12).getTime())).toBe("unknown");
+    expect(machine.engineOn).toBe(true); // the last known state is kept, just not shown as current
+
+    await ingestSamples(db, "DEV1", [off], { now: at(13) });
+    machine = await getMachine();
+    expect(machine.engineUnknownSince).toBeNull();
+    expect(engineStatus(machine, at(13).getTime())).toBe("off");
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { detectEngine, hoursByDay, localDateKey, startOfLocalDay } from "./engine";
+import { parsePayload } from "@/lib/freematics/protocol";
+import { detectEngine, engineStatus, hoursByDay, localDateKey, startOfLocalDay } from "./engine";
 
 const TZ = "America/Toronto";
 
@@ -19,13 +20,49 @@ describe("detectEngine", () => {
     expect(detectEngine({ batteryCentivolts: 2520 }).running).toBe(false);
   });
 
-  it("falls back to vibration", () => {
-    expect(detectEngine({ accel: [0.04, 0.03, 1.08] })).toEqual({ running: true, source: "vibration" });
-    expect(detectEngine({ accel: [0, 0.01, 1] })).toEqual({ running: false, source: "vibration" });
+  it("falls back to vibration: Telelogger sends acceleration with gravity removed", () => {
+    // Real uploads from Y5725A32 sitting on a desk (2026-10-24), as the platform receives them.
+    for (const raw of ["0:178812,20:0;0;0,82:32*A8", "0:153812,81:-89,20:0;0;0,82:32*E", "0:893723,20:0;0.01;0,82:38*42"]) {
+      const { checksumValid, samples } = parsePayload(raw);
+      expect(checksumValid).toBe(true);
+      expect(detectEngine(samples[0])).toEqual({ running: false, source: "vibration" });
+    }
+    expect(detectEngine({ accel: [0.04, 0.03, 0.02] })).toEqual({ running: true, source: "vibration" });
   });
 
   it("returns unknown when there is nothing to go on", () => {
     expect(detectEngine({ lat: 43.6, lng: -79.4 })).toEqual({ running: null, source: null });
+  });
+});
+
+describe("engineStatus", () => {
+  const now = Date.parse("2026-10-24T23:00:00Z");
+  const minutesAgo = (min: number) => new Date(now - min * 60_000);
+  const machine = (state: { engineOn: boolean | null; lastSeen: number; unknownSince?: number }) => ({
+    engineOn: state.engineOn,
+    lastSeenAt: minutesAgo(state.lastSeen),
+    engineUnknownSince: state.unknownSince === undefined ? null : minutesAgo(state.unknownSince),
+  });
+
+  it("shows the last state while the reports show it", () => {
+    expect(engineStatus(machine({ engineOn: true, lastSeen: 1 }), now)).toBe("running");
+    expect(engineStatus(machine({ engineOn: false, lastSeen: 1 }), now)).toBe("off");
+    expect(engineStatus(machine({ engineOn: null, lastSeen: 1 }), now)).toBe("unknown");
+  });
+
+  it("marks a quiet running machine stale; a quiet parked one stays off", () => {
+    expect(engineStatus(machine({ engineOn: true, lastSeen: 30 }), now)).toBe("stale");
+    expect(engineStatus(machine({ engineOn: false, lastSeen: 30 }), now)).toBe("off");
+  });
+
+  it("shows unknown when the device keeps reporting but nothing has shown the engine state for over staleMinutes", () => {
+    expect(engineStatus(machine({ engineOn: true, lastSeen: 1, unknownSince: 11 }), now)).toBe("unknown");
+    expect(engineStatus(machine({ engineOn: false, lastSeen: 1, unknownSince: 11 }), now)).toBe("unknown");
+    // Not long enough yet: keep showing the last state.
+    expect(engineStatus(machine({ engineOn: true, lastSeen: 1, unknownSince: 5 }), now)).toBe("running");
+    // Gone quiet altogether: the usual rules for a quiet device apply.
+    expect(engineStatus(machine({ engineOn: true, lastSeen: 20, unknownSince: 40 }), now)).toBe("stale");
+    expect(engineStatus(machine({ engineOn: false, lastSeen: 20, unknownSince: 40 }), now)).toBe("off");
   });
 });
 

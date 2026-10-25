@@ -47,7 +47,7 @@ import { todayIn } from "@/lib/schedule-time";
 import { scanAvailable } from "@/lib/scan";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
-import { appTimeZone, ENGINE_THRESHOLDS, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
+import { appTimeZone, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
 import type { AuthContext } from "@/lib/auth";
 import { getAuth, requireAuth, requirePlatformAdmin, requireRoleForPage } from "@/lib/session";
 
@@ -105,19 +105,8 @@ export async function requestTime(): Promise<number> {
   return Date.now();
 }
 
-export type EngineStatus = "running" | "off" | "stale" | "unknown";
-
-/**
- * What to show for the engine. "stale" = last known running, but the device has gone quiet,
- * so we can't confirm it's still running. (Off-and-quiet stays "off": the stock firmware
- * stops reporting when a machine is parked, which is expected.)
- */
-export function engineStatus(machine: { engineOn: boolean | null; lastSeenAt: Date | null }, now: number): EngineStatus {
-  if (machine.engineOn === null || !machine.lastSeenAt) return "unknown";
-  if (!machine.engineOn) return "off";
-  const quietMin = (now - machine.lastSeenAt.getTime()) / 60_000;
-  return quietMin > ENGINE_THRESHOLDS.staleMinutes ? "stale" : "running";
-}
+// The pure rule lives with the engine thresholds (tested there); pages import it from here.
+export { engineStatus, type EngineStatus } from "@/lib/telemetry/engine";
 
 /** Sessions that overlap the window starting at `since` (open ones always included), for one machine. */
 function sessionsSince(since: Date, machineId: number) {

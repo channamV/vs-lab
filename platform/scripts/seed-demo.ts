@@ -7,7 +7,7 @@
  * and a check-in with the pre-start checklist before each engine start, and demo worksites drawn around
  * the places the simulator drives (see scripts/simulate.ts).
  *
- *   npm run demo:seed                  # 3 machines
+ *   npm run demo:seed                  # 4 machines (as many as npm run simulate makes)
  *   npm run demo:seed -- --devices 5
  *
  * Works against whichever database the platform uses (DATABASE_URL, or the embedded one).
@@ -23,7 +23,7 @@ import { DEFAULT_CONFIRMATION, DEFAULT_SECTIONS, DEFAULT_TEMPLATE_NAME } from ".
 import { hashPin } from "../src/lib/operators";
 import { appTimeZone, startOfLocalDay } from "../src/lib/telemetry/engine";
 
-const { values: args } = parseArgs({ options: { devices: { type: "string", default: "3" } } });
+const { values: args } = parseArgs({ options: { devices: { type: "string", default: "4" } } });
 const count = Math.max(1, Number(args.devices));
 
 const HOUR = 3_600_000;

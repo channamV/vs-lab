@@ -83,7 +83,7 @@ describe("pairing devices with machines", () => {
     const m = await createMachine(db, orgA, { name: "Excavator" });
     await pairDevice(db, "DEV1", m.id, at(0));
     await db.insert(engineSessions).values({ machineId: m.id, startedAt: at(10), lastSeenAt: at(20) });
-    await db.update(machines).set({ engineOn: true });
+    await db.update(machines).set({ engineOn: true, engineUnknownSince: at(30) });
 
     await unpairDevice(db, "DEV1", at(60));
     const [pairing] = await db.select().from(deviceAssignments);
@@ -91,7 +91,7 @@ describe("pairing devices with machines", () => {
     expect((await device("DEV1")).organizationId).toBe(orgA);
     const [session] = await db.select().from(engineSessions);
     expect(session.endedAt).toEqual(at(20));
-    expect((await db.select().from(machines))[0].engineOn).toBeNull();
+    expect((await db.select().from(machines))[0]).toMatchObject({ engineOn: null, engineUnknownSince: null });
 
     // A replacement goes on the same machine; the old device can go on another of ABC's machines.
     await pairDevice(db, "DEV2", m.id, at(70));

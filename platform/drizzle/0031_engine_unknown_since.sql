@@ -1,0 +1,1 @@
+ALTER TABLE "machines" ADD COLUMN "engine_unknown_since" timestamp with time zone;
