@@ -23,6 +23,7 @@ import {
   setMachineTemplate,
   updateTemplate,
 } from "./checklists";
+import { addLibraryTemplate, CHECKLIST_LIBRARY } from "./checklist-library";
 
 let db: Db;
 let org: number;
@@ -285,5 +286,54 @@ describe("photos", () => {
       delete process.env.PHOTO_DIR;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("ready-made checklists", () => {
+  it("adds the NL Schedule A trip inspection with written answers for location, odometer and trailer", async () => {
+    const nl = await addLibraryTemplate(db, org, "nl-trip-inspection-schedule-a");
+    const questions = nl.sections.flatMap((s) => s.questions);
+    // All 23 Schedule A systems, each needing a description when a defect is reported.
+    const parts = questions.filter((q) => /^\d+\. /.test(q.text));
+    expect(parts.map((q) => Number(q.text.split(".")[0])).sort((a, b) => a - b)).toEqual(Array.from({ length: 23 }, (_, i) => i + 1));
+    expect(parts.every((q) => q.noteRequired && q.text.length <= 300)).toBe(true);
+    expect(questions.filter((q) => q.textOnly).map((q) => q.id)).toEqual(["location", "odometer", "trailers"]);
+    const [set] = await db.select().from(checklistAnswerSets).where(eq(checklistAnswerSets.id, nl.answerSetId));
+    expect(set.name).toBe("Vehicle inspection");
+    await expect(addLibraryTemplate(db, org, "nl-trip-inspection-schedule-a")).rejects.toThrow(/already/);
+
+    await setMachineTemplate(db, org, machineId, nl.id);
+    const answers = Object.fromEntries(parts.map((q) => [q.id, q.id === "p08_electric_brakes" ? "na" : "ok"]));
+    const missing = await checkIn(db, { machineCode: "EXC14", pin: "1111", answers, answerNotes: { location: "Route 1, Whitbourne" }, confirmed: true }, at(0));
+    expect(missing).toMatchObject({ ok: false, reason: "incomplete" });
+    const ok = await checkIn(
+      db,
+      {
+        machineCode: "EXC14",
+        pin: "1111",
+        answers: { ...answers, p21_tires: "minor_defect" },
+        answerNotes: { location: "Route 1, Whitbourne", odometer: "184 220", trailers: "None", p21_tires: "Right rear outer: cut in sidewall" },
+        confirmed: true,
+      },
+      at(5),
+    );
+    expect(ok).toMatchObject({ ok: true });
+    const [row] = await db.select().from(checkins);
+    expect(row.answers.filter((a) => a.textOnly).map((a) => [a.question, a.answer])).toEqual([
+      ["Place of inspection (city, town or highway)", "Route 1, Whitbourne"],
+      ["Odometer reading (km)", "184 220"],
+      ["Trailer(s) towed: licence plate or unit number (write \"None\" if not towing)", "None"],
+    ]);
+    expect((await openIssues()).map((i) => i.questionId)).toEqual(["p21_tires"]);
+  });
+
+  it("creates an inspection answer set when the company has none that fits", async () => {
+    await ensureChecklistDefaults(db, org);
+    await db.update(checklistAnswerSets).set({ options: [{ key: "ok", label: "OK", severity: "pass", color: "#059669" }] }).where(eq(checklistAnswerSets.name, "Vehicle inspection"));
+    await db.update(checklistAnswerSets).set({ options: [{ key: "ok", label: "OK", severity: "pass", color: "#059669" }] }).where(eq(checklistAnswerSets.name, "Standard"));
+    const nl = await addLibraryTemplate(db, org, CHECKLIST_LIBRARY[0].key);
+    const [set] = await db.select().from(checklistAnswerSets).where(eq(checklistAnswerSets.id, nl.answerSetId));
+    expect(set.name).toBe("Vehicle inspection 2");
+    expect(set.options.map((o) => o.severity)).toEqual(["pass", "minor", "major", "na"]);
   });
 });

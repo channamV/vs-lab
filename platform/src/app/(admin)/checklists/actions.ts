@@ -15,6 +15,7 @@ import {
   updateAnswerSet,
   updateTemplate,
 } from "@/lib/checklists";
+import { addLibraryTemplate } from "@/lib/checklist-library";
 
 /** Checklists are shared by the whole organization, so only managers/owners who see all of it edit them. */
 async function requireEditor() {
@@ -43,6 +44,7 @@ const TemplateJson = z.object({
               noteRequired: z.boolean(),
               photoRequired: z.boolean().optional(),
               photoOnly: z.boolean().optional(),
+              textOnly: z.boolean().optional(),
             }),
           )
           .max(200),
@@ -101,4 +103,18 @@ export async function deleteAnswerSetAction(formData: FormData) {
   const auth = await requireEditor();
   await deleteAnswerSet(getDb(), auth.organizationId, Id.parse(formData.get("id")));
   refresh();
+}
+
+/** Adds a ready-made checklist (src/lib/checklist-library.ts) and opens it for review. */
+export async function addLibraryTemplateAction(formData: FormData) {
+  const auth = await requireEditor();
+  let id: number;
+  try {
+    ({ id } = await addLibraryTemplate(getDb(), auth.organizationId, z.string().max(80).parse(formData.get("key"))));
+  } catch (err) {
+    // Already added (e.g. a double click): show the list.
+    if (err instanceof ChecklistError) redirect("/checklists");
+    throw err;
+  }
+  redirect(`/checklists/templates/${id}`);
 }

@@ -40,21 +40,26 @@ function Reorder({ index, count, onMove, onRemove, label }: { index: number; cou
   );
 }
 
-type EditableQuestion = { id?: string; text: string; noteRequired: boolean; photoRequired?: boolean; photoOnly?: boolean };
+type EditableQuestion = { id?: string; text: string; noteRequired: boolean; photoRequired?: boolean; photoOnly?: boolean; textOnly?: boolean };
 type EditableSection = { id?: string; title: string; questions: EditableQuestion[] };
 
-/** How a question is answered: an answer (photos optional), an answer plus a required photo, or a photo alone. */
+/**
+ * How a question is answered: an answer (photos optional), an answer plus a required photo, a photo alone, or a written
+ * answer (e.g. odometer reading).
+ */
 const KINDS = [
   { value: "answer", label: "Answer (photo optional)" },
   { value: "answer+photo", label: "Answer + required photo" },
   { value: "photo", label: "Photo only" },
+  { value: "text", label: "Written answer" },
 ] as const;
-const kindOf = (q: EditableQuestion) => (q.photoOnly ? "photo" : q.photoRequired ? "answer+photo" : "answer");
+const kindOf = (q: EditableQuestion) => (q.photoOnly ? "photo" : q.textOnly ? "text" : q.photoRequired ? "answer+photo" : "answer");
 const withKind = (q: EditableQuestion, kind: string): EditableQuestion => ({
   ...q,
   photoOnly: kind === "photo",
-  photoRequired: kind !== "answer",
-  noteRequired: kind === "photo" ? false : q.noteRequired,
+  photoRequired: kind === "photo" || kind === "answer+photo",
+  textOnly: kind === "text",
+  noteRequired: kind === "photo" || kind === "text" ? false : q.noteRequired,
 });
 
 export function TemplateEditor({
@@ -155,7 +160,7 @@ export function TemplateEditor({
                 <label className="flex shrink-0 items-center gap-1 text-xs text-slate-600 dark:text-slate-400" title="Require a description when a defect is reported">
                   <input
                     type="checkbox"
-                    disabled={q.photoOnly}
+                    disabled={q.photoOnly || q.textOnly}
                     checked={q.noteRequired}
                     onChange={(e) =>
                       setSection(i, { questions: section.questions.map((x, n) => (n === j ? { ...x, noteRequired: e.target.checked } : x)) })

@@ -169,6 +169,13 @@ export function evaluateAnswers(sections: ChecklistSection[], options: AnswerOpt
         answers.push({ id: q.id, question: q.text, section: section.title, answer: photos ? "Photo taken" : "No photo", severity: "pass", ok: true, photoOnly: true });
         continue;
       }
+      if (q.textOnly) {
+        // A written answer (odometer, location...): the text is the answer.
+        const written = input.notes?.[q.id]?.trim().slice(0, 500);
+        if (!written) missing.push(q.text);
+        else answers.push({ id: q.id, question: q.text, section: section.title, answer: written, severity: "pass", ok: true, textOnly: true });
+        continue;
+      }
       const option = byKey.get(input.answers[q.id] ?? "");
       if (!option) {
         missing.push(q.text);
@@ -287,7 +294,7 @@ export type TemplateInput = {
   name: string;
   answerSetId: number;
   confirmationText: string;
-  sections: { id?: string; title: string; questions: { id?: string; text: string; noteRequired?: boolean; photoRequired?: boolean; photoOnly?: boolean }[] }[];
+  sections: { id?: string; title: string; questions: { id?: string; text: string; noteRequired?: boolean; photoRequired?: boolean; photoOnly?: boolean; textOnly?: boolean }[] }[];
 };
 
 async function cleanTemplate(db: Db, organizationId: number, input: TemplateInput, exceptId?: number) {
@@ -322,12 +329,14 @@ async function cleanTemplate(db: Db, organizationId: number, input: TemplateInpu
         const id = keep ? q.id! : slug(q.text, questionIds);
         seen.add(id);
         const photoOnly = Boolean(q.photoOnly);
+        const textOnly = !photoOnly && Boolean(q.textOnly);
         return {
           id,
           text: q.text,
-          noteRequired: photoOnly ? false : Boolean(q.noteRequired),
+          noteRequired: photoOnly || textOnly ? false : Boolean(q.noteRequired),
           photoRequired: photoOnly || Boolean(q.photoRequired),
           photoOnly,
+          ...(textOnly && { textOnly }),
         };
       });
     if (questions.length === 0) continue;

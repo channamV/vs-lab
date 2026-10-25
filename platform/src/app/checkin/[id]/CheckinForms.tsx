@@ -239,6 +239,25 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
                   }}
                 />
               );
+              if (q.textOnly) {
+                return (
+                  <div key={q.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                    <label htmlFor={`text-${q.id}`} className="block">
+                      {q.text}
+                    </label>
+                    <input
+                      id={`text-${q.id}`}
+                      name={`note:${q.id}`}
+                      value={notes[q.id] ?? ""}
+                      onChange={(e) => setNotes((n) => ({ ...n, [q.id]: e.target.value }))}
+                      required
+                      maxLength={500}
+                      className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+                    />
+                    {picker}
+                  </div>
+                );
+              }
               if (q.photoOnly) {
                 return (
                   <div key={q.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">

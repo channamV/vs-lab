@@ -127,6 +127,8 @@ says it's compliant. Update that doc when items are done.
   Defects → `checklist_issues` (one open per machine+question; repeats stack, escalation re-alerts via
   `alert_checkin_id`); minor and major both raise "Repair needed". Major + operator's choice → machine
   `locked_out_at` (no check-ins until a manager clears it) + `equipment_locked` notification.
+  Question kinds also include `textOnly` (written answer, e.g. odometer; the text is the answer). Ready-made checklists
+  (`src/lib/checklist-library.ts`, tested; Checklists → Ready-made → Add): NL trip inspection Schedule A (NLR 27/12).
 - Checklist photos (`src/lib/photos.ts`, tested): questions have `photoRequired` / `photoOnly` (missing = false).
   The phone shrinks photos (CheckinForms.tsx) and sends them with the check-in action as `photo:<questionId>`
   files (server action body limit 4mb in next.config.ts; Vercel caps requests at 4.5 MB). `checkIn` validates

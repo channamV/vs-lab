@@ -305,6 +305,7 @@ async function MachineDetail({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {history.map((c) => {
                   const failed = c.answers.filter((a) => !a.ok);
+                  const written = c.answers.filter((a) => a.textOnly);
                   const where = locationLabel(c);
                   const timing = engineLabel(c.engine);
                   return (
@@ -328,7 +329,7 @@ async function MachineDetail({
                       <td className={`py-1.5 ${where.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{where.text}</td>
                       <td className={`py-1.5 ${timing.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{timing.text}</td>
                       <td className="py-1.5">
-                        {failed.length === 0 && !c.notes && c.photos.length === 0 ? (
+                        {failed.length === 0 && written.length === 0 && !c.notes && c.photos.length === 0 ? (
                           <span className="text-emerald-700 dark:text-emerald-400">All OK</span>
                         ) : (
                           <details>
@@ -338,6 +339,11 @@ async function MachineDetail({
                               {c.lockoutRequested && " · locked out"}
                             </summary>
                             <ul className="mt-1 list-disc pl-4 text-xs">
+                              {written.map((a) => (
+                                <li key={a.id} className="list-none -ml-4 text-slate-600 dark:text-slate-400">
+                                  {a.question}: {a.answer}
+                                </li>
+                              ))}
                               {failed.map((a) => (
                                 <li key={a.id}>
                                   {a.question}: {a.answer ?? "Not OK"}

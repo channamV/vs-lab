@@ -3,7 +3,8 @@ import { Suspense } from "react";
 import { canEditChecklists, checklistSettings } from "@/lib/data";
 import { requireRoleForPage } from "@/lib/session";
 import { connection } from "next/server";
-import { deleteAnswerSetAction, deleteTemplateAction, setDefaultTemplateAction } from "./actions";
+import { CHECKLIST_LIBRARY } from "@/lib/checklist-library";
+import { addLibraryTemplateAction, deleteAnswerSetAction, deleteTemplateAction, setDefaultTemplateAction } from "./actions";
 
 const card = "rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
 const link = "text-sm text-sky-700 hover:underline dark:text-sky-400";
@@ -78,6 +79,39 @@ async function Checklists() {
           </article>
         ))}
       </section>
+
+      {canEdit && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="font-semibold">Ready-made checklists</h2>
+            <p className="text-xs text-slate-500">
+              Regulation-based checklists you can add, then edit like your own. Check them against the current regulation for your
+              jurisdiction before relying on them.
+            </p>
+          </div>
+          {CHECKLIST_LIBRARY.map((item) => {
+            const added = templates.some((t) => t.name === item.name);
+            return (
+              <article key={item.key} className={`${card} flex flex-wrap items-center justify-between gap-3`}>
+                <div className="max-w-2xl">
+                  <h3 className="font-semibold">{item.name}</h3>
+                  <p className="text-sm text-slate-500">{item.summary}</p>
+                </div>
+                {added ? (
+                  <span className="text-sm text-slate-500">Added</span>
+                ) : (
+                  <form action={addLibraryTemplateAction}>
+                    <input type="hidden" name="key" value={item.key} />
+                    <button className="rounded-lg border border-sky-700 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50 dark:border-sky-400 dark:text-sky-400 dark:hover:bg-slate-800">
+                      Add
+                    </button>
+                  </form>
+                )}
+              </article>
+            );
+          })}
+        </section>
+      )}
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">

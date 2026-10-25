@@ -509,9 +509,10 @@ export type AnswerOption = { key: string; label: string; severity: Severity; col
 /**
  * A checklist question. Operators can attach photos to any question; `photoRequired` makes one compulsory,
  * and `photoOnly` makes the photo the whole step (no answer, e.g. "Photo of front"; implies required).
- * Older templates don't have the photo fields: treat missing as false.
+ * `textOnly` makes it a written answer instead of a choice (e.g. "Odometer reading", "Inspection location").
+ * Older templates don't have these fields: treat missing as false.
  */
-export type ChecklistQuestion = { id: string; text: string; noteRequired: boolean; photoRequired?: boolean; photoOnly?: boolean };
+export type ChecklistQuestion = { id: string; text: string; noteRequired: boolean; photoRequired?: boolean; photoOnly?: boolean; textOnly?: boolean };
 export type ChecklistSection = { id: string; title: string; questions: ChecklistQuestion[] };
 
 /**
@@ -528,6 +529,8 @@ export type ChecklistAnswer = {
   note?: string;
   /** A photo-only step (the answer is the photo). */
   photoOnly?: boolean;
+  /** A written answer (the answer is the text typed). */
+  textOnly?: boolean;
 };
 
 /** The answers operators choose from (e.g. OK / Minor defect / Major defect / Not applicable). One set per template. */
