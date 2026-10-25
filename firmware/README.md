@@ -5,7 +5,9 @@
 `firmware/telelogger` is Freematics' open-source **Telelogger** firmware, and `firmware/libraries` the libraries it
 needs, copied from github.com/stanleyhuangyc/Freematics at commit `9b0a68d8` (2025-12-16): `firmware_v5/telelogger`,
 `libraries/FreematicsPlus`, `FreematicsOLED`, `httpd`, `TinyGPS`. The first commit adding them is the untouched
-upstream copy, so `git diff 51160f1 -- firmware/` shows everything we've changed.
+upstream copy, so `git diff 51160f1 -- firmware/` shows everything we've changed. Each change in the code is also marked
+with a `VSLAB` comment (`// VSLAB:`, or `// VSLAB test build:` / `// VSLAB test mode:` for code that's off in normal
+builds), so searching for `VSLAB` finds them all.
 
 Our changes so far:
 

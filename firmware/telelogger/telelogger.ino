@@ -768,7 +768,7 @@ void process()
     }
   }
 #ifdef VSLAB_CELL_DEBUG
-  stationary = false; // VS Lab test build: never go to standby on the desk
+  stationary = false; // VSLAB test build: never go to standby on the desk
 #endif
   if (stationary) {
     // stationery timeout
@@ -820,7 +820,7 @@ bool initCell(bool quick = false)
     Serial.println(apn);
   }
 #ifdef VSLAB_CELL_DEBUG
-  // VS Lab test build: give the first network registration 3 minutes instead of 30 seconds
+  // VSLAB test build: give the first network registration 3 minutes instead of 30 seconds
   if (teleClient.cell.setup(apn, APN_USERNAME, APN_PASSWORD, 180000)) {
 #else
   if (teleClient.cell.setup(apn, APN_USERNAME, APN_PASSWORD)) {
@@ -1396,7 +1396,7 @@ void setup()
   Serial.begin(115200);
 
 #ifdef VSLAB_MODEM_PASSTHROUGH
-  // VS Lab test mode: the PC talks straight to the modem (AT commands by hand); nothing else runs
+  // VSLAB test mode: the PC talks straight to the modem (AT commands by hand); nothing else runs
   sys.begin(false, true);
   Serial.println("[PASSTHROUGH] starting modem...");
   if (teleClient.cell.begin(&sys)) {
@@ -1521,7 +1521,7 @@ if (!state.check(STATE_MEMS_READY)) do {
 void loop()
 {
 #ifdef VSLAB_MODEM_PASSTHROUGH
-  // VS Lab test mode: relay bytes between the PC and the modem
+  // VSLAB test mode: relay bytes between the PC and the modem
   char buf[128];
   int n = 0;
   while (Serial.available() && n < (int)sizeof(buf)) buf[n++] = Serial.read();

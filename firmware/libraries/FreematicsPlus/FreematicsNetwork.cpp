@@ -129,7 +129,7 @@ void WifiUDP::close()
 bool WifiHTTP::open(const char* host, uint16_t port)
 {
   if (!host) return true;
-  // VS Lab: upstream always used plain TCP over Wi-Fi, so a server on port 443 got unencrypted HTTP and Vercel
+  // VSLAB: upstream always used plain TCP over Wi-Fi, so a server on port 443 got unencrypted HTTP and Vercel
   // answered every upload with a redirect to HTTPS. Use TLS on 443. Like the cellular path, the server's
   // certificate isn't checked yet (lab only).
   if (port == 443) {
@@ -138,7 +138,7 @@ bool WifiHTTP::open(const char* host, uint16_t port)
   } else {
     client = &plainClient;
   }
-  // VS Lab: end any previous session first; reconnecting over a live TLS session leaks its memory
+  // VSLAB: end any previous session first; reconnecting over a live TLS session leaks its memory
   client->stop();
   if (client->connect(host, port)) {
     m_state = HTTP_CONNECTED;
@@ -159,7 +159,7 @@ void WifiHTTP::close()
 
 bool WifiHTTP::send(HTTP_METHOD method, const char* path, const char* payload, int payloadSize)
 {
-  // VS Lab: receive() closes the connection when the server says "Connection: close". Writing to a closed TLS
+  // VSLAB: receive() closes the connection when the server says "Connection: close". Writing to a closed TLS
   // client fails, so reconnect first.
   if (!client->connected()) {
     String host = m_host;
@@ -295,7 +295,7 @@ void CellSIMCOM::end()
 }
 
 #ifdef VSLAB_CELL_DEBUG
-// VS Lab test build: one line per modem reply during the network search
+// VSLAB test build: one line per modem reply during the network search
 static void cellDebugLine(const char* what, int ret, uint32_t elapsed, const char* buf)
 {
   Serial.print("[CELL DBG] ");
@@ -393,7 +393,7 @@ bool CellSIMCOM::setup(const char* apn, const char* username, const char* passwo
         const char* answers[] = {"NO SERVICE", ",Online", ",Offline", ",Low Power Mode"};
         int ret = m_device->xbReceive(m_buffer, RECV_BUF_SIZE, 500, answers, 4);
 #ifdef VSLAB_CELL_DEBUG
-        // VS Lab test build: log every reply; keep waiting on unrecognised text (e.g. the modem's start-up
+        // VSLAB test build: log every reply; keep waiting on unrecognised text (e.g. the modem's start-up
         // messages) and Low Power Mode instead of giving up at once
         cellDebug("CPSI", ret, millis() - t);
         if (ret == 2) {
@@ -643,7 +643,7 @@ String CellSIMCOM::queryIP(const char* host)
 
 bool CellSIMCOM::sendCommand(const char* cmd, unsigned int timeout, const char* expected)
 {
-  // VS Lab: the modem isn't started while Wi-Fi is up; the cellular fallback must not crash then
+  // VSLAB: the modem isn't started while Wi-Fi is up; the cellular fallback must not crash then
   if (!m_device) return false;
   if (cmd) {
     m_device->xbWrite(cmd);
@@ -847,7 +847,7 @@ void CellHTTP::init()
 {
   if (m_type == CELL_SIM7670) {
 #ifdef VSLAB_CELL_DEBUG
-    // VS Lab test build: log the modem's firmware version and its replies to the SSL setup (first time only)
+    // VSLAB test build: log the modem's firmware version and its replies to the SSL setup (first time only)
     static bool logged = false;
     if (!logged) {
       CELL_DBG_CMD("AT+SIMCOMATI\r", true);
@@ -861,7 +861,7 @@ void CellHTTP::init()
 #else
     sendCommand("AT+CSSLCFG=\"sslversion\",0,4\r");
     sendCommand("AT+CSSLCFG=\"authmode\",0,0\r");
-    // VS Lab: send the server name in the TLS handshake (SNI). Hosts like Vercel serve many sites from one
+    // VSLAB: send the server name in the TLS handshake (SNI). Hosts like Vercel serve many sites from one
     // address and refuse a handshake without it, so HTTPS over cellular would fail on every upload.
     sendCommand("AT+CSSLCFG=\"enableSNI\",0,1\r");
 #endif
@@ -873,7 +873,7 @@ void CellHTTP::init()
 
 bool CellHTTP::open(const char* host, uint16_t port)
 {
-  if (!m_device) return false; // VS Lab: modem not started (see sendCommand)
+  if (!m_device) return false; // VSLAB: modem not started (see sendCommand)
   if (m_type == CELL_SIM7070) {
     sendCommand("AT+CNACT=0,1\r");
     sendCommand("AT+CACID=0\r");
@@ -933,7 +933,7 @@ bool CellHTTP::open(const char* host, uint16_t port)
     CELL_DBG_CMD(ctx1 ? "AT+HTTPPARA=\"SSLCFG\",1\r" : "AT+HTTPPARA=\"SSLCFG\",0\r", s_sniShow);
     return true;
 #else
-    // VS Lab: restart the HTTP service first: one left running (the modem stays on across ESP32 restarts) makes
+    // VSLAB: restart the HTTP service first: one left running (the modem stays on across ESP32 restarts) makes
     // AT+HTTPINIT answer ERROR. The SSL settings are only for HTTPS (port 443).
     sendCommand("AT+HTTPTERM\r");
     sendCommand("AT+HTTPINIT\r");
@@ -1004,7 +1004,7 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
       sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"https://%s%s\"\r", host, path);
     else
 #endif
-    // VS Lab: plain HTTP unless the port is 443 (upstream always used https://). Soracom Beam takes
+    // VSLAB: plain HTTP unless the port is 443 (upstream always used https://). Soracom Beam takes
     // http://beam.soracom.io/... on port 80 and adds HTTPS itself; port 80 is left out of the URL.
     if (port == 80)
       sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"http://%s%s\"\r", host, path);

@@ -96,7 +96,7 @@ public:
     bool send(HTTP_METHOD method, const char* path, const char* payload = 0, int payloadSize = 0);
     char* receive(char* buffer, int bufsize, int* pbytes = 0, unsigned int timeout = HTTP_CONN_TIMEOUT);
 private:
-    // VS Lab: TLS on port 443, plain TCP otherwise (see WifiHTTP::open)
+    // VSLAB: TLS on port 443, plain TCP otherwise (see WifiHTTP::open)
     WiFiClient plainClient;
     WiFiClientSecure secureClient;
     WiFiClient* client = &plainClient;
