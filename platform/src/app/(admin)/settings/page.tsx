@@ -51,7 +51,7 @@ async function Settings() {
       <section className={card}>
         <div>
           <h2 className="font-semibold">Time zone and schedules</h2>
-          <p className="text-sm text-slate-500">The company's time zone, and how overlapping schedules are resolved.</p>
+          <p className="text-sm text-slate-500">The company&apos;s time zone, and how overlapping schedules are resolved.</p>
         </div>
         <ScheduleSettingsForm
           timezone={org.timezone}
