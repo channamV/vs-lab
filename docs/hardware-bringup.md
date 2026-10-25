@@ -16,7 +16,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 | Cellular registration on 12 V | ✅ Works. On USB the modem used to reboot during network search; it held on USB on 2026-10-24 but don't rely on it |
 | Cellular HTTPS direct to Vercel | ❌ Impossible on this modem firmware (no SNI → Vercel `421`), see below |
 | Cellular via **Soracom Beam** | ✅ Works. Y5725A32 reports to VS-lab every few seconds (`feat/cell-beam`) |
-| Modem GPS (`GNSS_CELLULAR`) | ❌ Never switched on: the library uses SIM7600 GPS commands (`AT+CGPS`), which the SIM7670G rejects, so `CELL GNSS:OK` never appears. Needs the SIM7670G's own commands (open item 5) before any fix can show |
+| GPS | ✅ The board's own GPS chip works (`GNSS_STANDALONE`, `1c461d7`): `GNSS:OK(I)`, a fix indoors, position in every upload. The modem has no GPS. Outdoor accuracy to check in car test 1 |
 | Engine on/off from OBD RPM | ⏳ Car test pending (`bench-beam-obd`) |
 | Engine on/off from supply voltage, no OBD | ✅ On the desk: `bench-beam` sends 0x24 from A0 in every upload, timing unchanged (`a742e40`). Values against a multimeter in a car still to check (car test 2) |
 | Store-and-forward / location history replay | ⏳ On hold. **Core requirement** (see below) |
@@ -106,9 +106,13 @@ The working record for the device phase: what's proven, what's decided, what's o
    - tests with the real 361/365/369 cV values and the 7.99 / 8.00 V boundary; `npm run check` passes (267 tests);
    - merge after `fix/engine-vibration`: on its own, desk readings would fall through to the old vibration rule (running). A trial merge of the two is clean.
    - also on this branch (`8a14d5c`): the tamper watchdog notes a reading under the floor as "Was not on machine power" instead of "Battery was low: may have run flat" (item 11).
-5. **Modem GPS on the SIM7670G.** Switch it on with the SIM7670G's commands (`AT+CGNSSPWR=1`, wait for `+CGNSSPWR: READY!`) and read `AT+CGNSSINFO` into the GPS fields, instead of the SIM7600 ones (`AT+CGPS`). Try the commands by hand first with the pass-through build. Without this, car test 1 can't show a fix.
+5. ✅ **GPS**, 2026-10-25 (`feat/cell-beam`, `1c461d7`):
+   - the SIM7670G-LNGV modem has **no GPS**: every GNSS command (`AT+CGNSSPWR`, `AT+CGNSSINFO`, `AT+CGPS`, `AT+CGNSINF`) answers ERROR; only `AT+CLBS` (cell-tower location) exists;
+   - the Model H's own GPS chip works once the firmware knows the board type (15), which all our builds now read at boot (the A0 voltage change): `GNSS:OK(I)`, a fix on the desk with 4–12 satellites, latitude/longitude in all 20 uploads checked, in `bench-beam` and `bench-beam-obd`;
+   - so `CONFIG_GNSS=GNSS_STANDALONE` again. Earlier `GNSS:NO` came from OBD-off builds that didn't read the board type;
+   - seen once: after this boot the accelerometer read `0.08;0.04;-0.08` at rest (start-up calibration slightly off), so on the desk with USB power VS-lab may show "running" by vibration. In a car RPM or voltage decide.
 6. **Car test 1, `bench-beam-obd`.** Engine running, sky view, 3–5 min. Check:
-   - GPS fix appears in VS-lab (only after item 5);
+   - GPS position appears in VS-lab and follows the drive;
    - engine on/off follows RPM;
    - voltage running vs. off;
    - no repeating beep;
