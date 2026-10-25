@@ -2,7 +2,9 @@
 
 A personal lab for equipment visibility, safety and access monitoring — modelled on the Veristart
 product tiers, built independently of Veristart's production stack. Owner: Craig (non-engineer,
-Windows PC). Explain changes in plain language and keep the docs in `docs/` current.
+Windows PC). Explain changes in plain language and keep the docs in `docs/` current. Craig is a CEO with
+an accounting background, not a software engineer: keep what he has to read or do short and simple (outcome
+first, then any steps for him); technical detail goes in the docs, e.g. `docs/hardware-bringup.md`.
 
 ## Layout
 

@@ -58,7 +58,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 ### 4. Engine detection on real data
 
 - **Telelogger accelerometer data:** averages per data interval, in g, with gravity removed. At rest it sends `0;0;0`.
-- **Old bug, fixed on `fix/engine-vibration`:** the check was `|g − 1| ≥ 0.05`, so a still device read as running. Now it's `hypot(accel) ≥ 0.05`, plus a new "Unknown" status.
+- **Old bug, fixed (`fix/engine-vibration`, live since 2026-10-25):** the check was `|g − 1| ≥ 0.05`, so a still device read as running. Now it's `hypot(accel) ≥ 0.05`, plus a new "Unknown" status.
 - **Vibration is weak:** averaging smooths out an idling engine's shake, and a machine being transported reads as running. Use it only as a last resort.
 - **Supply voltage (PID 0x24):** stock Telelogger only sends it with `ENABLE_OBD`. On board type 15 (Model H, boot log `TYPE:15`) it's `analogRead(A0)*45/4095`, with no co-processor involved, so our OBD-off builds now send it too (`a742e40`).
   - Desk test, `bench-beam`, USB power: 0x24 in 59 of 59 uploads, 3.51–3.69 V. Sampling every 1 / 2 / 5 s and 59 uploads in 3 min, all answered OK: the same as before.
@@ -95,7 +95,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 
 ## Open items (in order)
 
-1. **Merge `fix/engine-vibration`** (`be90819`). Confirm migration `0031_engine_unknown_since` runs on the Vercel deploy. ⏳ Waiting for Craig's go-ahead (production deploy with a migration). Merge it before `fix/battery-floor`.
+1. ✅ **Merge `fix/engine-vibration`** (`be90819`), 2026-10-25 with Craig's go-ahead: merged as `f87ac2f`, checks passed (271 tests), deployed (`dpl_CZFYtQG2xtw8CFM5STwFbgJcUnAD`, READY). The deploy's migration step ran without errors ("Database is up to date"), and no new runtime errors since. `fix/battery-floor` can be merged next (needs Craig's go-ahead).
 2. **Clean up the false CX-9 engine sessions.** List the rows for Craig, delete only after approval, then recalculate the engine state.
 3. ✅ **A0 voltage in OBD-off builds** (`feat/cell-beam`, `a742e40` code, `84f5484` docs), 2026-10-25:
    - OBD-off builds send 0x24 from `analogRead(A0)*45/4095` in centivolts, on board type 15 only (see Decisions); marked `// VSLAB:`;
