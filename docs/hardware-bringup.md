@@ -102,12 +102,19 @@ Context: the CX-9 runs `bench-beam-obd`; OBD works (`obdRpm` in uploads). On the
 (`recorded_at`), backlogs are accepted as history, gaps are drawn dashed, engine times come from reading times, and a
 sign-off (logout) ends the engine-on period. In order:
 
-1. **Keep and resend readings (store-and-forward step 2, [store-and-forward.md](store-and-forward.md)).**
-   - Keep a batch whose send failed (don't purge it); send oldest first; don't wipe the buffer on standby
-     (`bufman.purge()` in the standby loop) — send what's left before signing off, or on the next wake.
-   - Send in batches every 10–15 s while running (several samples per POST), which also cuts Soracom requests.
-   - Tell VS-lab (the cloud session) before shipping resends: VS-lab should then ignore duplicates by device + reading
-     time (a resent batch whose reply was lost). Not built yet; small.
+1. ✅ **Keep and resend readings (store-and-forward step 2)**, 2026-10-25, `feat/cell-beam` `bdbf385`, on the device now
+   (`bench-beam-obd`):
+   - readings stay in the buffer until VS-lab answers 200 (a 4xx drops them; a retry can't help); a failed batch is
+     resent; oldest first; up to 15 readings per upload once the oldest has waited 15 s (`VSLAB_BATCH_SECONDS`), so
+     about one upload every 15–20 s instead of one per reading; 5 s pause after a failed upload;
+   - before signing off for sleep it sends what's left. Not kept across sleep: the firmware restarts on wake
+     (`RESET_AFTER_WAKEUP`), clearing memory, so a machine parked out of coverage still loses its last unsent readings
+     (step 3 of the plan, the memory card, fixes that);
+   - desk test with a pretend 80 s dead zone (test switch `VSLAB_TEST_OUTAGE`): 45 readings recorded, 45 delivered,
+     the backlog in two uploads (`OK 15`, `OK 9`) right after; the last 3 sent before sign-off;
+   - ⏳ **VS-lab (cloud session): ignore duplicates by device + reading time, now.** The device resends a batch when
+     no 200 arrives, so if VS-lab stored it but the reply was lost, the same readings come again. Also: uploads now
+     carry up to 15 readings each (several `0:` timestamps per body).
 2. **Final "engine off" reading before sleeping.** In `process()`, when OBD fails (`[OBD] ECU OFF`) the in-progress
    buffer is dropped (`return` with the buffer still FILLING) and standby purges the rest. Instead: add a last sample
    with `obdRpm` 0 (PID 0x10C) plus GPS and voltage, send it (with anything still buffered), then sign off. Same for the
