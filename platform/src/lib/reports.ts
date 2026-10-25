@@ -567,8 +567,8 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
 
 const csvCell = (v: unknown) => {
   const s = v === null || v === undefined ? "" : v instanceof Date ? v.toISOString() : String(v);
-  // Quote anything with separators, and neutralise spreadsheet formulas.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
+  // Quote anything with separators, and neutralise spreadsheet formulas (a plain number like -79.5 is left alone).
+  const safe = /^[=+\-@]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s;
   return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 export const toCsv = (rows: unknown[][]) => rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";

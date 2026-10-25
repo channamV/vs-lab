@@ -218,6 +218,12 @@ says it's compliant. Update that doc when items are done.
   document (`organizations.retain_scan_images` default, per-scan checkbox). Plate photos aren't kept.
   VIN/PIN check (`src/lib/vin.ts`, tested): check digit + NHTSA vPIC decode for VINs, manufacturer from equipment PIN
   prefixes (`EQUIPMENT_WMI`); `lookupSerialAction` after a plate scan and via "Check VIN / PIN"; fills empty fields only.
+- History (`src/lib/history.ts` + browser-safe `src/lib/history-track.ts`, tested; `docs/location-history.md`; modelled on
+  Insights): machine page Battery voltage (`voltageHistory`: per-slice min/max/avg via GROUP BY floor(epoch/slice) with the
+  slice inlined, engine spans, 12/24 V; `VoltageChart.tsx`; CSV `machines/[id]/battery/export`) and `/machines/[id]/history`
+  (`historyRange` presets/custom ≤31 days in `appTimeZone()`; `locationHistory` thins with DISTINCT ON above
+  `HISTORY_RULES.maxTrackPoints`; `dropOutliers`, `splitSegments`, `findStops`, operators from check-ins;
+  `HistoryReplay.tsx` replay with skip-parked-time timeline; CSV `history/export`). Popups are built with textContent.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

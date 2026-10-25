@@ -49,22 +49,30 @@ import type { Machine } from "@/lib/db/schema";
 import { effectiveMode } from "@/lib/modes";
 import { isMode, MODES, type Mode } from "@/lib/mode-types";
 import { ModePanel } from "./ModePanel";
+import { BatteryHistory } from "./BatteryHistory";
 
-export default function MachinePage({ params }: PageProps<"/machines/[id]">) {
+export default function MachinePage({ params, searchParams }: PageProps<"/machines/[id]">) {
   return (
     <div className="space-y-6">
       <Link href="/" className="text-sm text-sky-700 hover:underline dark:text-sky-400">
         ← Fleet
       </Link>
       <Suspense fallback={<p className="text-sm text-slate-500">Loading machine…</p>}>
-        <MachineDetail params={params} />
+        <MachineDetail params={params} searchParams={searchParams} />
       </Suspense>
     </div>
   );
 }
 
-async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["params"] }) {
+async function MachineDetail({
+  params,
+  searchParams,
+}: {
+  params: PageProps<"/machines/[id]">["params"];
+  searchParams: PageProps<"/machines/[id]">["searchParams"];
+}) {
   const id = Number((await params).id);
+  const batteryRange = (await searchParams).battery;
   if (!Number.isSafeInteger(id) || id <= 0) notFound();
   const machine = await getMachine(id);
   if (!machine) notFound();
@@ -138,7 +146,12 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
 
       {machine.lastLat !== null && machine.lastLng !== null ? (
         <section className="space-y-2">
-          <h2 className="font-semibold">Last 24 hours</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-semibold">Last 24 hours</h2>
+            <Link href={`/machines/${machine.id}/history`} className="text-sm text-sky-700 hover:underline dark:text-sky-400">
+              Location history &amp; replay →
+            </Link>
+          </div>
           <FleetMap
             markers={[{ id: machine.id, label: machineLabel(machine), lat: machine.lastLat, lng: machine.lastLng, status }]}
             track={track}
@@ -152,10 +165,16 @@ async function MachineDetail({ params }: { params: PageProps<"/machines/[id]">["
         <p className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-500 dark:border-slate-700">
           {pairings.some((p) => !p.endedAt)
             ? "No GPS position yet. A new device can take a few minutes to get its first fix — it needs a clear view of the sky."
-            : "No GPS position yet. Veristart fits a tracking device to the machine; its position shows here once it reports."}
+            : "No GPS position yet. Veristart fits a tracking device to the machine; its position shows here once it reports."}{" "}
+          <Link href={`/machines/${machine.id}/history`} className="text-sky-700 hover:underline dark:text-sky-400">
+            Location history →
+          </Link>
         </p>
       )}
 
+      <Suspense fallback={<p className="text-sm text-slate-500">Loading battery history…</p>}>
+        <BatteryHistory machineId={machine.id} range={typeof batteryRange === "string" ? batteryRange : undefined} />
+      </Suspense>
       <Suspense>
         <EngineData machineId={machine.id} hourMeter={machine.engineHourMeter} />
       </Suspense>

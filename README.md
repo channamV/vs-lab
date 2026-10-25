@@ -40,6 +40,7 @@ sticker on the machine, entering a PIN and completing the pre-start checklist, a
 20. [Schedules](docs/schedules.md) — automatic mode changes (nights, weekends) and temporary operator access, conflicts, Upcoming
 21. [Training and certifications](docs/training.md) — operators' records, expiry reminders, auto-grant and required training at check-in
 22. [Scan to fill](docs/scan-to-fill.md) — photo of a training card or serial plate fills the form (Claude); setting up the API key
+23. [Location history and battery voltage](docs/location-history.md) — replay trips, stops, battery voltage chart
 
 ## Quick start
 

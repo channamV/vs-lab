@@ -45,6 +45,8 @@ import { currentMode } from "@/lib/mode-types";
 import { ensureTrainingDefaults, latestRecords, recordStatus } from "@/lib/training";
 import { todayIn } from "@/lib/schedule-time";
 import { scanAvailable } from "@/lib/scan";
+import { locationHistory, voltageHistory } from "@/lib/history";
+import { historyRange } from "@/lib/history-track";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
 import { appTimeZone, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
@@ -1093,4 +1095,22 @@ export async function operatorTraining(operatorId: number) {
 export async function scanEnabled() {
   await requireSession();
   return scanAvailable();
+}
+
+/** Battery voltage history for a machine's page (src/lib/history.ts), for ?battery=24h|7d|30d. */
+export async function machineVoltage(id: number, range: string | undefined) {
+  await requireMachine(id);
+  const now = Date.now();
+  const tz = appTimeZone();
+  const r = historyRange({ range: range && ["24h", "7d", "30d"].includes(range) ? range : "7d" }, now, tz, "7d");
+  return { range: r, timeZone: tz, history: await voltageHistory(getDb(), id, r.from, r.to, now) };
+}
+
+/** Location history and replay data for a machine (src/lib/history.ts). */
+export async function machineLocationHistory(id: number, params: { range?: string; from?: string; to?: string }) {
+  await requireMachine(id);
+  const now = Date.now();
+  const tz = appTimeZone();
+  const r = historyRange(params, now, tz);
+  return { range: r, timeZone: tz, history: await locationHistory(getDb(), id, r.from, r.to, now) };
 }

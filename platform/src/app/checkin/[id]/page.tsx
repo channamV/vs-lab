@@ -95,7 +95,7 @@ function PrivacyNotice({
         </p>
         <p>
           While you&apos;re checked in, the machine&apos;s safety records are linked to you: hours operated and breaks (for
-          fatigue limits), speeding, long idling, and entering restricted areas.
+          fatigue limits), speeding, long idling, entering restricted areas, and where the machine went (its location history).
         </p>
         <p>
           {privacy.name} may also keep your training and certification records (and copies of certificates) to check
