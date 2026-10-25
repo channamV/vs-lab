@@ -27,6 +27,7 @@ import {
 import { signOutAction } from "@/app/(admin)/login/actions";
 import { switchOrganizationAction } from "@/app/(admin)/platform/actions";
 import { NAV_COOKIE } from "@/lib/nav";
+import { BrandLogo, BrandMark } from "@/components/BrandLogo";
 
 /**
  * The app's navigation. Desktop: a sidebar grouped by area that can be collapsed to an icon rail
@@ -71,8 +72,8 @@ function activeHref(pathname: string, groups: NavGroup[]) {
 
 function Logo() {
   return (
-    <Link href="/" className="text-lg font-semibold tracking-tight text-white">
-      VS <span className="text-sky-400">Lab</span>
+    <Link href="/" className="block" title="Veristart Lab">
+      <BrandLogo />
     </Link>
   );
 }
@@ -234,8 +235,8 @@ export function AppNav({
       >
         <div className={`flex items-center px-4 py-4 ${collapsed ? "justify-center px-0" : ""}`}>
           {collapsed ? (
-            <Link href="/" className="text-lg font-semibold text-sky-400" title="VS Lab">
-              VS
+            <Link href="/" title="Veristart Lab">
+              <BrandMark />
             </Link>
           ) : (
             <Logo />

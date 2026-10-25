@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { AppNav, type NavGroup } from "@/components/AppNav";
 import { NAV_COOKIE } from "@/lib/nav";
+import { BrandLogo } from "@/components/BrandLogo";
 import { currentUser, listOrganizationsForSwitcher, openAlertCountIfSignedIn } from "@/lib/data";
 import { hasRole } from "@/lib/auth";
 
@@ -25,9 +26,9 @@ async function Navigation() {
   const auth = await currentUser();
   if (!auth) {
     return (
-      <header className="bg-slate-900 px-4 py-3 text-lg font-semibold tracking-tight text-white">
-        <Link href="/">
-          VS <span className="text-sky-400">Lab</span>
+      <header className="bg-slate-900 px-4 py-3">
+        <Link href="/" className="inline-block" title="Veristart Lab">
+          <BrandLogo />
         </Link>
       </header>
     );
