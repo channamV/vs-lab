@@ -30,7 +30,9 @@ The command is accepted and reads back as enabled, but SNI is never sent.
 AT+CSSLCFG=?          -> lists "enableSNI",(0-9),(0,1)
 AT+CSSLCFG="enableSNI",0,1
 OK
-AT+CSSLCFG?           -> +CSSLCFG: 0,4,0,1,300,"","","",1,0,"",0,0   (enableSNI shows 1)
+AT+CSSLCFG=0          -> +CSSLCFG: 0,4,0,1,300,"","","",1,0,"",0,0   (enableSNI shows 1)
+AT+CSSLCFG="enableSNI",0,0
+AT+CSSLCFG=0          -> +CSSLCFG: 0,4,0,1,300,"","","",0,0,"",0,0   (the setting is stored: it shows 0)
 AT+CSSLCFG="sni",...  -> ERROR (not supported)
 ```
 
