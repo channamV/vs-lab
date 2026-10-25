@@ -118,6 +118,8 @@ Settings: `FUEL_RULES` in `platform/src/lib/fuel.ts`.
 With the engine off, a healthy battery rests at about 12.6 V (25.2 V on 24 V machines). Below **11.9 V**
 (**23.8 V**) it's roughly a quarter charged and the machine may not start. VS Lab:
 - only uses readings taken with the **engine off** (running readings are lifted by the alternator);
+- ignores readings under **8 V**: the device isn't on machine power then (USB on a desk reads about 3.6 V, or a
+  bench supply);
 - needs the low reading to still be low **3 minutes later**, so the dip while cranking doesn't count;
 - sends **one warning per low spell** (event type *Low Battery Warning*, subscribe under Notifications), and
   shows "⚠ Low battery" on the fleet list and machine page;

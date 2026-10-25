@@ -10,6 +10,7 @@ import {
   type Alert,
 } from "@/lib/db/schema";
 import { isArmed, isMonitored } from "@/lib/alerts";
+import { ENGINE_THRESHOLDS } from "@/lib/telemetry/engine";
 import { effectiveMode } from "@/lib/modes";
 import { distanceMeters } from "@/lib/operators";
 import { clockTime, machineLabel } from "@/lib/format";
@@ -114,7 +115,10 @@ export function scoreSilence(input: SilenceInput): { concern: Concern; reasons: 
   } else if (input.lastRssi !== null) {
     reasons.push(`Signal was good (${input.lastRssi} dBm)`);
   }
-  if (input.lastBatteryV !== null && input.lastBatteryV < TAMPER_RULES.lowBatteryV) {
+  if (input.lastBatteryV !== null && input.lastBatteryV < ENGINE_THRESHOLDS.machinePowerMinVolts) {
+    // USB or a bench supply: says nothing about the machine's battery, so it doesn't explain the silence.
+    reasons.push(`Was not on machine power (${input.lastBatteryV.toFixed(1)} V: USB or a bench supply)`);
+  } else if (input.lastBatteryV !== null && input.lastBatteryV < TAMPER_RULES.lowBatteryV) {
     concern = shift(concern, -1);
     reasons.push(`Battery was low (${input.lastBatteryV.toFixed(1)} V): may have run flat`);
   } else if (input.lastBatteryV !== null) {

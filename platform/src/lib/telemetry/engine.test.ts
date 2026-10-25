@@ -15,6 +15,16 @@ describe("detectEngine", () => {
     expect(detectEngine({ batteryCentivolts: 1260 }).running).toBe(false);
   });
 
+  it("ignores supply readings from USB or a bench supply (below 8 V)", () => {
+    // Y5725A32 on a desk, on USB power (2026-10-24): 361–369 cV.
+    for (const cv of [361, 365, 369]) {
+      expect(detectEngine({ batteryCentivolts: cv })).toEqual({ running: null, source: null });
+      expect(detectEngine({ batteryCentivolts: cv, accel: [0, 0, 0] }).source).toBe("vibration");
+    }
+    expect(detectEngine({ batteryCentivolts: 799 }).source).toBeNull();
+    expect(detectEngine({ batteryCentivolts: 800 })).toEqual({ running: false, source: "voltage" });
+  });
+
   it("reads a 24 V system (common on heavy equipment)", () => {
     expect(detectEngine({ batteryCentivolts: 2790 }).running).toBe(true);
     expect(detectEngine({ batteryCentivolts: 2520 }).running).toBe(false);

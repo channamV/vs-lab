@@ -58,6 +58,19 @@ describe("low battery warning", () => {
     expect((await machine()).batteryLowPendingAt).toBeNull();
   });
 
+  it("ignores readings from USB or a bench supply (below 8 V): not on machine power", async () => {
+    // Y5725A32 on a desk, on USB power (2026-10-24): 361–369 cV. RPM 0 makes them engine-off readings.
+    await report(3.61, 0, { obdRpm: 0 });
+    await report(3.65, 4, { obdRpm: 0 });
+    await report(3.69, 10, { obdRpm: 0 });
+    expect(await warnings()).toEqual([]);
+    expect((await machine()).batteryLowPendingAt).toBeNull();
+    // At the floor it's machine power again, and very low: warned as usual.
+    await report(8.0, 20, { obdRpm: 0 });
+    await report(8.0, 24, { obdRpm: 0 });
+    expect(await warnings()).toHaveLength(1);
+  });
+
   it("works for 24 V machines", async () => {
     await report(23.2, 0);
     await report(23.1, 4);

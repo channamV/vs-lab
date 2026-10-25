@@ -20,6 +20,13 @@ export const ENGINE_THRESHOLDS = {
   volts24SystemAbove: 18,
   runningVolts12: 13.2,
   runningVolts24: 26.4,
+  /**
+   * Supply readings below this mean the device isn't on machine power: USB (3.6–3.7 V seen on a desk) or a
+   * bench supply. They give no voltage engine reading and don't count for the low battery warning. A 12 V
+   * system the device runs on reads ~10.5 V or more even when flat (and rarely dips under ~9.5 V while
+   * cranking); below 8 V it couldn't start the machine anyway.
+   */
+  machinePowerMinVolts: 8,
   vibrationG: 0.05,
   /** A running session with no data for this long is treated as ended at its last report. */
   staleMinutes: 10,
@@ -39,7 +46,7 @@ export function detectEngine(fields: SampleFields): EngineReading {
   if (rpm !== null) return { running: rpm >= t.minRpm, source: "rpm" };
 
   const centivolts = num(fields, "batteryCentivolts");
-  if (centivolts !== null && centivolts > 0) {
+  if (centivolts !== null && centivolts / 100 >= t.machinePowerMinVolts) {
     const volts = centivolts / 100;
     const threshold = volts > t.volts24SystemAbove ? t.runningVolts24 : t.runningVolts12;
     return { running: volts >= threshold, source: "voltage" };
