@@ -21,7 +21,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 | Engine on/off from supply voltage, no OBD | ✅ On the desk: `bench-beam` sends 0x24 from A0 in every upload, timing unchanged (`a742e40`). Values against a multimeter in a car still to check (car test 2) |
 | Store-and-forward / location history replay | ⏳ On hold. **Core requirement** (see below) |
 
-**Build on the device now:** `bench-beam-obd`. **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
+**Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading and GPS date (`b3c0ec9`). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
 
 ---
 
@@ -115,12 +115,17 @@ sign-off (logout) ends the engine-on period. In order:
    - ⏳ **VS-lab (cloud session): ignore duplicates by device + reading time, now.** The device resends a batch when
      no 200 arrives, so if VS-lab stored it but the reply was lost, the same readings come again. Also: uploads now
      carry up to 15 readings each (several `0:` timestamps per body).
-2. **Final "engine off" reading before sleeping.** In `process()`, when OBD fails (`[OBD] ECU OFF`) the in-progress
-   buffer is dropped (`return` with the buffer still FILLING) and standby purges the rest. Instead: add a last sample
-   with `obdRpm` 0 (PID 0x10C) plus GPS and voltage, send it (with anything still buffered), then sign off. Same for the
-   stationary timeout. VS-lab then records the stop at the last running reading with an explicit "off" right after.
-3. **Send the GPS date** (PID 0x11, `gd->date`) with the GPS time, so VS-lab doesn't have to infer the date (it assumes
-   readings are under 6 hours old). Small.
+2. ✅ **Final "engine off" reading before sleeping**, 2026-10-25, `feat/cell-beam` `b3c0ec9`, on the device now:
+   - on `[OBD] ECU OFF` the reading in progress is finished as an explicit RPM 0 (PID 0x10C) with voltage and position,
+     and sent (with anything still waiting) before sign-off;
+   - **differs from the plan:** at the stationary timeout no RPM 0 is added. The last real reading is sent instead
+     (item 1), because a machine idling in place would get a false "off". VS-lab: a sign-off there may not mean the
+     engine stopped;
+   - can only be checked with a real engine computer: ⏳ in the car, switch off and look for the RPM 0 reading right
+     before the sign-off.
+3. ✅ **GPS date**, 2026-10-25, `b3c0ec9`: PID 0x11 (`gpsDate`) in every GPS reading, format DDMMYY (`251026` = 25 Oct
+   2026), next to `gpsTime`. Desk check: in every reading, uploads accepted. ⏳ VS-lab (cloud session) can now use it in
+   `sample-time.ts` instead of assuming readings are under 6 hours old.
 4. **Unplug/replug recovery** (left from car test 1): unplug while running, plug back in; check it reconnects on its
    own and VS-lab raises the tamper "power interrupted" incident.
 5. Then **merge `feat/cell-beam`** (item 8) and send the SIMCom report (item 9).
