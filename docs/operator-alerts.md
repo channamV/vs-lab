@@ -13,7 +13,8 @@ nothing to an operator and should go.
 - Only while the machine is **Access-Controlled** (Safety & Access Monitoring or Control tier). Unlocked: anyone may
   operate it, so no beeps. GPS & Telematics: no beeps.
 - Only while the engine runs. Repeated every 30 seconds until it's resolved.
-- The QR sticker (machine page → QR sticker) has an "If you hear…" legend for these machines.
+- Every QR sticker (machine page → QR sticker) has an "If you hear…" legend, whatever the machine's tier or mode:
+  a sticker lasts for years, while the tier or mode can change any day (Craig, 2026-10-25).
 - "Checklist due" can't happen with phone check-ins today (the phone always does the checklist, or relies on today's
   under the checklist's How often setting). It's there for beacon check-ins.
 
