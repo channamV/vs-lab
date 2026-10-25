@@ -271,7 +271,7 @@ export async function getRecentTelemetry(id: number, limit = 1) {
     .select()
     .from(telemetry)
     .where(eq(telemetry.machineId, id))
-    .orderBy(desc(telemetry.receivedAt), desc(telemetry.id))
+    .orderBy(desc(telemetry.recordedAt), desc(telemetry.id))
     .limit(limit);
 }
 
@@ -963,7 +963,7 @@ export async function getDeviceForStaff(id: string) {
       .where(eq(deviceAssignments.deviceId, id))
       .orderBy(desc(deviceAssignments.startedAt)),
     db.select().from(deviceEvents).where(eq(deviceEvents.deviceId, id)).orderBy(desc(deviceEvents.at)).limit(20),
-    db.select().from(telemetry).where(eq(telemetry.deviceId, id)).orderBy(desc(telemetry.receivedAt), desc(telemetry.id)).limit(1),
+    db.select().from(telemetry).where(eq(telemetry.deviceId, id)).orderBy(desc(telemetry.recordedAt), desc(telemetry.id)).limit(1),
   ]);
   return { ...row.device, stockOrganization: row.stockOrganization, pairings, events, latest: latest ?? null };
 }

@@ -166,7 +166,17 @@ export async function ingestSamples(
   // The newest sample with a reading decides the engine state, if it's recent: older readings in the same upload
   // (a backlog) are history and mustn't restart or extend an engine-on period now.
   const recentFrom = now.getTime() - SAMPLE_TIME_RULES.lateMs;
-  const lastReading = readings.findLast((r, i) => r.running !== null && recordedAt[i].getTime() >= recentFrom);
+  const lastIndex = readings.findLastIndex((r, i) => r.running !== null && recordedAt[i].getTime() >= recentFrom);
+  const lastReading = lastIndex >= 0 ? readings[lastIndex] : undefined;
+  // When the engine state was taken (not when it arrived), and for a start, the first of the recent running readings
+  // leading up to it, so engine-on periods begin and end at reading times.
+  let firstRunning = lastIndex;
+  while (lastReading?.running && firstRunning > 0) {
+    const r = readings[firstRunning - 1];
+    if (recordedAt[firstRunning - 1].getTime() < recentFrom || r.running === false) break;
+    firstRunning--;
+  }
+  const readingTimes = lastIndex >= 0 ? { at: recordedAt[lastIndex], since: recordedAt[Math.max(0, firstRunning)] } : null;
   if (machineId && lastFix) {
     await tamperChecks(() => checkMovement(db, machineId, { lat: lastFix.lat!, lng: lastFix.lng! }, now));
     // Worksites: entered / left / stayed too long (notifications are sent after the reply, in alert-jobs).
@@ -184,7 +194,7 @@ export async function ingestSamples(
       await db.update(devices).set({ engineOn: lastReading.running, engineChangedAt: now }).where(eq(devices.id, deviceId));
     }
     // Engine-on periods (and so engine hours, check-ins and alerts) belong to the machine.
-    if (machineId) await updateEngineState(db, machineId, lastReading, now);
+    if (machineId) await updateEngineState(db, machineId, lastReading, now, readingTimes!);
   }
 
   // Uploads with no engine signal (e.g. GPS only) leave the state alone, but note since when, so pages can
@@ -243,7 +253,7 @@ export async function ingestSamples(
  *  - open session gone stale (no report > staleMinutes) → close it at its last report first
  * Each start and stop is recorded as a notification event; alert-jobs delivers them after the response.
  */
-async function updateEngineState(db: Db, machineId: number, reading: EngineReading, now: Date) {
+async function updateEngineState(db: Db, machineId: number, reading: EngineReading, now: Date, times: { at: Date; since: Date }) {
   const openWhere = and(eq(engineSessions.machineId, machineId), isNull(engineSessions.endedAt));
   let open: EngineSession | undefined = (await db.select().from(engineSessions).where(openWhere))[0];
   const [{ organizationId }] = await db.select({ organizationId: machines.organizationId }).from(machines).where(eq(machines.id, machineId));
@@ -257,21 +267,26 @@ async function updateEngineState(db: Db, machineId: number, reading: EngineReadi
     open = undefined;
   }
 
+  // Times are when the readings were taken: a start at the first running reading, a stop at the last one that showed
+  // the engine running (the moment it stopped is between that and the first "off" reading).
+  let changedAt = times.at;
   if (reading.running) {
     if (open) {
-      await db.update(engineSessions).set({ lastSeenAt: now }).where(eq(engineSessions.id, open.id));
+      if (times.at > open.lastSeenAt) await db.update(engineSessions).set({ lastSeenAt: times.at }).where(eq(engineSessions.id, open.id));
     } else {
       // The unique index allows only one open session; a simultaneous upload may have opened it already.
       const [started] = await db
         .insert(engineSessions)
-        .values({ machineId, startedAt: now, lastSeenAt: now, source: reading.source })
+        .values({ machineId, startedAt: times.since, lastSeenAt: times.at, source: reading.source })
         .onConflictDoNothing()
         .returning({ id: engineSessions.id });
-      if (started) await engineEvent("start", started.id, now);
+      if (started) await engineEvent("start", started.id, times.since);
+      changedAt = times.since;
     }
   } else if (open) {
-    await db.update(engineSessions).set({ endedAt: now, lastSeenAt: now }).where(eq(engineSessions.id, open.id));
-    await engineEvent("stop", open.id, now);
+    await db.update(engineSessions).set({ endedAt: open.lastSeenAt }).where(eq(engineSessions.id, open.id));
+    await engineEvent("stop", open.id, open.lastSeenAt);
+    changedAt = open.lastSeenAt;
   }
 
   // engineChangedAt marks when the current state began ("running since 9:42").
@@ -279,7 +294,7 @@ async function updateEngineState(db: Db, machineId: number, reading: EngineReadi
   const [prev] = await db.select({ engineOn: machines.engineOn }).from(machines).where(eq(machines.id, machineId));
   const startedNewSession = reading.running && !open;
   if (prev?.engineOn !== reading.running || startedNewSession) {
-    await db.update(machines).set({ engineOn: reading.running, engineChangedAt: now }).where(eq(machines.id, machineId));
+    await db.update(machines).set({ engineOn: reading.running, engineChangedAt: changedAt }).where(eq(machines.id, machineId));
   }
 }
 

@@ -25,6 +25,29 @@ async function paired(deviceId: string, now?: Date) {
 
 const getMachine = async () => (await db.select().from(machines).where(eq(machines.id, machineId)))[0];
 
+describe("engine times come from the readings", () => {
+  it("starts at the first running reading of an upload and stops at the last one, not at arrival", async () => {
+    await paired("DEV00001");
+    const now = new Date("2026-10-25T21:10:00Z");
+    // Three readings 20 s apart arriving together; the newest was taken 10 s before arrival.
+    await ingestSamples(
+      db,
+      "DEV00001",
+      [
+        { deviceMs: 100_000, gpsTime: 21091000, lat: 47.5, lng: -52.8, obdRpm: 900 },
+        { deviceMs: 120_000, gpsTime: 21093000, lat: 47.5, lng: -52.8, obdRpm: 1100 },
+        { deviceMs: 140_000, gpsTime: 21095000, lat: 47.5, lng: -52.8, obdRpm: 1000 },
+      ],
+      { now },
+    );
+    const [session] = await db.select().from(engineSessions);
+    expect(session).toMatchObject({ startedAt: new Date("2026-10-25T21:09:10Z"), lastSeenAt: new Date("2026-10-25T21:09:50Z") });
+    expect((await getMachine()).engineChangedAt).toEqual(new Date("2026-10-25T21:09:10Z"));
+    await ingestSamples(db, "DEV00001", [{ deviceMs: 160_000, gpsTime: 21101000, lat: 47.5, lng: -52.8, obdRpm: 0 }], { now: new Date("2026-10-25T21:10:12Z") });
+    expect((await db.select().from(engineSessions))[0].endedAt).toEqual(new Date("2026-10-25T21:09:50Z"));
+  });
+});
+
 describe("engine off when the device sleeps", () => {
   const t0 = new Date("2026-10-25T15:50:00Z");
   const at = (min: number) => new Date(t0.getTime() + min * 60_000);
@@ -222,11 +245,12 @@ describe("engine sessions", () => {
     await ingestSamples(db, "DEV1", [off], { now: at(9) });
     const sessions = await db.select().from(engineSessions);
     expect(sessions).toHaveLength(1);
-    expect(sessions[0]).toMatchObject({ startedAt: at(1), endedAt: at(9), source: "voltage" });
+    // Ends at the last reading that showed it running (it stopped between 5 and 9).
+    expect(sessions[0]).toMatchObject({ startedAt: at(1), endedAt: at(5), source: "voltage" });
 
     machine = await getMachine();
     expect(machine.engineOn).toBe(false);
-    expect(machine.engineChangedAt).toEqual(at(9));
+    expect(machine.engineChangedAt).toEqual(at(5));
   });
 
   it("closes a session at the last report when the device went silent", async () => {
@@ -271,8 +295,8 @@ describe("engine sessions", () => {
 
     await ingestSamples(db, "DEV1", [off], { now: at(3) });
     await ingestSamples(db, "DEV1", [noSignal], { now: at(4) });
-    expect(await getMachine()).toMatchObject({ engineOn: false, engineChangedAt: at(3) });
-    expect(await db.select().from(engineSessions)).toEqual([expect.objectContaining({ startedAt: at(0), endedAt: at(3) })]);
+    expect(await getMachine()).toMatchObject({ engineOn: false, engineChangedAt: at(0) });
+    expect(await db.select().from(engineSessions)).toEqual([expect.objectContaining({ startedAt: at(0), endedAt: at(0) })]);
   });
 
   it("shows the engine as unknown when uploads keep arriving with no engine signal", async () => {

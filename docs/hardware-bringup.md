@@ -94,6 +94,33 @@ The working record for the device phase: what's proven, what's decided, what's o
 
 ---
 
+## Firmware to-do for the next device session (written 2026-10-25, from the evening CX-9 drive)
+
+Context: the CX-9 runs `bench-beam-obd`; OBD works (`obdRpm` in uploads). On the evening drive the last ~4 minutes
+(18:32–18:36 NDT) never reached VS-lab (weak signal, −83 dBm; the firmware throws away readings it can't send), and a
+4–5 minute dead zone earlier left a gap in the track. VS-lab side is done: readings are dated by GPS time
+(`recorded_at`), backlogs are accepted as history, gaps are drawn dashed, engine times come from reading times, and a
+sign-off (logout) ends the engine-on period. In order:
+
+1. **Keep and resend readings (store-and-forward step 2, [store-and-forward.md](store-and-forward.md)).**
+   - Keep a batch whose send failed (don't purge it); send oldest first; don't wipe the buffer on standby
+     (`bufman.purge()` in the standby loop) — send what's left before signing off, or on the next wake.
+   - Send in batches every 10–15 s while running (several samples per POST), which also cuts Soracom requests.
+   - Tell VS-lab (the cloud session) before shipping resends: VS-lab should then ignore duplicates by device + reading
+     time (a resent batch whose reply was lost). Not built yet; small.
+2. **Final "engine off" reading before sleeping.** In `process()`, when OBD fails (`[OBD] ECU OFF`) the in-progress
+   buffer is dropped (`return` with the buffer still FILLING) and standby purges the rest. Instead: add a last sample
+   with `obdRpm` 0 (PID 0x10C) plus GPS and voltage, send it (with anything still buffered), then sign off. Same for the
+   stationary timeout. VS-lab then records the stop at the last running reading with an explicit "off" right after.
+3. **Send the GPS date** (PID 0x11, `gd->date`) with the GPS time, so VS-lab doesn't have to infer the date (it assumes
+   readings are under 6 hours old). Small.
+4. **Unplug/replug recovery** (left from car test 1): unplug while running, plug back in; check it reconnects on its
+   own and VS-lab raises the tamper "power interrupted" incident.
+5. Then **merge `feat/cell-beam`** (item 8) and send the SIMCom report (item 9).
+
+Rules as before: mark changes `// VSLAB:`, keep Bluetooth on in deployment builds, build/flash on Craig's PC, update this
+file after each step.
+
 ## Open items (in order)
 
 1. ✅ **Merge `fix/engine-vibration`** (`be90819`), 2026-10-25 with Craig's go-ahead: merged as `f87ac2f`, checks passed (271 tests), deployed (`dpl_CZFYtQG2xtw8CFM5STwFbgJcUnAD`, READY). The deploy's migration step ran without errors ("Database is up to date"), and no new runtime errors since. `fix/battery-floor` merged next, also with Craig's go-ahead (see item 4).
@@ -128,7 +155,11 @@ The working record for the device phase: what's proven, what's decided, what's o
 11. ✅ **Small clean-ups**, 2026-10-25:
     - tamper watchdog: a reading under the 8 V floor is now "Was not on machine power", with no change to the concern (`fix/battery-floor`, `8a14d5c`, tested);
     - fork change markers: all 18 now start with `VSLAB` (`// VSLAB:`, `// VSLAB test build:`, `// VSLAB test mode:`), noted in `firmware/README.md` (`feat/cell-beam`, `11360c8`).
-- **Drive test 2026-10-25 evening (CX-9, DEMO):** engine off at 18:36 NDT (21:06 UTC). No runtime errors during the drive. Checks after today's fixes (company time zone, engine off on sign-off/quiet, map zoom, reading times): ⏳ Craig to confirm the engine showed Off from about 18:36 with automatic check-out, and that the replay of this drive is one clean line.
+- **Drive test 2026-10-25 evening (CX-9, DEMO, `bench-beam-obd`):** engine off at 18:36 NDT (21:06 UTC). No runtime errors.
+  Engine showed Off "since 18:39" (Craig): the last uploads that arrived were from 18:32 (`gpsTime` 21021040, 35 km/h,
+  `obdRpm` 1131); 18:32–18:36 never arrived (−83 dBm), and the device signed off at ~18:40. A 4–5 min dead zone
+  earlier was drawn as a straight line (now dashed, "no data"). OBD RPM confirmed working. Since then VS-lab times
+  engine starts/stops from reading times. Remaining fixes are firmware: see "Firmware to-do" above.
 12. **On hold: location history / store-and-forward.**
     - PSRAM: present (8 MB) and enabled in our builds ✅. Investigate `CONFIG_STORAGE` and the SD card.
     - Plan written: [store-and-forward.md](store-and-forward.md) (2026-10-25). Recommended order: VS-lab uses the device's GPS time; then the device keeps failed readings, sends oldest first, doesn't wipe on sleep and sends in batches every 10–15 s (about 3–4 h in memory); then replay from the memory card to survive power cuts.

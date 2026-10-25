@@ -37,6 +37,9 @@ Fleet and machine pages show the engine as **Unknown** rather than its last stat
 
 Each on-period is stored as an **engine session**. If a running machine's device goes quiet for
 10+ minutes, the session is ended at its last report rather than counted until it reappears.
+**Engine times are reading times (2026-10-25):** an engine-on period starts at the first reading that showed it
+running and ends at the last one, using when the readings were taken (GPS time), not when they arrived.
+
 **Sleeping devices (2026-10-25):** when a machine is parked the device signs off and then only "pings" every 15 minutes,
 with no engine data. A sign-off ends the engine-on period at its last running reading, and a period that no reading has
 confirmed for 10 minutes is ended too (on the next ping, or by the 5-minute watchdog), so the engine shows **Off** and

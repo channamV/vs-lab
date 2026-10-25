@@ -4,7 +4,8 @@
 sends them, oldest first, once it's back in coverage. VS-lab then shows them at the time they happened, not the time
 they arrived. This is a **core requirement** (decided 2026-10-25), on hold until the car tests are done.
 
-Status: step 1 done (VS-lab dates readings by when they were taken, 2026-10-25). Steps 2 and 3 (device) not started.
+Status: step 1 done (VS-lab dates readings by when they were taken, 2026-10-25). Step 2 (device) is next: see the
+"Firmware to-do" in [hardware-bringup.md](hardware-bringup.md). Step 3 not started.
 
 ---
 
