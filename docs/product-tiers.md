@@ -22,7 +22,9 @@ Mirrors the Veristart offering (one platform, three levels, chosen per machine).
 no OBD-II port (J1939 or none), so we infer "engine running" from data the stock device already
 sends, best signal first:
 1. **OBD RPM**, when the machine provides it (300 RPM or more means running).
-2. **Alternator voltage:** a running engine charges the battery.
+2. **Alternator voltage:** a running engine charges the battery. This works without OBD too (the device
+   measures its own supply), so it needs the device powered from the machine's 12/24 V: readings under 8 V
+   (USB or a bench supply) are ignored.
    - 12 V machines: 13.2 V or more means running
    - 24 V machines (most heavy equipment): 26.4 V or more means running. The system type is picked automatically from the voltage.
 3. **Vibration** from the accelerometer, only if neither of the above is available.

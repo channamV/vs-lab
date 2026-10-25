@@ -37,7 +37,10 @@ export async function checkBattery(
   readings: { volts: number | null; engineOn: boolean | null }[],
   now = new Date(),
 ): Promise<boolean> {
-  const resting = readings.filter((r) => r.engineOn === false && r.volts !== null && r.volts > 3);
+  // Below the floor the device is on USB or a bench supply, not the machine's battery.
+  const resting = readings.filter(
+    (r) => r.engineOn === false && r.volts !== null && r.volts >= ENGINE_THRESHOLDS.machinePowerMinVolts,
+  );
   const last = resting.at(-1);
   if (!last) return false;
   const volts = last.volts!;
