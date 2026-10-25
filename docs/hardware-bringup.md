@@ -95,13 +95,13 @@ The working record for the device phase: what's proven, what's decided, what's o
 
 ## Open items (in order)
 
-1. ✅ **Merge `fix/engine-vibration`** (`be90819`), 2026-10-25 with Craig's go-ahead: merged as `f87ac2f`, checks passed (271 tests), deployed (`dpl_CZFYtQG2xtw8CFM5STwFbgJcUnAD`, READY). The deploy's migration step ran without errors ("Database is up to date"), and no new runtime errors since. `fix/battery-floor` can be merged next (needs Craig's go-ahead).
+1. ✅ **Merge `fix/engine-vibration`** (`be90819`), 2026-10-25 with Craig's go-ahead: merged as `f87ac2f`, checks passed (271 tests), deployed (`dpl_CZFYtQG2xtw8CFM5STwFbgJcUnAD`, READY). The deploy's migration step ran without errors ("Database is up to date"), and no new runtime errors since. `fix/battery-floor` merged next, also with Craig's go-ahead (see item 4).
 2. **Clean up the false CX-9 engine sessions.** List the rows for Craig, delete only after approval, then recalculate the engine state.
 3. ✅ **A0 voltage in OBD-off builds** (`feat/cell-beam`, `a742e40` code, `84f5484` docs), 2026-10-25:
    - OBD-off builds send 0x24 from `analogRead(A0)*45/4095` in centivolts, on board type 15 only (see Decisions); marked `// VSLAB:`;
    - desk check with `bench-beam`: 0x24 in every upload and timing unchanged (Findings 4);
    - engine "off" in VS-lab: ⏳ Craig to confirm on the Fleet page (live `main` reads 3.5–3.7 V as off by voltage).
-4. ✅ **`fix/battery-floor`** (VS-lab, `940d40f`), 2026-10-25:
+4. ✅ **`fix/battery-floor`** (VS-lab, `940d40f`), 2026-10-25. Merged and deployed with Craig's go-ahead (`d5b1cc7`, checks passed, 273 tests):
    - floor 8 V (see Decisions), one constant (`ENGINE_THRESHOLDS.machinePowerMinVolts`) used by `detectEngine` and `battery.ts`;
    - tests with the real 361/365/369 cV values and the 7.99 / 8.00 V boundary; `npm run check` passes (267 tests);
    - merge after `fix/engine-vibration`: on its own, desk readings would fall through to the old vibration rule (running). A trial merge of the two is clean.
