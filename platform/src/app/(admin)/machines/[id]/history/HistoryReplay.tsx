@@ -117,6 +117,8 @@ export function HistoryReplay({
       cancelled = true;
       map.current?.remove();
       map.current = null;
+      // Rebuilt when the page is shown again ("back"): redraw then.
+      setReady(false);
     };
   }, []);
 

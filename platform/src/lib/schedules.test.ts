@@ -132,7 +132,7 @@ describe("running schedules", () => {
     [{ id: org }] = await db.insert(organizations).values({ name: "ABC" }).returning();
     ({ id: machineId } = await createMachine(db, org, { name: "Loader", unitNumber: "7", tier: "monitor" }));
     const [u] = await db.insert(users).values({ organizationId: org, email: "pat@abc.com", role: "manager" }).returning();
-    auth = { sessionId: 1, userId: u.id, email: u.email, name: null, role: "manager", isPlatformAdmin: false, homeOrganizationId: org, organizationId: org, organizationName: "ABC", divisionIds: null };
+    auth = { sessionId: 1, userId: u.id, email: u.email, name: null, role: "manager", isPlatformAdmin: false, homeOrganizationId: org, organizationId: org, organizationName: "ABC", timeZone: "America/Toronto", divisionIds: null };
   });
 
   it("locks at 6 PM and returns to the earlier mode at 6 AM, with the schedule in the history", async () => {

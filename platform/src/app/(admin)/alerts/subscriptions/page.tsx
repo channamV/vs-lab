@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { requestTime, subscriptionList } from "@/lib/data";
+import { companyTimeZone, requestTime, subscriptionList } from "@/lib/data";
 import { EVENT_TYPES, type EventType } from "@/lib/notifications";
-import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime } from "@/lib/format";
 import { DeleteRuleButton, EnabledSwitch } from "./RuleButtons";
 
@@ -39,7 +38,7 @@ async function Subscriptions({ searchParams }: Pick<PageProps<"/alerts/subscript
   const { user, isSelf, rules, activity, names } = data;
   const who = user.name ?? user.email;
   const q = isSelf ? "" : `?user=${user.id}`;
-  const tz = appTimeZone();
+  const tz = await companyTimeZone();
   const machineName = new Map(names.machines.map((m) => [m.id, m.unitNumber ? `Unit ${m.unitNumber}` : m.name]));
   const operatorName = new Map(names.operators.map((o) => [o.id, o.name]));
   const divisionName = new Map(names.divisions.map((d) => [d.id, d.name]));

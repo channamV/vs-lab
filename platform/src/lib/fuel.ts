@@ -1,9 +1,9 @@
 import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { orgTimeZone } from "@/lib/org-time";
 import type { Db } from "@/lib/db";
 import { alerts, engineSessions, fuelEvents, machines, telemetry, type Alert, type EngineSession, type Machine } from "@/lib/db/schema";
 import { clockTime, formatHours, machineLabel } from "@/lib/format";
 import { recordEvent } from "@/lib/notifications";
-import { appTimeZone } from "@/lib/telemetry/engine";
 
 /**
  * Fuel: the refuelling log, and two theft checks. Fuel level is only reported while the ignition is on
@@ -151,7 +151,7 @@ export async function checkFuelTheft(db: Db, machineId: number, now = new Date()
   const dropPct = stopPct - startPct;
   if (!significant(machine, dropPct, FUEL_RULES.minDropPct, FUEL_RULES.minDropLitres)) return [];
 
-  const tz = appTimeZone();
+  const tz = await orgTimeZone(db, machine.organizationId);
   const stoppedAt = before[0].at;
   const parked = (session.startedAt.getTime() - stoppedAt.getTime()) / 3_600_000;
   const raised = await db
@@ -234,7 +234,7 @@ export async function checkFuelWhileRunning(db: Db, machineId: number, now = new
     const unexplainedL = droppedL - burnedL;
     const unexplainedPct = (unexplainedL / machine.fuelTankLitres) * 100;
     if (significant(machine, unexplainedPct, FUEL_RULES.minDropPct, FUEL_RULES.minDropLitres)) {
-      const tz = appTimeZone();
+      const tz = await orgTimeZone(db, machine.organizationId);
       const raised = await db
         .insert(alerts)
         .values({

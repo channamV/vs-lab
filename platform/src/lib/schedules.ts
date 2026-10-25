@@ -1,4 +1,5 @@
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { orgTimeZone } from "@/lib/org-time";
 import type { Db } from "@/lib/db";
 import { alerts, machines, operators, organizations, schedules, userDivisions, users, type Alert, type Machine, type Schedule } from "@/lib/db/schema";
 import { hasRole, isPlatformAdminEmail, type AuthContext } from "@/lib/auth";
@@ -6,7 +7,6 @@ import { canSeeMachine } from "@/lib/divisions";
 import { clockTime, machineLabel } from "@/lib/format";
 import { currentMode, MODES, type Mode } from "@/lib/mode-types";
 import { setMode } from "@/lib/modes";
-import { appTimeZone } from "@/lib/telemetry/engine";
 import { appUrl, sendEmail, senderSettings } from "@/lib/notify";
 import {
   currentWindow,
@@ -325,7 +325,7 @@ export async function checkLateChanges(db: Db, now = new Date()): Promise<Alert[
         createdAt: now,
         title: `Scheduled change is late: ${machineLabel(m)}`,
         detail:
-          `${machineLabel(m)} should have switched to ${MODES[m.mode as Mode]?.label ?? m.mode} at ${clockTime(m.modeChangedAt, appTimeZone(), now.getTime())}` +
+          `${machineLabel(m)} should have switched to ${MODES[m.mode as Mode]?.label ?? m.mode} at ${clockTime(m.modeChangedAt, await orgTimeZone(db, m.organizationId), now.getTime())}` +
           ` (${m.modeReason ?? "schedule"}), but hasn't confirmed it. It's probably out of coverage: the change will be applied when it reconnects.`,
       })
       .returning();

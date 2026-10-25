@@ -4,10 +4,9 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 import { FleetMap, type MapMarker } from "@/components/FleetMap";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EngineBadge } from "@/components/EngineBadge";
-import { connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, quietMachines, requestTime, worksiteOutlines, activeFaultCounts } from "@/lib/data";
+import { companyTimeZone, connectionStatus, currentCheckins, currentUser, engineHoursToday, engineStatus, listMachines, openAlerts, quietMachines, requestTime, worksiteOutlines, activeFaultCounts } from "@/lib/data";
 import { effectiveMode } from "@/lib/modes";
 import { ModeBadge } from "./machines/[id]/ModePanel";
-import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, fmt, formatHours, machineLabel, TIER_LABELS, timeAgo } from "@/lib/format";
 import { checkinFlags } from "@/lib/checkin-flags";
 
@@ -52,7 +51,7 @@ async function FleetOverview() {
     worksiteOutlines(),
     activeFaultCounts(),
   ]);
-  const tz = appTimeZone();
+  const tz = await companyTimeZone();
 
   if (machines.length === 0) {
     return (

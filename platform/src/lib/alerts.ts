@@ -1,9 +1,9 @@
 import { currentMode } from "@/lib/mode-types";
+import { orgTimeZone } from "@/lib/org-time";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { alerts, checkins, checklistIssues, engineSessions, machines, operators, type Alert, type Machine } from "@/lib/db/schema";
 import { isCheckinCurrent } from "@/lib/operators";
-import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, formatDistance, machineLabel } from "@/lib/format";
 
 /**
@@ -102,7 +102,7 @@ export async function checkUnauthorizedUse(db: Db, machineId: number, now = new 
     createdAt: now,
     engineSessionId: session.id,
     title: `Unauthorized use: ${machineLabel(machine)}`,
-    detail: `Engine started at ${clockTime(session.startedAt, appTimeZone(), now.getTime())} and has been running for ${minutes} min with nobody checked in.`,
+    detail: `Engine started at ${clockTime(session.startedAt, await orgTimeZone(db, machine.organizationId), now.getTime())} and has been running for ${minutes} min with nobody checked in.`,
   });
 }
 

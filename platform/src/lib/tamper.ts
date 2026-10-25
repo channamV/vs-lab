@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { orgTimeZone, orgTimeZones } from "@/lib/org-time";
 import type { Db } from "@/lib/db";
 import {
   alerts,
@@ -15,7 +16,7 @@ import { effectiveMode } from "@/lib/modes";
 import { distanceMeters } from "@/lib/operators";
 import { clockTime, machineLabel } from "@/lib/format";
 import { recordEvent } from "@/lib/notifications";
-import { appTimeZone, localHour } from "@/lib/telemetry/engine";
+import { localHour } from "@/lib/telemetry/engine";
 
 /**
  * Tamper and connectivity watchdog.
@@ -161,7 +162,7 @@ export async function watchdog(db: Db, now = new Date()) {
   ]);
   const lastEvent = new Map(lastEvents.map((e) => [e.deviceId, e]));
   const openByMachine = new Map(open.map((i) => [i.machineId, i]));
-  const timeZone = appTimeZone();
+  const zoneOf = orgTimeZones(db);
   let changed = 0;
 
   for (const { device, machine } of rows) {
@@ -182,7 +183,7 @@ export async function watchdog(db: Db, now = new Date()) {
       knownGaps,
       // Access-Controlled monitoring, or Locked on any tier: going quiet is more concerning.
       armed: (isMonitored(machine) && isArmed(machine, now.getTime())) || effectiveMode(machine, now.getTime()).mode === "locked",
-      timeZone,
+      timeZone: await zoneOf(machine.organizationId),
     });
     if (!score) continue;
     if (existing) {
@@ -289,7 +290,7 @@ export async function noteContact(
       .limit(1);
     if (gapMin >= TAMPER_RULES.powerGapMinutes && previous && previous.type !== "logout") {
       await oneOff("power-interrupted", "medium", [
-        `Restarted at ${clockTime(now, appTimeZone(), now.getTime())} without signing off, after ${Math.round(gapMin)} min without contact: its power was interrupted (unplugged, or the battery was disconnected).`,
+        `Restarted at ${clockTime(now, await orgTimeZone(db, machine.organizationId), now.getTime())} without signing off, after ${Math.round(gapMin)} min without contact: its power was interrupted (unplugged, or the battery was disconnected).`,
       ]);
     }
   }
@@ -354,8 +355,9 @@ export async function notifyIncidents(db: Db, which: { machineId?: number } = {}
       ),
     );
   const raised: Alert[] = [];
-  const tz = appTimeZone();
+  const zoneOf = orgTimeZones(db);
   for (const { incident: i, machine } of pending) {
+    const tz = await zoneOf(machine.organizationId);
     const name = machineLabel(machine);
     if (!i.offlineNotified) {
       if (i.kind === "silent") {

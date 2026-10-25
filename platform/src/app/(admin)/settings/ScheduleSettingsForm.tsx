@@ -9,15 +9,18 @@ const RULES = {
   most_restrictive: "Most restrictive wins (Locked, then Access-Controlled, then Unlocked)",
 };
 
-/** Fleet timezone (owners) and, for Veristart staff, the schedule conflict rule. */
+/** Company time zone (owners) and, for Veristart staff, the schedule conflict rule. */
 export function ScheduleSettingsForm({ timezone, rule, staff }: { timezone: string; rule: keyof typeof RULES; staff: boolean }) {
   const [state, action, pending] = useActionState(saveScheduleSettingsAction, { error: null, saved: false, version: 0 } as PlanFormState);
   const zones = TIMEZONES.some((t) => t.value === timezone) ? TIMEZONES : [...TIMEZONES, { value: timezone, label: timezone }];
   return (
     <form action={action} className="space-y-3 text-sm">
       <label className="block">
-        <span className="font-medium">Fleet timezone</span>
-        <span className="block text-slate-500">The default for new schedules. Each schedule can still use its own.</span>
+        <span className="font-medium">Company time zone</span>
+        <span className="block text-slate-500">
+          All times and days in VS Lab use it (pages, alerts, reports, daily limits). It's also the default for new
+          schedules; each schedule can still use its own.
+        </span>
         <select name="timezone" defaultValue={timezone} className="mt-1 rounded border border-slate-300 bg-transparent px-2 py-1.5 dark:border-slate-700">
           {zones.map((t) => (
             <option key={t.value} value={t.value}>

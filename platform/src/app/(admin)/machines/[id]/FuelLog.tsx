@@ -1,6 +1,5 @@
-import { machineFuel, requestTime } from "@/lib/data";
+import { companyTimeZone, machineFuel, requestTime } from "@/lib/data";
 import { clockTime, timeAgo } from "@/lib/format";
-import { appTimeZone } from "@/lib/telemetry/engine";
 
 const KIND: Record<string, [string, string]> = {
   refuel: ["⛽", "Refuelled"],
@@ -12,7 +11,7 @@ const KIND: Record<string, [string, string]> = {
 export async function FuelLog({ machineId, tankLitres }: { machineId: number; tankLitres: number | null }) {
   const [{ latest, log }, now] = await Promise.all([machineFuel(machineId), requestTime()]);
   if (!latest && log.length === 0) return null;
-  const tz = appTimeZone();
+  const tz = await companyTimeZone();
   return (
     <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-baseline justify-between gap-2">

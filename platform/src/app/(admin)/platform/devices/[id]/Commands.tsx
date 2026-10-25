@@ -1,7 +1,6 @@
 import { COMMANDS } from "@/lib/commands";
-import { deviceCommandsForStaff, requestTime } from "@/lib/data";
+import { companyTimeZone, deviceCommandsForStaff, requestTime } from "@/lib/data";
 import { clockTime } from "@/lib/format";
-import { appTimeZone } from "@/lib/telemetry/engine";
 import { cancelCommandAction } from "../../actions";
 import { CommandForm } from "./CommandForm";
 
@@ -17,7 +16,7 @@ const STATUS: Record<string, [string, string]> = {
 /** Staff: send commands to a device and see what happened to them. */
 export async function Commands({ deviceId }: { deviceId: string }) {
   const [{ history, key }, now] = await Promise.all([deviceCommandsForStaff(deviceId), requestTime()]);
-  const tz = appTimeZone();
+  const tz = await companyTimeZone();
   return (
     <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div>

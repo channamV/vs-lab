@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { AutoRefresh } from "@/components/AutoRefresh";
-import { acknowledgedAlerts, openAlerts, requestTime } from "@/lib/data";
-import { appTimeZone } from "@/lib/telemetry/engine";
+import { acknowledgedAlerts, companyTimeZone, openAlerts, requestTime } from "@/lib/data";
 import { AlertList } from "./AlertList";
 import { TestEmailButton } from "./TestEmailButton";
 
@@ -33,7 +32,7 @@ export default function AlertsPage() {
 
 async function Alerts() {
   const [open, done, now] = await Promise.all([openAlerts(), acknowledgedAlerts(30), requestTime()]);
-  const tz = appTimeZone();
+  const tz = await companyTimeZone();
   return (
     <>
       <AutoRefresh seconds={20} />

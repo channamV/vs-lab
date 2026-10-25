@@ -1,8 +1,7 @@
-import { machineEngineData, requestTime } from "@/lib/data";
+import { companyTimeZone, machineEngineData, requestTime } from "@/lib/data";
 import { clockTime, timeAgo } from "@/lib/format";
 import { num } from "@/lib/freematics/protocol";
 import { describeFault, lampsText } from "@/lib/j1939";
-import { appTimeZone } from "@/lib/telemetry/engine";
 
 /** Engine computer (J1939) readings and fault codes. Only shown for machines whose device reads them. */
 export async function EngineData({ machineId, hourMeter }: { machineId: number; hourMeter: number | null }) {
@@ -15,7 +14,7 @@ export async function EngineData({ machineId, hourMeter }: { machineId: number; 
   };
   const active = faults.filter((x) => !x.clearedAt);
   const past = faults.filter((x) => x.clearedAt);
-  const tz = appTimeZone();
+  const tz = await companyTimeZone();
   const readings: [string, string][] = [
     ["Fuel level", value("j1939FuelLevelPct", 0, "%")],
     ["Hour meter", hourMeter === null ? "—" : `${hourMeter.toLocaleString("en-CA", { maximumFractionDigits: 1 })} h`],

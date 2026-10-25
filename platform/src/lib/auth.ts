@@ -141,6 +141,8 @@ export type AuthContext = {
   /** The organization being viewed: their own, or (platform admins) the one they switched to. */
   organizationId: number;
   organizationName: string;
+  /** The organization's time zone (Settings): every time and day shown to this user is in it. */
+  timeZone: string;
   /**
    * The divisions this user is limited to, or null for the whole organization (owners, platform admins
    * and users with no divisions ticked). See src/lib/divisions.ts.
@@ -181,6 +183,7 @@ export async function authFromToken(db: Db, token: string | undefined, now = new
     homeOrganizationId: row.user.organizationId,
     organizationId: org.id,
     organizationName: org.name,
+    timeZone: org.timezone,
     divisionIds: limitedTo.length ? limitedTo.map((d) => d.id) : null,
   };
 }

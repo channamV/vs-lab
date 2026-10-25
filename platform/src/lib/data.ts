@@ -50,7 +50,7 @@ import { historyRange } from "@/lib/history-track";
 import { onRoadMachineCount, roadCoverageByMonth } from "@/lib/posted-speed";
 import { hasRole } from "@/lib/auth";
 import { automaticEnd, checkinEngine, engineStoppedAt, type CheckinEngine } from "@/lib/operators";
-import { appTimeZone, hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
+import { hoursByDay, startOfLocalDay } from "@/lib/telemetry/engine";
 import type { AuthContext } from "@/lib/auth";
 import { getAuth, requireAuth, requirePlatformAdmin, requireRoleForPage } from "@/lib/session";
 
@@ -124,7 +124,7 @@ function sessionsSince(since: Date, machineId: number) {
 export async function engineHoursToday(): Promise<Map<number, number>> {
   const auth = await requireSession();
   const now = Date.now();
-  const tz = appTimeZone();
+  const tz = (await requireSession()).timeZone;
   const since = new Date(startOfLocalDay(now, tz));
   const sessions = await getDb()
     .select({ session: engineSessions })
@@ -180,7 +180,7 @@ export async function machineModeHistory(id: number) {
 export async function engineHoursByDay(id: number, days = 7) {
   await requireMachine(id);
   const now = Date.now();
-  const tz = appTimeZone();
+  const tz = (await requireSession()).timeZone;
   const sessions = await sessionsSince(new Date(startOfLocalDay(now, tz, days - 1)), id);
   return hoursByDay(sessions, now, days, tz);
 }
@@ -543,7 +543,7 @@ export async function activeFaultCounts() {
 export async function reportData(params: { range?: string; from?: string; to?: string; division?: string }) {
   const auth = await requireSession();
   const db = getDb();
-  const tz = appTimeZone();
+  const tz = (await requireSession()).timeZone;
   const divisionChoices = await db
     .select({ id: divisions.id, name: divisions.name })
     .from(divisions)
@@ -805,7 +805,7 @@ async function subscriptionChoices(user: { id: number; organizationId: number; r
       .where(eq(worksites.organizationId, user.organizationId))
       .orderBy(asc(worksites.name)),
   ]);
-  return { divisions: divisionRows, machines: machineRows, operators: operatorRows, worksites: worksiteRows, timeZone: appTimeZone() };
+  return { divisions: divisionRows, machines: machineRows, operators: operatorRows, worksites: worksiteRows, timeZone: (await requireSession()).timeZone };
 }
 
 // ---------- Organization users (owners manage them) ----------
@@ -1093,6 +1093,11 @@ export async function operatorTraining(operatorId: number) {
 }
 
 /** Whether "Scan to fill" is set up (ANTHROPIC_API_KEY), for forms outside the training pages. */
+/** The signed-in user's company time zone (Settings), for showing times and days on pages. */
+export async function companyTimeZone() {
+  return (await requireSession()).timeZone;
+}
+
 export async function scanEnabled() {
   await requireSession();
   return scanAvailable();
@@ -1102,7 +1107,7 @@ export async function scanEnabled() {
 export async function machineVoltage(id: number, range: string | undefined) {
   await requireMachine(id);
   const now = Date.now();
-  const tz = appTimeZone();
+  const tz = (await requireSession()).timeZone;
   const r = historyRange({ range: range && ["24h", "7d", "30d"].includes(range) ? range : "7d" }, now, tz, "7d");
   return { range: r, timeZone: tz, history: await voltageHistory(getDb(), id, r.from, r.to, now) };
 }
@@ -1111,7 +1116,7 @@ export async function machineVoltage(id: number, range: string | undefined) {
 export async function machineLocationHistory(id: number, params: { range?: string; from?: string; to?: string }) {
   await requireMachine(id);
   const now = Date.now();
-  const tz = appTimeZone();
+  const tz = (await requireSession()).timeZone;
   const r = historyRange(params, now, tz);
   return { range: r, timeZone: tz, history: await locationHistory(getDb(), id, r.from, r.to, now) };
 }

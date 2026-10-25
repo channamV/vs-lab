@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { orgTimeZone } from "@/lib/org-time";
 import type { Db } from "@/lib/db";
 import {
   alerts,
@@ -259,7 +260,7 @@ async function checkIdle(db: Db, machine: Machine, org: Organization, samples: M
     machineId: machine.id,
     type: "excessive_idle",
     operatorId,
-    detail: `Idling since ${clockTime(machine.idleSince, appTimeZone(), now.getTime())} (over ${org.idleAlertMinutes} min).`,
+    detail: `Idling since ${clockTime(machine.idleSince, await orgTimeZone(db, machine.organizationId), now.getTime())} (over ${org.idleAlertMinutes} min).`,
     occurredAt: now,
   });
   return id ? 1 : 0;
@@ -299,7 +300,7 @@ export async function checkRestrictedAreas(db: Db, machineId: number, now = new 
         createdAt: now,
         title: `Restricted area: ${machineLabel(machine)} entered ${site.name}`,
         detail:
-          `${machineLabel(machine)} entered the restricted area "${site.name}" at ${clockTime(visit.enteredAt, appTimeZone(), now.getTime())}` +
+          `${machineLabel(machine)} entered the restricted area "${site.name}" at ${clockTime(visit.enteredAt, await orgTimeZone(db, machine.organizationId), now.getTime())}` +
           `${site.notes ? ` (${site.notes})` : ""}. Check who is operating it and why.`,
       })
       .onConflictDoNothing()
@@ -363,9 +364,10 @@ export async function checkFatigue(db: Db, now = new Date()): Promise<number> {
     .from(organizations)
     .where(or(isNotNull(organizations.fatigueDailyHours), isNotNull(organizations.fatigueContinuousHours)));
   if (orgs.length === 0) return 0;
-  const tz = appTimeZone();
   const nowMs = now.getTime();
-  const since = new Date(Math.min(startOfLocalDay(nowMs, tz), nowMs - 24 * 3_600_000));
+  // Each company counts "today" in its own time zone (Settings).
+  const zone = (org: (typeof orgs)[number]) => org.timezone || appTimeZone();
+  const since = new Date(Math.min(...orgs.map((o) => startOfLocalDay(nowMs, zone(o))), nowMs - 24 * 3_600_000));
   const recent = await db
     .select()
     .from(checkins)
@@ -406,11 +408,12 @@ export async function checkFatigue(db: Db, now = new Date()): Promise<number> {
     .where(inArray(operators.id, [...spansByOperator.keys()]));
 
   let events = 0;
-  const today = startOfLocalDay(nowMs, tz);
   for (const op of ops) {
     const org = orgs.find((o) => o.id === op.organizationId);
     const spans = spansByOperator.get(op.id)!;
     if (!org) continue;
+    const tz = zone(org);
+    const today = startOfLocalDay(nowMs, tz);
     const latest = spans.reduce((a, b) => (b.end > a.end ? b : a));
     const log = async (kind: SafetyKind, dedupeKey: string, startedAt: number, hours: number, limit: number, detail: string) => {
       const [created] = await db

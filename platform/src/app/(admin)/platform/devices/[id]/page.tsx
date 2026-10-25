@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { getDeviceForStaff, requestTime } from "@/lib/data";
-import { appTimeZone } from "@/lib/telemetry/engine";
+import { companyTimeZone, getDeviceForStaff, requestTime } from "@/lib/data";
 import { clockTime, fmt, machineLabel, timeAgo } from "@/lib/format";
 import { Commands } from "./Commands";
 
@@ -24,7 +23,7 @@ async function DeviceDetail({ params }: Pick<PageProps<"/platform/devices/[id]">
   const device = await getDeviceForStaff(decodeURIComponent((await params).id));
   if (!device) notFound();
   const now = await requestTime();
-  const tz = appTimeZone();
+  const tz = await companyTimeZone();
   const current = device.pairings.find((p) => !p.endedAt);
 
   return (

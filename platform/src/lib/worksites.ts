@@ -1,9 +1,9 @@
 import { and, asc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { orgTimeZone } from "@/lib/org-time";
 import type { Db } from "@/lib/db";
 import { checkins, worksites, worksiteVisits, type Worksite } from "@/lib/db/schema";
 import { clockTime, formatHours } from "@/lib/format";
 import { recordEvent } from "@/lib/notifications";
-import { appTimeZone } from "@/lib/telemetry/engine";
 import { centroid, checkPolygon, distanceToEdgeM, isWorksiteType, pointInPolygon, WORKSITE_TYPES, type WorksiteType } from "@/lib/worksite-types";
 
 /**
@@ -207,7 +207,7 @@ export async function checkDwell(db: Db, now = new Date(), machineId?: number): 
       worksiteId: site.id,
       worksiteVisitId: visit.id,
       operatorId: await currentOperatorId(db, visit.machineId),
-      detail: `Has been at "${site.name}" for more than ${formatHours(site.dwellLimitMinutes! / 60)} (since ${clockTime(visit.enteredAt, appTimeZone(), now.getTime())}).`,
+      detail: `Has been at "${site.name}" for more than ${formatHours(site.dwellLimitMinutes! / 60)} (since ${clockTime(visit.enteredAt, await orgTimeZone(db, visit.organizationId), now.getTime())}).`,
       occurredAt: now,
     });
     if (id) events++;

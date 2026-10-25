@@ -1,4 +1,5 @@
 import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
+import { orgTimeZone } from "@/lib/org-time";
 import type { Db } from "@/lib/db";
 import {
   alerts,
@@ -21,7 +22,6 @@ import type { AlertType } from "@/lib/alerts";
 import { canSeeMachine, type Scope } from "@/lib/divisions";
 import { machineLabel } from "@/lib/format";
 import { appUrl, senderSettings, sendEmail, type EmailMessage } from "@/lib/notify";
-import { appTimeZone } from "@/lib/telemetry/engine";
 
 /**
  * Notifications: events (engine starts and stops, alerts, machine and approval changes) are recorded,
@@ -253,7 +253,7 @@ async function cleanRule(db: Db, organizationId: number, userId: number, input: 
     throw new NotificationError("Set both From and To times (or neither).");
   }
   if (startTime && startTime === endTime) throw new NotificationError("From and To can't be the same time.");
-  return { name, eventTypes, machineIds, divisionIds, operatorIds, worksiteIds, weekdays, startTime, endTime, timezone: appTimeZone() };
+  return { name, eventTypes, machineIds, divisionIds, operatorIds, worksiteIds, weekdays, startTime, endTime, timezone: await orgTimeZone(db, organizationId) };
 }
 
 export async function createRule(db: Db, organizationId: number, userId: number, input: RuleInput) {
@@ -311,7 +311,7 @@ export async function addDefaultRule(db: Db, user: { id: number; organizationId:
     userId: user.id,
     name: "All alerts",
     eventTypes: ALERT_EVENT_TYPES,
-    timezone: appTimeZone(),
+    timezone: await orgTimeZone(db, user.organizationId),
   });
 }
 

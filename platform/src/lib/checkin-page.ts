@@ -53,6 +53,7 @@ export async function getCheckinMachine(code: string) {
         locationDays: organizations.retainPhoneLocationDays,
         photoDays: organizations.retainPhotoDays,
         checkinDays: organizations.retainCheckinDays,
+        timeZone: organizations.timezone,
       })
       .from(organizations)
       .where(eq(organizations.id, machine.organizationId)),
@@ -65,7 +66,9 @@ export async function getCheckinMachine(code: string) {
     /** Locked by a manager (not for repair): check-ins are refused. */
     locked: machine.lockedOutAt === null && currentMode(machine) === "locked",
     current,
-    privacy: org,
+    /** The company's time zone, for the "since" time. */
+    timeZone: org.timeZone,
+    privacy: { name: org.name, privacyContact: org.privacyContact, locationDays: org.locationDays, photoDays: org.photoDays, checkinDays: org.checkinDays },
     checklist: { sections: template.sections, options, confirmationText: template.confirmationText, photosEnabled: photoStorageAvailable() },
   };
 }

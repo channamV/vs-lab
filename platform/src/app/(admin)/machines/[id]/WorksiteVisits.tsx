@@ -1,14 +1,13 @@
 import Link from "next/link";
-import { machineWorksiteVisits, requestTime } from "@/lib/data";
+import { companyTimeZone, machineWorksiteVisits, requestTime } from "@/lib/data";
 import { clockTime, formatHours } from "@/lib/format";
-import { appTimeZone } from "@/lib/telemetry/engine";
 import { worksiteColor } from "@/lib/worksite-types";
 
 /** Which worksite the machine is at now, and its recent visits (under the map on the machine page). */
 export async function WorksiteVisits({ machineId }: { machineId: number }) {
   const [visits, now] = await Promise.all([machineWorksiteVisits(machineId), requestTime()]);
   if (visits.length === 0) return null;
-  const tz = appTimeZone();
+  const tz = await companyTimeZone();
   const here = visits.filter((v) => !v.visit.leftAt);
   return (
     <div className="space-y-1 text-sm">

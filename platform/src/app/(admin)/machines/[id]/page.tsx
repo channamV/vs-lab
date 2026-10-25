@@ -29,11 +29,12 @@ import {
   recentEngineSessions,
   requestTime,
   worksiteOutlines,
+  companyTimeZone,
 } from "@/lib/data";
 import { WorksiteVisits } from "./WorksiteVisits";
 import { EngineData } from "./EngineData";
 import { FuelLog } from "./FuelLog";
-import { appTimeZone, effectiveEnd } from "@/lib/telemetry/engine";
+import { effectiveEnd } from "@/lib/telemetry/engine";
 import { PID_NAMES } from "@/lib/freematics/protocol";
 import { clockTime, fmt, formatHours, machineLabel, timeAgo } from "@/lib/format";
 import { checkinFlags, engineLabel, locationLabel } from "@/lib/checkin-flags";
@@ -98,7 +99,7 @@ async function MachineDetail({
   ]);
   const modeChanges = await machineModeHistory(id);
   const mode = effectiveMode(machine, now);
-  const tz = appTimeZone();
+  const tz = await companyTimeZone();
   const engine = engineStatus(machine, now);
   const status = connectionStatus(machine, now);
   const details = [machine.year, machine.make, machine.model, machine.machineType].filter(Boolean).join(" ");

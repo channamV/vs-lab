@@ -22,8 +22,8 @@ give a subcontractor crew access to a loader for three weeks.
   - **Return to the previous mode**. For overrides this is "resume normal": back to whatever regular schedules call
     for, or the earlier mode.
   - **Set to a specific mode**.
-- **Timezone.** Each schedule runs in its own timezone, shown on the form. The default is the **fleet timezone**
-  (Settings → Schedules). Times follow daylight saving: "6 PM" stays 6 PM local all year.
+- **Timezone.** Each schedule runs in its own timezone, shown on the form. The default is the **company time zone**
+  (Settings → Time zone and schedules). Times follow daylight saving: "6 PM" stays 6 PM local all year.
 
 ## The form
 
@@ -63,7 +63,7 @@ give a subcontractor crew access to a loader for three weeks.
   - Paused;
   - Completed.
 - **Conflicts:** the list flags them in red. Filter by Active, Paused or Conflicts.
-- **Upcoming** lists every scheduled change in the next 7 days, in the fleet timezone, with counts in effect, next
+- **Upcoming** lists every scheduled change in the next 7 days, in the company time zone, with counts in effect, next
   24 h and conflicts.
 
 ## History and alerts

@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, isNull, like, lte } from "drizzle-orm";
+import { orgTimeZone } from "@/lib/org-time";
 import type { Db } from "@/lib/db";
 import { alerts, deviceAssignments, deviceCommands, engineSessions, machineModeChanges, machines, type Alert, type Machine } from "@/lib/db/schema";
 import { clockTime, machineLabel } from "@/lib/format";
@@ -32,7 +33,7 @@ export class ModeError extends Error {}
 export type ModeDuration = "indefinite" | "1h" | "4h" | "8h" | "morning" | "until";
 
 /** When a timed change ends. "morning" = 6 AM tomorrow, company time. */
-export function durationEnd(duration: ModeDuration, now: Date, until?: Date | null): Date | null {
+export function durationEnd(duration: ModeDuration, now: Date, until?: Date | null, timeZone = appTimeZone()): Date | null {
   const t = now.getTime();
   switch (duration) {
     case "indefinite":
@@ -44,7 +45,7 @@ export function durationEnd(duration: ModeDuration, now: Date, until?: Date | nu
     case "8h":
       return new Date(t + 8 * 3_600_000);
     case "morning":
-      return new Date(startOfLocalDay(t, appTimeZone(), -1) + 6 * 3_600_000);
+      return new Date(startOfLocalDay(t, timeZone, -1) + 6 * 3_600_000);
     case "until":
       if (!until || until.getTime() <= t) throw new ModeError("Choose a time in the future.");
       return until;
@@ -107,13 +108,13 @@ export async function setMode(
     organizationId,
     machineId,
     type: "mode_changed",
-    detail: describeChange(before, change.mode, until, reason, changedBy, now),
+    detail: describeChange(before, change.mode, until, reason, changedBy, now, await orgTimeZone(db, organizationId)),
     occurredAt: now,
   });
 }
 
-function describeChange(before: Mode, after: Mode, until: Date | null, reason: string | null, by: string | null, now: Date) {
-  const when = until ? ` until ${clockTime(until, appTimeZone(), now.getTime())}` : "";
+function describeChange(before: Mode, after: Mode, until: Date | null, reason: string | null, by: string | null, now: Date, timeZone: string) {
+  const when = until ? ` until ${clockTime(until, timeZone, now.getTime())}` : "";
   return `${MODES[before].label} → ${MODES[after].label}${when}${reason ? ` (${reason})` : ""}${by ? ` by ${by}` : ""}.`;
 }
 
@@ -192,7 +193,7 @@ export async function confirmMode(db: Db, deviceId: string, command: string, ok:
 export async function checkLockedUse(db: Db, machineId: number, now = new Date()): Promise<Alert[]> {
   const [m] = await db.select().from(machines).where(eq(machines.id, machineId));
   if (!m || effectiveMode(m, now.getTime()).mode !== "locked") return [];
-  const tz = appTimeZone();
+  const tz = await orgTimeZone(db, m.organizationId);
   const raised: Alert[] = [];
   const why = m.lockedOutAt ? `locked for repair${m.lockedOutReason ? `: ${m.lockedOutReason}` : ""}` : `Locked${m.modeReason ? ` (${m.modeReason})` : ""}`;
 

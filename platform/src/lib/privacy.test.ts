@@ -219,7 +219,7 @@ describe("audit log", () => {
     const [home] = await db.insert(organizations).values({ name: "Veristart" }).returning();
     await viewOrganization(
       db,
-      { sessionId: 0, userId: 0, email: "staff@veristart.ca", name: null, role: "owner", isPlatformAdmin: true, homeOrganizationId: home.id, organizationId: home.id, organizationName: "Veristart", divisionIds: null },
+      { sessionId: 0, userId: 0, email: "staff@veristart.ca", name: null, role: "owner", isPlatformAdmin: true, homeOrganizationId: home.id, organizationId: home.id, organizationName: "Veristart", timeZone: "America/Toronto", divisionIds: null },
       org,
     );
     expect(await db.select().from(auditLog)).toMatchObject([{ organizationId: org, actor: "staff@veristart.ca", staff: true, action: "staff-view" }]);

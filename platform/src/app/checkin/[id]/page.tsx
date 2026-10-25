@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import { getCheckinMachine } from "@/lib/checkin-page";
-import { appTimeZone } from "@/lib/telemetry/engine";
 import { clockTime, periodText } from "@/lib/format";
 import { VERISTART_PRIVACY } from "@/lib/privacy-limits";
 import { CheckInForm, CheckOutForm } from "./CheckinForms";
@@ -55,7 +54,7 @@ async function Checkin({ params, searchParams }: Pick<PageProps<"/checkin/[id]">
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <p>
             Checked in: <span className="font-semibold">{machine.current.operatorName}</span>
-            <span className="text-slate-500"> since {clockTime(machine.current.startedAt, appTimeZone())}</span>
+            <span className="text-slate-500"> since {clockTime(machine.current.startedAt, machine.timeZone)}</span>
           </p>
           <details>
             <summary className="cursor-pointer text-sky-700 dark:text-sky-400">That&apos;s me: check out</summary>

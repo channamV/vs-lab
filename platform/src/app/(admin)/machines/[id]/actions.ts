@@ -6,7 +6,7 @@ import { requireAuth } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { endCheckin, setMachineOperators } from "@/lib/operators";
 import { assertCheckinInScope, assertMachineInScope } from "@/lib/divisions";
-import { appTimeZone, zonedTime } from "@/lib/telemetry/engine";
+import { zonedTime } from "@/lib/telemetry/engine";
 import { durationEnd, ModeError, setMode, setOfflineFallback } from "@/lib/modes";
 import { recordEvent } from "@/lib/notifications";
 import { afterEvents } from "@/lib/alert-jobs";
@@ -50,12 +50,12 @@ export async function setModeAction(prev: ModeFormState, formData: FormData): Pr
   try {
     const raw = String(formData.get("until") ?? "");
     // datetime-local is the company's wall-clock time.
-    const until = duration === "until" ? (raw ? zonedTime(raw, appTimeZone()) : null) : null;
+    const until = duration === "until" ? (raw ? zonedTime(raw, auth.timeZone) : null) : null;
     const event = await setMode(
       getDb(),
       auth.organizationId,
       id,
-      { mode: String(formData.get("mode") ?? ""), until: durationEnd(duration, new Date(), until), reason: String(formData.get("reason") ?? "") },
+      { mode: String(formData.get("mode") ?? ""), until: durationEnd(duration, new Date(), until, auth.timeZone), reason: String(formData.get("reason") ?? "") },
       auth.email,
     );
     afterEvents([event]);

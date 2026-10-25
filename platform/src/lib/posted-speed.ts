@@ -2,7 +2,7 @@ import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 
 import type { Db } from "@/lib/db";
 import { checkins, machines, organizations, roadCoverage, roadTiles, safetyEvents, telemetry, type CachedRoad } from "@/lib/db/schema";
 import { recordEvent } from "@/lib/notifications";
-import { appTimeZone, localDateKey } from "@/lib/telemetry/engine";
+import { localDateKey } from "@/lib/telemetry/engine";
 import {
   matchToRoads,
   postedSpeedingSpells,
@@ -98,14 +98,13 @@ async function operatorAt(db: Db, machineId: number, at: Date) {
 /** One run over every on-road machine of companies that use posted limits. Returns the spells recorded. */
 export async function checkPostedSpeeds(db: Db, now = new Date(), fetchImpl: Fetch = fetch): Promise<number> {
   const rows = await db
-    .select({ machine: machines, tolerance: organizations.postedLimitTolerancePct })
+    .select({ machine: machines, tolerance: organizations.postedLimitTolerancePct, tz: organizations.timezone })
     .from(machines)
     .innerJoin(organizations, eq(organizations.id, machines.organizationId))
     .where(and(eq(machines.onRoad, true), isNotNull(organizations.postedLimitTolerancePct)));
   const budget = { left: POSTED_RULES.maxDownloadsPerRun };
-  const tz = appTimeZone();
   let recorded = 0;
-  for (const { machine, tolerance } of rows) {
+  for (const { machine, tolerance, tz } of rows) {
     const from = machine.roadCheckedUntil ?? new Date(now.getTime() - POSTED_RULES.firstLookbackHours * 3_600_000);
     const to = new Date(Math.min(now.getTime() - POSTED_RULES.settleMinutes * 60_000, from.getTime() + POSTED_RULES.maxWindowHours * 3_600_000));
     if (to <= from) continue;

@@ -88,6 +88,8 @@ export function WorksiteManager({ sites, machines, canEdit }: { sites: SiteRow[]
     () => () => {
       mapRef.current?.remove();
       mapRef.current = null;
+      // Rebuilt when the page is shown again ("back"): redraw then.
+      setReady(false);
     },
     [],
   );

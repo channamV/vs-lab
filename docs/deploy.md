@@ -26,7 +26,8 @@ PostgreSQL database. It can run on Fly.io, Railway, Render, AWS or Azure with th
    - `RESEND_API_KEY` = from resend.com. **Needed to sign in:** sign-in links are emailed. See [alerts.md](alerts.md).
    - `ALERT_EMAIL_FROM` = e.g. `VS Lab <alerts@veristart.ai>` (a domain verified in Resend)
    - `DEVICE_AUTO_REGISTER` = `true` for now: new devices appear in *Veristart stock* on the Platform page until staff pair them with a machine
-   - `APP_TIMEZONE` (optional) = the time zone for daily engine hours, e.g. `America/Toronto` (the default)
+   - `APP_TIMEZONE` (optional) = fallback time zone, e.g. `America/Toronto` (the default). Each company's own time zone
+     (Settings → Time zone and schedules) is what pages, alerts and daily totals use
    - `CRON_SECRET` = any long random string (e.g. from a password manager). Protects the scheduled jobs: the nightly
      privacy clean-up ([privacy.md](privacy.md)) and the 5-minute tamper watchdog, which needs **Vercel Pro** for its
      schedule ([tamper.md](tamper.md)).

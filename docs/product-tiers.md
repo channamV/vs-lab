@@ -37,7 +37,7 @@ Fleet and machine pages show the engine as **Unknown** rather than its last stat
 
 Each on-period is stored as an **engine session**. If a running machine's device goes quiet for
 10+ minutes, the session is ended at its last report rather than counted until it reappears.
-Engine hours per day are counted in local time (`APP_TIMEZONE`, default Toronto).
+Engine hours per day are counted in the company's time zone (Settings → Time zone and schedules).
 
 **To verify on real machines:** the voltage thresholds are standard values but haven't been
 checked against our equipment yet. A battery charger or a weak alternator can fool voltage

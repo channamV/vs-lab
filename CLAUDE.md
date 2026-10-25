@@ -212,7 +212,9 @@ says it's compliant. Update that doc when items are done.
   Permissions = live permissions (`allowedActions`: managers+, divisions), checked on save and on every run
   (`creatorScope`). Scheduled access → `scheduledAccess` in `checkIn` authorization (approvals unchanged). Relay
   machines: MODE commands sorted unlocks first; unconfirmed after 10 min → `schedule-late` alert. Override reminders
-  emailed to the creator 15 min before the end. Org `timezone` (fleet default; Settings) is for schedules only.
+  emailed to the creator 15 min before the end. Org `timezone` ("Company time zone", owner Settings) is used for everything shown and counted per day: pages via
+  `auth.timeZone` / `companyTimeZone()` (data.ts), jobs and alert wording via `orgTimeZone` / `orgTimeZones` (`src/lib/org-time.ts`);
+  `appTimeZone()` (`APP_TIMEZONE`, default Toronto) is only the fallback. Schedules can still use their own zone.
 - Training (`src/lib/training.ts` + browser-safe `src/lib/training-status.ts`, tested; `docs/training.md`; `/training`,
   records on `/operators/<id>`). Per-org `machine_categories` (`machines.category_id`) and `certification_types` (covers
   `categoryIds`/`machineIds`; `autoGrant` + `required` must both be answered; validity, grace, reminder days, active;

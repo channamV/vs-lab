@@ -108,10 +108,13 @@ export function FleetMap({
     };
   }, [markers, track, sites, router]);
 
+  // Next.js keeps a page you've left alive and tears its effects down (and up again on "back"): a rebuilt map
+  // starts at the world view, so it must zoom to the machines again.
   useEffect(
     () => () => {
       mapRef.current?.remove();
       mapRef.current = null;
+      fittedRef.current = false;
     },
     [],
   );

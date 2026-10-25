@@ -64,7 +64,7 @@ production portal's notification subscriptions.
 - **Machines** and **Operators**: search and tick. Leave a list empty for "all". If the company uses divisions,
   you can also pick whole divisions.
   - With operators ticked, events without an operator (e.g. Start Without Checklist) don't match.
-- **Schedule** (empty = any time): days, plus From/To times in the company's time zone (America/Toronto).
+- **Schedule** (empty = any time): days, plus From/To times in the company's time zone (Settings → Time zone and schedules).
   - A window that ends before it starts runs overnight. 18:00 to 06:00 means after hours, and the early-morning
     part counts as the day it started: "Fri 18:00–06:00" covers Friday night into Saturday morning.
 - **Delivery:** email, to the person's sign-in address. It isn't editable, so nobody can redirect alerts to an

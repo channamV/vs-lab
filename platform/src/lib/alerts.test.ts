@@ -45,6 +45,12 @@ describe("unauthorized use", () => {
     expect(await db.select().from(alerts)).toHaveLength(1);
   });
 
+  it("writes the start time in the company's time zone", async () => {
+    await db.update(organizations).set({ timezone: "America/St_Johns" }).where(eq(organizations.id, ORG));
+    const [alert] = await checkUnauthorizedUse(db, MACHINE, at(grace + 1));
+    expect(alert.detail).toMatch(/Engine started at 9:30/); // 12:00 UTC = 9:30 in Newfoundland (UTC−2:30)
+  });
+
   it("doesn't alert when someone is checked in", async () => {
     await checkIn(db, { confirmed: true, machineCode: "MACH1", pin: "1111", answers: allOk }, at(1));
     expect(await checkUnauthorizedUse(db, MACHINE, at(grace + 5))).toHaveLength(0);
