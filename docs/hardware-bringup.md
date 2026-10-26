@@ -21,7 +21,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 | Engine on/off from supply voltage, no OBD | ✅ On the desk: `bench-beam` sends 0x24 from A0 in every upload, timing unchanged (`a742e40`). Values against a multimeter in a car still to check (car test 2) |
 | Store-and-forward / location history replay | ⏳ On hold. **Core requirement** (see below) |
 
-**Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
+**Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`), no sleep while moving and restart/sleep reasons (`4d495a4`), battery voltage while parked (`6150144`). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
 
 ---
 
@@ -187,6 +187,26 @@ regardless of movement. Not proven yet (no serial log from the car). The 11:16 b
    sends `ALERT=…`. The device-side "engine running" is now RPM-only in OBD builds (above). VS-lab should send
    `ALERT=none` when it sees the engine stop.
 6. VS-lab: stale position and conflicting status lines: cloud session.
+
+## Battery voltage while parked (2026-10-26, Craig's request; desktop session)
+
+**Why:** a battery drained while parked (by our device or other loads) is only noticed at the next start today: the
+15-minute parked check-ins carried no voltage, so VS-lab only saw the battery just after stopping and just before
+starting.
+
+**Firmware (done, `feat/cell-beam` `6150144`, on the device now):** each parked check-in (every 15 min, a sign-in
+`EV=1` then a sign-off `EV=2`) carries `&BV=<centivolts>`, e.g. `&BV=1262` = 12.62 V, read the same way as PID 0x24
+(A0 on board type 15). Desk test with a 60 s interval: 3.68 / 3.69 V on USB; each check-in keeps the modem on about 13 s.
+
+**⏳ VS-lab (cloud session):**
+- read `BV` on notify; store it (device/machine `lastBatteryV` and a reading for history, dated by arrival);
+- feed it to the low battery warning as an **engine-off** reading (`checkBattery`); the 8 V floor still applies (a desk
+  device on USB sends ~3.6 V);
+- show the parked voltage trend on the machine page (overnight / weekend), useful for spotting parasitic drain,
+  including our own device's.
+
+**Our device as a load:** while parked it stays partly awake (watching for motion) and powers the modem every
+15 minutes. The parked voltage trend will show its effect; machines parked for weeks may need longer check-in gaps.
 
 ## Open items (in order)
 
