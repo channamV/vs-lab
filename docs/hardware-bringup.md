@@ -171,6 +171,8 @@ regardless of movement. Not proven yet (no serial log from the car). The 11:16 b
   sign-off carries `&WHY=` (`stationary`, `ecu_off`, `bluetooth_off`). Store them on the device events; the tamper
   watchdog can then tell a wake or crash from an unplug (`RST=software` after `WHY=…` isn't tampering). Desk check:
   `power_on`, `stationary`.
+  - VS-lab (2026-10-26): the `RST=` names are now understood (`src/lib/restart-reasons.ts` maps `power_on`, `software`,
+    `crash`, `watchdog`, `external` to its own keys; `software` counts as normal, not tampering). `WHY=` not stored yet.
 
 **Answers to the report's requests:**
 1. Bench reproduction: the drive conditions (engine computer, motion) don't happen on the desk. Next drive, record

@@ -13,7 +13,8 @@ the memory card only held the readings (`/DATA/<n>.CSV`).
 2. **Restart reason.** At start-up read `esp_reset_reason()` and write it as the first line of the new log file.
 3. **Tell VS-lab on login.** The login notification (`EV=1`) after a start-up adds `&RST=<reason>&BOOT=<n>`, reason as a
    name (`poweron`, `ext`, `sw`, `panic`, `int_wdt`, `task_wdt`, `wdt`, `deepsleep`, `brownout`, `sdio`, `unknown`) or
-   the ESP-IDF number.
+   the ESP-IDF number. VS-lab also accepts the names our firmware sends since `4d495a4`: `power_on`, `software` (woke
+   from sleep or restart command: not tampering), `crash`, `watchdog`, `brownout`, `external`, `unknown`.
 4. **Send the restart report.** Right after that login: `POST /hub/api/diag/<DEVID>`, body
    `BOOT=<n>;RST=<reason>` on the first line, then the **last log lines of the previous start-up** (up to 200 lines,
    16 KB; the lines leading up to the restart are the useful ones). Retry on the next login if it doesn't get a 200.

@@ -8,7 +8,7 @@ export const RESTART_REASONS = {
   poweron: { label: "Power was switched on (power cut, or first start)", kind: "power" },
   ext: { label: "Reset from outside (reset pin)", kind: "power" },
   brownout: { label: "Supply voltage dropped too low (weak battery or loose wiring)", kind: "brownout" },
-  sw: { label: "Restarted by its own software (update, command or recovery)", kind: "normal" },
+  sw: { label: "Restarted by its own software (woke from sleep, update, command or recovery)", kind: "normal" },
   deepsleep: { label: "Woke from sleep", kind: "normal" },
   panic: { label: "Crashed (software fault)", kind: "fault" },
   int_wdt: { label: "Froze and was reset by its safety timer", kind: "fault" },
@@ -23,11 +23,21 @@ export type RestartReason = keyof typeof RESTART_REASONS;
 /** ESP-IDF esp_reset_reason_t numbers. */
 const BY_NUMBER: RestartReason[] = ["unknown", "poweron", "ext", "sw", "panic", "int_wdt", "task_wdt", "wdt", "deepsleep", "brownout", "sdio"];
 
-/** A reported reason ("panic", "PANIC", "4", "ESP_RST_PANIC") as a known key, or null. */
+/** The names our firmware sends (feat/cell-beam 4d495a4; docs/hardware-bringup.md): its sleep wake-up restarts in software. */
+const FIRMWARE_NAMES: Record<string, RestartReason> = {
+  power_on: "poweron",
+  software: "sw",
+  crash: "panic",
+  watchdog: "wdt",
+  external: "ext",
+};
+
+/** A reported reason ("panic", "PANIC", "4", "ESP_RST_PANIC", "crash") as a known key, or null. */
 export function restartReason(raw: string | null | undefined): RestartReason | null {
   if (!raw) return null;
   const v = raw.trim().toLowerCase().replace(/^esp_rst_/, "");
   if (/^\d+$/.test(v)) return BY_NUMBER[Number(v)] ?? null;
+  if (v in FIRMWARE_NAMES) return FIRMWARE_NAMES[v];
   return v in RESTART_REASONS ? (v as RestartReason) : null;
 }
 

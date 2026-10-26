@@ -8,6 +8,16 @@ describe("restart reasons", () => {
   it("reads names and ESP-IDF numbers", () => {
     expect(["panic", "PANIC", "4", "ESP_RST_PANIC"].map(restartReason)).toEqual(["panic", "panic", "panic", "panic"]);
     expect(restartReason("9")).toBe("brownout");
+    // Our firmware's own names.
+    expect(["power_on", "software", "crash", "watchdog", "brownout", "external", "unknown"].map(restartReason)).toEqual([
+      "poweron",
+      "sw",
+      "panic",
+      "wdt",
+      "brownout",
+      "ext",
+      "unknown",
+    ]);
     expect(restartReason("bogus")).toBeNull();
     expect(restartLabel("bogus")).toBe('Reported as "bogus"');
     expect(restartLabel(null)).toBe("Not reported");
