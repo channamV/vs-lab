@@ -21,6 +21,12 @@
 #include "config.h"
 #include "telestore.h"
 #include "teleclient.h"
+
+#ifdef VSLAB_TEST_PING_SECONDS
+// VSLAB test build: parked check-ins every few seconds instead of every 15 minutes
+#undef PING_BACK_INTERVAL
+#define PING_BACK_INTERVAL VSLAB_TEST_PING_SECONDS
+#endif
 #if BOARD_HAS_PSRAM
 #include "esp32/himem.h"
 #endif
@@ -712,30 +718,28 @@ bool waitMotion(long timeout)
   Collecting and processing data
 *******************************************************************************/
 // VSLAB: supply voltage (PID 0x24), moved out of process() so the final "engine off" reading can include it
-void addSupplyVoltage(CBuffer* buffer)
+// VSLAB: the supply voltage (0 = can't read it), for the data loop and the parked check-ins
+float readSupplyVolts()
 {
 #if ENABLE_OBD
-  if (sys.devType > 12) {
-    batteryVoltage = (float)(analogRead(A0) * 45) / 4095;
-  } else {
-    batteryVoltage = obd.getVoltage();
-  }
-  if (batteryVoltage) {
-    uint16_t v = batteryVoltage * 100;
-    buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
-  }
+  if (sys.devType > 12) return (float)(analogRead(A0) * 45) / 4095;
+  return obd.getVoltage();
 #else
   // VSLAB: board type 15 (Model H) reads its supply voltage on the ESP32's A0 pin, as the OBD build does,
   // so send it without OBD too: no engine computer needed. (Upstream uses A0 for every board type above 12;
   // only 15 is checked.) Other boards read it through the OBD co-processor.
-  if (sys.devType == 15) {
-    batteryVoltage = (float)(analogRead(A0) * 45) / 4095;
-    if (batteryVoltage) {
-      uint16_t v = batteryVoltage * 100;
-      buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
-    }
-  }
+  if (sys.devType == 15) return (float)(analogRead(A0) * 45) / 4095;
+  return 0;
 #endif
+}
+
+void addSupplyVoltage(CBuffer* buffer)
+{
+  batteryVoltage = readSupplyVolts();
+  if (batteryVoltage) {
+    uint16_t v = batteryVoltage * 100;
+    buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
+  }
 }
 
 void process()
@@ -1180,6 +1184,15 @@ void telemetry(void* inst)
         delay(1000);
       } while (state.check(STATE_STANDBY) && millis() - t < 1000L * PING_BACK_INTERVAL);
       if (state.check(STATE_STANDBY)) {
+        // VSLAB: the supply voltage with every parked check-in (&BV=, centivolts like PID 0x24), so VS-lab sees a
+        // battery draining while the machine is parked, not only just before the next start
+        static char pingInfo[16];
+        float volts = readSupplyVolts();
+        snprintf(pingInfo, sizeof(pingInfo), "&BV=%u", (unsigned int)(volts * 100));
+        Serial.print("[NET] Parked check-in, supply ");
+        Serial.print(volts, 2);
+        Serial.println(" V");
+        teleClient.notifyExtra = pingInfo;
         // start ping
 #if ENABLE_WIFI
         if (wifiSSID[0]) { 
@@ -1200,6 +1213,7 @@ void telemetry(void* inst)
           }
         }
         teleClient.shutdown();
+        teleClient.notifyExtra = 0; // VSLAB
         state.clear(STATE_CELL_CONNECTED | STATE_WIFI_CONNECTED);
       }
       continue;
