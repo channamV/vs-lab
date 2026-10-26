@@ -86,6 +86,7 @@ public:
     uint8_t packets = 0;
     bool login = false;
     uint16_t lastCode = 0; // VSLAB: HTTP status of the last transmit (0 = no reply)
+    const char* notifyExtra = 0; // VSLAB: extra query for the next notifications (&RST= on login, &WHY= on logout)
     // VSLAB: device commands ("CMD <id> <sig> <command>" lines) from the latest replies, run by telelogger.ino
     void collectCommands(const char* reply);
     char commands[5][160];

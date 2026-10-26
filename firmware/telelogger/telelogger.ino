@@ -97,6 +97,10 @@ char isoTime[32] = {0};
 
 // stats data
 uint32_t lastMotionTime = 0;
+// VSLAB: why the device last stopped working (sent with the logout as &WHY=) and why it last restarted (&RST= on login)
+const char* standbyReason = "";
+char bootInfo[24] = "";
+char logoutInfo[32] = "";
 uint32_t timeoutsOBD = 0;
 uint32_t timeoutsNet = 0;
 uint32_t lastStatsTime = 0;
@@ -194,14 +198,17 @@ uint32_t lastAlertBeep = 0;
 bool engineRunning()
 {
 #if ENABLE_OBD
-  if (state.check(STATE_OBD_READY)) {
-    for (byte i = 0; i < sizeof(obdData) / sizeof(obdData[0]); i++) {
-      if (obdData[i].pid == PID_RPM) return obdData[i].value >= 300;
-    }
+  // OBD builds are for vehicles with an engine computer: no answer means the ignition is off. Voltage isn't used:
+  // it stays high for minutes after a drive (field test 2026-10-26: beeps with the engine off at 14.4 V).
+  if (!state.check(STATE_OBD_READY)) return false;
+  for (byte i = 0; i < sizeof(obdData) / sizeof(obdData[0]); i++) {
+    if (obdData[i].pid == PID_RPM) return obdData[i].value >= 300;
   }
-#endif
+  return false;
+#else
   if (batteryVoltage >= 8) return batteryVoltage >= (batteryVoltage > 18 ? 26.4f : 13.2f);
   return true;
+#endif
 }
 
 void playAlerts()
@@ -745,18 +752,27 @@ void process()
     processOBD(buffer);
     if (obd.errors >= MAX_OBD_ERRORS) {
       if (!obd.init()) {
-        Serial.println("[OBD] ECU OFF");
-        state.clear(STATE_OBD_READY | STATE_WORKING);
-        // VSLAB: finish this reading as an explicit "engine off" (RPM 0, OBD PID 0x0C, with voltage and position)
-        // instead of abandoning it, so it's sent before signing off and VS-lab sees the stop
-        int32_t rpm = 0;
-        buffer->add(0x100 | 0x0C, ELEMENT_INT32, &rpm, sizeof(rpm));
-        addSupplyVoltage(buffer);
-        processGPS(buffer);
-        buffer->add(PID_DEVICE_TEMP, ELEMENT_INT32, &deviceTemp, sizeof(deviceTemp));
-        buffer->timestamp = millis();
-        buffer->state = BUFFER_STATE_FILLED;
-        return;
+        if (millis() - lastMotionTime < 30000) {
+          // VSLAB: the engine computer can drop out for a moment while driving (field test 2026-10-26: the device
+          // went quiet mid-drive). Don't go to sleep while GPS or motion says it moved in the last 30 s: keep
+          // tracking and keep trying OBD.
+          Serial.println("[OBD] ECU not answering, but moving: keep working");
+          state.clear(STATE_OBD_READY);
+        } else {
+          Serial.println("[OBD] ECU OFF");
+          standbyReason = "ecu_off"; // VSLAB
+          state.clear(STATE_OBD_READY | STATE_WORKING);
+          // VSLAB: finish this reading as an explicit "engine off" (RPM 0, OBD PID 0x0C, with voltage and position)
+          // instead of abandoning it, so it's sent before signing off and VS-lab sees the stop
+          int32_t rpm = 0;
+          buffer->add(0x100 | 0x0C, ELEMENT_INT32, &rpm, sizeof(rpm));
+          addSupplyVoltage(buffer);
+          processGPS(buffer);
+          buffer->add(PID_DEVICE_TEMP, ELEMENT_INT32, &deviceTemp, sizeof(deviceTemp));
+          buffer->timestamp = millis();
+          buffer->state = BUFFER_STATE_FILLED;
+          return;
+        }
       }
     }
   } else if (obd.init(PROTO_AUTO, true)) {
@@ -845,6 +861,7 @@ void process()
     Serial.print(motionless);
     Serial.println(" secs");
     // trip ended, go into standby
+    standbyReason = "stationary"; // VSLAB
     state.clear(STATE_WORKING);
     return;
   }
@@ -1144,7 +1161,12 @@ void telemetry(void* inst)
       if (state.check(STATE_CELL_CONNECTED) || state.check(STATE_WIFI_CONNECTED)) {
         // VSLAB: send what's still waiting before signing off: the device restarts when it wakes, clearing memory
         for (int i = 0; i < 80 && sendBatch(store) == BATCH_SENT; i++);
+        snprintf(logoutInfo, sizeof(logoutInfo), "&WHY=%s", standbyReason[0] ? standbyReason : "unknown");
+        Serial.print("[NET] Signing off: ");
+        Serial.println(standbyReason[0] ? standbyReason : "unknown");
+        teleClient.notifyExtra = logoutInfo;
         teleClient.shutdown();
+        teleClient.notifyExtra = 0;
         netop = "";
         ip = "";
         rssi = 0;
@@ -1230,6 +1252,7 @@ void telemetry(void* inst)
         }
         Serial.println("[CELL] In service");
         state.set(STATE_NET_READY);
+        if (teleClient.login) teleClient.notifyExtra = 0; // VSLAB: the restart reason goes with the first sign-in only
         // VSLAB: no routine "connected" beep: beeps are for operator alerts (docs/operator-alerts.md)
         runCommands();
       }
@@ -1501,6 +1524,7 @@ void processBLE(int timeout)
     ESP.restart();
     // never reach here
   } else if (!strcmp(cmd, "OFF")) {
+    standbyReason = "bluetooth_off"; // VSLAB
     state.set(STATE_STANDBY);
     state.clear(STATE_WORKING);
     n += snprintf(buf + n, bufsize - n, "OK");
@@ -1648,6 +1672,26 @@ void setup()
 #endif
   // initialize USB serial
   Serial.begin(115200);
+
+  // VSLAB: why the ESP32 restarted, sent with the first sign-in (&RST=) so VS-lab can tell a crash or watchdog
+  // from an unplug or a wake from sleep
+  {
+    const char* why;
+    switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: why = "power_on"; break;
+    case ESP_RST_SW: why = "software"; break; // includes waking from sleep (RESET_AFTER_WAKEUP)
+    case ESP_RST_PANIC: why = "crash"; break;
+    case ESP_RST_INT_WDT: case ESP_RST_TASK_WDT: case ESP_RST_WDT: why = "watchdog"; break;
+    case ESP_RST_BROWNOUT: why = "brownout"; break;
+    case ESP_RST_DEEPSLEEP: why = "deep_sleep"; break;
+    case ESP_RST_EXT: why = "external"; break;
+    default: why = "unknown"; break;
+    }
+    snprintf(bootInfo, sizeof(bootInfo), "&RST=%s", why);
+    teleClient.notifyExtra = bootInfo;
+    Serial.print("[BOOT] restart reason: ");
+    Serial.println(why);
+  }
 
 #ifdef VSLAB_MODEM_PASSTHROUGH
   // VSLAB test mode: the PC talks straight to the modem (AT commands by hand); nothing else runs

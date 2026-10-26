@@ -562,8 +562,8 @@ void TeleClient::collectCommands(const char* reply)
 bool TeleClientHTTP::notify(byte event, const char* payload)
 {
   char path[256];
-  snprintf(path, sizeof(path), "%s/notify/%s?EV=%u&SSI=%d&VIN=%s", SERVER_PATH, devid,
-    (unsigned int)event, (int)rssi, vin);
+  snprintf(path, sizeof(path), "%s/notify/%s?EV=%u&SSI=%d&VIN=%s%s", SERVER_PATH, devid,
+    (unsigned int)event, (int)rssi, vin, notifyExtra ? notifyExtra : "");
   if (event == EVENT_LOGOUT) login = false;
   // VSLAB: keep the reply's commands (e.g. an operator alert queued while the machine was parked)
   char* content = 0;
