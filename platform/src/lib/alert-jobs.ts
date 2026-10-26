@@ -1,3 +1,4 @@
+import { checkSchedules, runMaintenanceChecks } from "@/lib/maintenance";
 import "server-only";
 import { after } from "next/server";
 import { getDb } from "@/lib/db";
@@ -60,6 +61,8 @@ export function afterCheckin(checkinId: number) {
       const [c] = await db.select().from(checkins).where(eq(checkins.id, checkinId));
       // A check-in can stop the "not checked in" beeps straight away.
       if (c) await syncOperatorAlert(db, c.machineId);
+      // The checklist's hour meter / odometer reading can bring a service due.
+      if (c?.meterReading !== null && c?.meterReading !== undefined) await checkSchedules(db, new Date(), c.organizationId);
       if (c?.lockoutRequested) {
         const id = await recordEvent(db, {
           organizationId: c.organizationId,
@@ -105,9 +108,11 @@ export async function runWatchdog(now = new Date()) {
   const modeChanges = (await applyModeTimers(db, now)).length;
   // Training expiring or expired (managers' notifications are delivered below; operators are emailed).
   const trainingReminders = (await sendTrainingReminders(db, now)).length;
+  // Maintenance: services that came due, devices offline 72 h (and back again).
+  const maintenance = await runMaintenanceChecks(db, now);
   // Connectivity and worksite notifications for every machine with something pending.
   await processEvents(db, {}, now);
-  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges, trainingReminders };
+  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges, trainingReminders, maintenance };
 }
 
 /** Schedules, every minute (Vercel Cron → /api/jobs/schedules): apply changes, then deliver their notifications. */

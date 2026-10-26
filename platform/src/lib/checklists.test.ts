@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { alerts, checkinPhotos, checkins, checklistAnswerSets, checklistIssues, checklistTemplates, machines, organizations, users } from "@/lib/db/schema";
+import { alerts, checkinPhotos, checkins, checklistAnswerSets, checklistTemplates, machines, maintenanceIssues, maintenanceReports, organizations, users } from "@/lib/db/schema";
+import { resolveIssue, updateIssue } from "@/lib/maintenance";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,7 +19,6 @@ import {
   DEFAULT_SECTIONS,
   ensureChecklistDefaults,
   evaluateAnswers,
-  resolveIssue,
   setDefaultTemplate,
   setMachineTemplate,
   updateTemplate,
@@ -33,7 +33,7 @@ const at = (min: number) => new Date(Date.parse("2026-10-15T12:00:00Z") + min * 
 const machine = async () => (await db.select().from(machines).where(eq(machines.id, machineId)))[0];
 /** The check-in's "Repair needed" alerts (check-ins here also raise "not at machine": no phone location). */
 const repairAlerts = async (checkinId: number) => (await raiseCheckinAlerts(db, checkinId)).filter((a) => a.type === "checklist-failed");
-const openIssues = () => db.select().from(checklistIssues).orderBy(checklistIssues.id);
+const openIssues = () => db.select().from(maintenanceIssues).orderBy(maintenanceIssues.id);
 
 beforeEach(async () => {
   db = createDb();
@@ -124,7 +124,14 @@ describe("issues stack", () => {
     expect(alert.detail).toContain("Seatbelt in good condition and working (Lockout, now major)");
     expect(alert.detail).toContain("1 other open issue on this machine.");
     issues = await openIssues();
-    expect(issues.find((i) => i.questionId === "seatbelt")).toMatchObject({ severity: "major", reportCount: 3 });
+    expect(issues.find((i) => i.questionId === "seatbelt")).toMatchObject({ severity: "major", priority: "major", reportCount: 3 });
+    // Every checklist that reported it is linked, so its photos and notes show on the item.
+    const seatbelt = issues.find((i) => i.questionId === "seatbelt")!;
+    expect((await db.select().from(maintenanceReports).where(eq(maintenanceReports.issueId, seatbelt.id))).map((r) => r.checkinId)).toEqual([
+      first.checkinId,
+      repeat.checkinId,
+      worse.checkinId,
+    ]);
     expect(await db.select().from(alerts).where(eq(alerts.type, "checklist-failed"))).toHaveLength(2);
   });
 
@@ -132,8 +139,9 @@ describe("issues stack", () => {
     await checkInWith({ seatbelt: "service_soon" }, {}, 0);
     const [issue] = await openIssues();
     const [mechanic] = await db.insert(users).values({ organizationId: org, email: "m@abc.com", role: "manager" }).returning();
-    await resolveIssue(db, org, issue.id, mechanic.id, " replaced buckle ", at(10));
-    expect((await openIssues())[0]).toMatchObject({ resolvedAt: at(10), resolvedByUserId: mechanic.id, resolutionNote: "replaced buckle" });
+    await expect(resolveIssue(db, org, issue.id, mechanic.id, at(10))).rejects.toThrow("Fill in Cause, Correction before resolving.");
+    await updateIssue(db, org, issue.id, mechanic.id, { cause: "Worn buckle", correction: " replaced buckle ", status: "resolved" }, at(10));
+    expect((await openIssues())[0]).toMatchObject({ resolvedAt: at(10), resolvedByUserId: mechanic.id, correction: "replaced buckle", status: "resolved" });
     const again = await checkInWith({ seatbelt: "service_soon" }, {}, 60);
     if (!again.ok) throw new Error("check-in failed");
     expect((await openIssues()).map((i) => [i.reportCount, i.resolvedAt !== null])).toEqual([
@@ -196,7 +204,8 @@ describe("templates and answer sets", () => {
     });
     expect((await db.select().from(checkins))[0].answers[0].question).toBe("Tires and wheels");
     await checkIn(db, { machineCode: "EXC14", pin: "1111", answers: { tires_and_wheels: "minor_defect", lamps: "ok" }, confirmed: true }, at(60));
-    expect((await openIssues()).map((i) => [i.question, i.reportCount])).toEqual([["Tires, wheels and rims", 2]]);
+    // The maintenance item keeps its title (staff may have reworded it).
+    expect((await openIssues()).map((i) => [i.title, i.reportCount])).toEqual([["Tires and wheels", 2]]);
 
     // The default can't be deleted; deleting another puts its machines back on the default.
     const [standard] = await db.select().from(checklistTemplates).where(eq(checklistTemplates.isDefault, true));
@@ -290,14 +299,17 @@ describe("photos", () => {
 });
 
 describe("ready-made checklists", () => {
-  it("adds the NL Schedule A trip inspection with written answers for location, odometer and trailer", async () => {
+  it("adds the NL Schedule A trip inspection with written answers for location and trailer, and the odometer reading", async () => {
     const nl = await addLibraryTemplate(db, org, "nl-trip-inspection-schedule-a");
     const questions = nl.sections.flatMap((s) => s.questions);
     // All 23 Schedule A systems, each needing a description when a defect is reported.
     const parts = questions.filter((q) => /^\d+\. /.test(q.text));
     expect(parts.map((q) => Number(q.text.split(".")[0])).sort((a, b) => a - b)).toEqual(Array.from({ length: 23 }, (_, i) => i + 1));
     expect(parts.every((q) => q.noteRequired && q.text.length <= 300)).toBe(true);
-    expect(questions.filter((q) => q.textOnly).map((q) => q.id)).toEqual(["location", "odometer", "trailers"]);
+    expect(questions.filter((q) => q.textOnly).map((q) => [q.id, q.prefill])).toEqual([
+      ["location", "place"],
+      ["trailers", undefined],
+    ]);
     const [set] = await db.select().from(checklistAnswerSets).where(eq(checklistAnswerSets.id, nl.answerSetId));
     expect(set.name).toBe("Vehicle inspection");
     await expect(addLibraryTemplate(db, org, "nl-trip-inspection-schedule-a")).rejects.toThrow(/already/);
@@ -312,7 +324,8 @@ describe("ready-made checklists", () => {
         machineCode: "EXC14",
         pin: "1111",
         answers: { ...answers, p21_tires: "minor_defect" },
-        answerNotes: { location: "Route 1, Whitbourne", odometer: "184 220", trailers: "None", p21_tires: "Right rear outer: cut in sidewall" },
+        answerNotes: { location: "Route 1, Whitbourne", trailers: "None", p21_tires: "Right rear outer: cut in sidewall" },
+        meterReading: "184 220",
         confirmed: true,
       },
       at(5),
@@ -321,9 +334,9 @@ describe("ready-made checklists", () => {
     const [row] = await db.select().from(checkins);
     expect(row.answers.filter((a) => a.textOnly).map((a) => [a.question, a.answer])).toEqual([
       ["Place of inspection (city, town or highway)", "Route 1, Whitbourne"],
-      ["Odometer reading (km)", "184 220"],
       ["Trailer(s) towed: licence plate or unit number (write \"None\" if not towing)", "None"],
     ]);
+    expect(row).toMatchObject({ meterKind: "hours", meterReading: 184220 });
     expect((await openIssues()).map((i) => i.questionId)).toEqual(["p21_tires"]);
   });
 

@@ -24,13 +24,17 @@ Each organization chooses how long data is kept (**Settings**, owners only). Eve
 | Operators' phone location at check-in | 90 days | 1 day – 10 years |
 | Checklist photos | 1 year | 30 days – 10 years |
 | GPS track, device data, connectivity incidents | 2 years | 30 days – 10 years |
-| Check-ins, checklist answers, alerts, resolved defects, fuel log, safety log | 3 years | 90 days – 10 years |
+| Check-ins, checklist answers, alerts, fuel log, safety log | 3 years | 90 days – 10 years |
 | Notification history (who was emailed what) | 1 year | 30 days – 10 years |
 | Operators' training records and certificate copies | Until a manager deletes them or the operator is erased | — |
+| Maintenance items (the machine's service record) and meter readings | Kept (about the machine) | — |
 
 Details:
 - When the phone location goes, the check-in keeps the *result* (at the machine / not at the machine) and the distance.
-- Open defects and a check-in that's still open are never deleted. Engine hours stay (they're about the machine).
+- A check-in that's still open is never deleted. Engine hours stay (they're about the machine).
+- Maintenance items are the machine's service history and are kept (`docs/maintenance.md`). When a check-in is deleted, its
+  reports on maintenance items keep the answer and note but lose the link to the operator and the photos. Erasing an
+  operator removes their name from maintenance items and reports.
 - Data from devices that weren't on any machine is deleted after 2 years.
 - Expired sign-ins, used sign-in links and wrong-PIN records are tidied up too.
 - Some customers must keep inspection records for a minimum time (e.g. a regulation). They set the check-in period to match.

@@ -16,6 +16,11 @@ export async function updateEngineData(db: Db, machineId: number, samples: Sampl
   if (hours !== undefined && hours !== null) {
     await db.update(machines).set({ engineHourMeter: hours, engineHourMeterAt: now }).where(eq(machines.id, machineId));
   }
+  // The vehicle's odometer (J1939, or OBD PID A6 on newer vehicles): maintenance by km and checklists' readings.
+  const km = samples.map((s) => num(s, "j1939OdometerKm") ?? num(s, "obdOdometerKm")).findLast((v) => v !== null && v > 0);
+  if (km !== undefined && km !== null) {
+    await db.update(machines).set({ odometerKm: km, odometerKmAt: now }).where(eq(machines.id, machineId));
+  }
   const report = samples.findLast((s) => s.j1939Faults !== undefined);
   if (!report) return 0;
   const raw = report.j1939Faults;

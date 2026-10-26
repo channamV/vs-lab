@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { hasRole, type AuthContext } from "@/lib/auth";
-import { machineChecklist } from "@/lib/data";
+import { machineChecklist, machineMaintenanceSummary } from "@/lib/data";
+import { describeDuePart } from "@/lib/maintenance-types";
+import { IssueChip } from "../../maintenance/ui";
+import { ReadingForm } from "../../maintenance/schedules/ScheduleForms";
 import type { Machine } from "@/lib/db/schema";
 import { clockTime } from "@/lib/format";
-import { clearLockoutAction, resolveIssueAction, setMachineTemplateAction } from "./actions";
+import { clearLockoutAction, setMachineTemplateAction } from "./actions";
 
 const card = "space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
 
@@ -29,17 +32,16 @@ export function LockoutBanner({ machine, auth, timeZone, now }: { machine: Machi
   );
 }
 
-/** Which checklist the machine uses, and the defects reported on it (open issues stack repeat reports). */
+/** Which checklist the machine uses, and its maintenance: open items (checklist defects stack), services, meter readings. */
 export async function MachineChecklist({ machine, auth, timeZone, now }: { machine: Machine; auth: AuthContext | null; timeZone: string; now: number }) {
-  const { templates, issues } = await machineChecklist(machine.id);
+  const [{ templates }, maintenance] = await Promise.all([machineChecklist(machine.id), machineMaintenanceSummary(machine.id)]);
   const canManage = auth !== null && hasRole(auth, "manager");
-  const open = issues.filter((i) => !i.resolvedAt);
-  const resolved = issues.filter((i) => i.resolvedAt);
   const defaultName = templates.find((t) => t.isDefault)?.name;
+  const { open, schedules, readings, history } = maintenance;
   return (
     <section className={card}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold">Checklist and issues</h2>
+        <h2 className="font-semibold">Checklist and maintenance</h2>
         {canManage ? (
           <form key={machine.checklistTemplateId ?? "default"} action={setMachineTemplateAction} className="flex items-center gap-2 text-sm">
             <input type="hidden" name="id" value={machine.id} />
@@ -72,78 +74,74 @@ export async function MachineChecklist({ machine, auth, timeZone, now }: { machi
       </div>
 
       {open.length === 0 ? (
-        <p className="text-sm text-slate-500">No open issues.</p>
+        <p className="text-sm text-slate-500">No open maintenance items.</p>
       ) : (
-        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {open.map((i) => (
-            <li key={i.id} className="flex flex-wrap items-start justify-between gap-3 py-2 text-sm">
-              <div>
-                <span
-                  className={`mr-2 rounded-full px-2 py-0.5 text-xs font-medium ${
-                    i.severity === "major"
-                      ? "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300"
-                      : "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
-                  }`}
-                >
-                  {i.severity === "major" ? "Major" : "Minor"}
-                </span>
-                <span className="font-medium">{i.question}</span>
-                <div className="text-xs text-slate-500">
-                  {i.answerLabel}
-                  {i.note && <> · “{i.note}”</>} · first {clockTime(i.firstReportedAt, timeZone, now)}
-                  {i.reportCount > 1 && (
-                    <>
-                      {" "}
-                      · reported {i.reportCount} times, last {clockTime(i.lastReportedAt, timeZone, now)}
-                    </>
-                  )}
-                </div>
-                {i.photoIds.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {i.photoIds.map((id) => (
-                      <a key={id} href={`/photos/${id}`} target="_blank" rel="noreferrer">
-                        {/* eslint-disable-next-line @next/next/no-img-element -- private photo served by /photos/<id> */}
-                        <img src={`/photos/${id}`} alt={i.question} loading="lazy" className="h-14 w-14 rounded object-cover" />
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {canManage && (
-                <form action={resolveIssueAction} className="flex items-center gap-2">
-                  <input type="hidden" name="id" value={machine.id} />
-                  <input type="hidden" name="issueId" value={i.id} />
-                  <input
-                    name="note"
-                    maxLength={500}
-                    placeholder="What was done (optional)"
-                    className="w-48 rounded border border-slate-300 bg-transparent px-2 py-1 text-xs dark:border-slate-700"
-                  />
-                  <button className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
-                    Resolved
-                  </button>
-                </form>
-              )}
-            </li>
+            <IssueChip key={i.id} issue={i} />
           ))}
-        </ul>
+        </div>
       )}
-      {resolved.length > 0 && (
-        <details className="text-sm">
-          <summary className="cursor-pointer text-slate-600 dark:text-slate-400">Recently resolved ({resolved.length})</summary>
-          <ul className="mt-1 space-y-0.5 text-xs text-slate-500">
-            {resolved.map((i) => (
-              <li key={i.id}>
-                {i.question} ({i.answerLabel}) · resolved {clockTime(i.resolvedAt!, timeZone, now)}
-                {i.resolutionNote && <> · “{i.resolutionNote}”</>}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+
+      <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+        <div className="space-y-1">
+          <h3 className="font-medium">Meter</h3>
+          <p className="text-slate-600 dark:text-slate-400">
+            {readings.hours ? `${readings.hours.value.toLocaleString("en-CA")} h (${METER_SOURCE[readings.hours.source]})` : "No hour meter reading yet."}
+            {readings.km && <> · {readings.km.value.toLocaleString("en-CA")} km ({METER_SOURCE[readings.km.source]})</>}
+          </p>
+          {history.length > 0 && (
+            <details>
+              <summary className="cursor-pointer text-xs text-slate-500">Recent readings</summary>
+              <ul className="mt-1 space-y-0.5 text-xs text-slate-500">
+                {history.map((r) => (
+                  <li key={r.id}>
+                    {clockTime(r.recordedAt, timeZone, now)}: {r.value.toLocaleString("en-CA")} {r.kind === "km" ? "km" : "h"} ({r.source === "checklist" ? "checklist" : r.source === "service" ? "at a service" : "entered by staff"})
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {canManage && <ReadingForm fixedMachine={{ id: machine.id, name: machine.name, unitNumber: machine.unitNumber, onRoad: machine.onRoad }} />}
+        </div>
+        <div className="space-y-1">
+          <h3 className="font-medium">Service schedules</h3>
+          {schedules.length === 0 ? (
+            <p className="text-slate-500">None.</p>
+          ) : (
+            <ul className="space-y-0.5">
+              {schedules.map((s) => (
+                <li key={s.id}>
+                  <Link href={canManage ? `/maintenance/schedules/${s.id}` : "/maintenance/schedules"} className="text-sky-700 hover:underline dark:text-sky-400">
+                    {s.description}
+                  </Link>{" "}
+                  <span className={s.due.state === "due" ? "font-medium text-sky-800 dark:text-sky-300" : "text-slate-500"}>
+                    · {!s.active ? "paused" : s.due.state === "unknown" ? "needs a reading" : s.due.parts.map(describeDuePart).join(", ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {canManage && (
+            <p className="flex flex-wrap gap-3">
+              <Link href={`/maintenance/schedules/new?machine=${machine.id}`} className="text-sky-700 hover:underline dark:text-sky-400">
+                + Service schedule
+              </Link>
+              <Link href={`/maintenance/issues/new?machine=${machine.id}`} className="text-sky-700 hover:underline dark:text-sky-400">
+                + Maintenance item
+              </Link>
+            </p>
+          )}
+        </div>
+      </div>
       <p className="text-xs text-slate-500">
-        Repeat reports of an open issue are added to it rather than listed again, and don&apos;t raise another alert.
+        Checklist defects open maintenance items; a defect reported again is added to its open item rather than listed again.{" "}
+        <Link href="/maintenance" className="text-sky-700 hover:underline dark:text-sky-400">
+          All maintenance →
+        </Link>
       </p>
     </section>
   );
 }
+
+const METER_SOURCE = { engine: "engine computer", reading: "as entered", estimated: "estimated from engine time" } as const;

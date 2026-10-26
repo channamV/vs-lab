@@ -1,5 +1,7 @@
 import "server-only";
 import { checklistResultById, parseResultFilters, queryChecklistResults } from "@/lib/checklist-results";
+import { issueBoard, issueDetail, issueHistory, machineMaintenance, maintenanceByMachine, parseHistoryFilters, scheduleList } from "@/lib/maintenance-queries";
+import { placeName } from "@/lib/places";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { connection } from "next/server";
 import { cache } from "react";
@@ -10,7 +12,6 @@ import {
   checkinPhotos,
   checkins,
   checklistAnswerSets,
-  checklistIssues,
   checklistTemplates,
   deviceAssignments,
   deviceDiagnostics,
@@ -24,6 +25,7 @@ import {
   machineFaults,
   machineOperators,
   machines,
+  maintenanceSchedules,
   operators,
   organizations,
   telemetry,
@@ -731,43 +733,17 @@ export async function getAnswerSet(id: number) {
   return row ?? null;
 }
 
-/** A machine's checklist, the choices for it, and its checklist issues (open first, then recently resolved). */
+/** A machine's checklist and the choices for it. */
 export async function machineChecklist(machineId: number) {
   const auth = await requireMachine(machineId);
   const db = getDb();
   await ensureChecklistDefaults(db, auth.organizationId);
-  const [templates, issues] = await Promise.all([
-    db
-      .select({ id: checklistTemplates.id, name: checklistTemplates.name, isDefault: checklistTemplates.isDefault })
-      .from(checklistTemplates)
-      .where(eq(checklistTemplates.organizationId, auth.organizationId))
-      .orderBy(asc(checklistTemplates.name)),
-    db
-      .select()
-      .from(checklistIssues)
-      .where(eq(checklistIssues.machineId, machineId))
-      .orderBy(sql`${checklistIssues.resolvedAt} is not null`, desc(checklistIssues.lastReportedAt))
-      .limit(30),
-  ]);
-  // Photos of each issue's item, taken while it was being reported.
-  const photos = issues.length
-    ? await db
-        .select({ id: checkinPhotos.id, questionId: checkinPhotos.questionId, takenAt: checkinPhotos.takenAt })
-        .from(checkinPhotos)
-        .where(and(eq(checkinPhotos.machineId, machineId), inArray(checkinPhotos.questionId, [...new Set(issues.map((i) => i.questionId))])))
-        .orderBy(desc(checkinPhotos.takenAt))
-        .limit(200)
-    : [];
-  return {
-    templates,
-    issues: issues.map((issue) => ({
-      ...issue,
-      photoIds: photos
-        .filter((p) => p.questionId === issue.questionId && p.takenAt >= issue.firstReportedAt && p.takenAt <= issue.lastReportedAt)
-        .slice(0, 6)
-        .map((p) => p.id),
-    })),
-  };
+  const templates = await db
+    .select({ id: checklistTemplates.id, name: checklistTemplates.name, isDefault: checklistTemplates.isDefault })
+    .from(checklistTemplates)
+    .where(eq(checklistTemplates.organizationId, auth.organizationId))
+    .orderBy(asc(checklistTemplates.name));
+  return { templates };
 }
 
 // ---------- Tamper / connectivity ----------
@@ -1185,4 +1161,83 @@ export async function postedLimitCoverage() {
   const db = getDb();
   const [months, onRoad] = await Promise.all([roadCoverageByMonth(db, auth.organizationId), onRoadMachineCount(db, auth.organizationId)]);
   return { months, onRoad };
+}
+
+// ---------- Maintenance (src/lib/maintenance-queries.ts; docs/maintenance.md) ----------
+
+/** Adding and working on maintenance items and schedules: managers and owners (limited to their divisions' machines). */
+export async function canEditMaintenance() {
+  return hasRole(await requireSession(), "manager");
+}
+
+export async function maintenanceOverview(params: { worksite?: string }) {
+  const auth = await requireSession();
+  const now = new Date();
+  const worksiteId = params.worksite && /^\d+$/.test(params.worksite) ? Number(params.worksite) : null;
+  const db = getDb();
+  const [overview, sites] = await Promise.all([
+    maintenanceByMachine(db, auth, { now, timeZone: auth.timeZone, worksiteId }),
+    db.select({ id: worksites.id, name: worksites.name }).from(worksites).where(eq(worksites.organizationId, auth.organizationId)).orderBy(asc(worksites.name)),
+  ]);
+  return { ...overview, worksites: sites, worksiteId, now: now.getTime(), timeZone: auth.timeZone, canEdit: hasRole(auth, "manager") };
+}
+
+export async function maintenanceBoard() {
+  const auth = await requireSession();
+  const now = new Date();
+  return { issues: await issueBoard(getDb(), auth, { now }), now: now.getTime(), timeZone: auth.timeZone, canEdit: hasRole(auth, "manager") };
+}
+
+export async function maintenanceIssue(id: number) {
+  const auth = await requireSession();
+  const now = new Date();
+  const detail = await issueDetail(getDb(), auth, id, now);
+  return detail ? { ...detail, now: now.getTime(), timeZone: auth.timeZone, canEdit: hasRole(auth, "manager") } : null;
+}
+
+/** Place names for the issue card: where it was reported and where the machine is now. */
+export async function maintenancePlaces(points: { lat: number | null; lng: number | null }[]) {
+  await requireSession();
+  const db = getDb();
+  return Promise.all(points.map((p) => (p.lat !== null && p.lng !== null ? placeName(db, p.lat, p.lng) : Promise.resolve(null))));
+}
+
+export async function maintenanceScheduleData() {
+  const auth = await requireSession();
+  const now = new Date();
+  return { schedules: await scheduleList(getDb(), auth, { now, timeZone: auth.timeZone }), now: now.getTime(), timeZone: auth.timeZone, canEdit: hasRole(auth, "manager") };
+}
+
+/** Machines the user can see, for maintenance forms. */
+export async function maintenanceMachineChoices() {
+  const auth = await requireSession();
+  return getDb()
+    .select({ id: machines.id, name: machines.name, unitNumber: machines.unitNumber, onRoad: machines.onRoad })
+    .from(machines)
+    .where(machineScope(auth))
+    .orderBy(asc(machines.name));
+}
+
+export async function maintenanceScheduleById(id: number) {
+  const auth = await requireSession();
+  const [row] = await getDb()
+    .select({ schedule: maintenanceSchedules })
+    .from(maintenanceSchedules)
+    .innerJoin(machines, eq(machines.id, maintenanceSchedules.machineId))
+    .where(and(eq(maintenanceSchedules.id, id), eq(maintenanceSchedules.organizationId, auth.organizationId), machineScope(auth)));
+  return row?.schedule ?? null;
+}
+
+export async function machineMaintenanceSummary(machineId: number) {
+  const auth = await requireMachine(machineId);
+  const now = new Date();
+  return { ...(await machineMaintenance(getDb(), auth, machineId, { now, timeZone: auth.timeZone })), now: now.getTime(), timeZone: auth.timeZone };
+}
+
+export async function maintenanceHistory(params: Record<string, string | undefined>, limit?: number) {
+  const auth = await requireSession();
+  const now = Date.now();
+  const filters = parseHistoryFilters(params, now, auth.timeZone);
+  const page = await issueHistory(getDb(), auth, filters, limit ? { limit, offset: 0 } : {});
+  return { ...page, filters, timeZone: auth.timeZone, now };
 }

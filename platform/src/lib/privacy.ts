@@ -8,7 +8,6 @@ import {
   certificationTypes,
   checkinPhotos,
   checkins,
-  checklistIssues,
   deviceEvents,
   deviceIncidents,
   fuelEvents,
@@ -16,6 +15,8 @@ import {
   machineFaults,
   machineOperators,
   machines,
+  maintenanceIssues,
+  maintenanceReports,
   notificationEvents,
   operators,
   organizations,
@@ -103,7 +104,6 @@ export type RetentionResult = {
   visitsDeleted: number;
   checkinsDeleted: number;
   alertsDeleted: number;
-  issuesDeleted: number;
   notificationsDeleted: number;
   sessionsDeleted: number;
 };
@@ -122,7 +122,6 @@ export async function applyRetention(db: Db, now = new Date()): Promise<Retentio
     visitsDeleted: 0,
     checkinsDeleted: 0,
     alertsDeleted: 0,
-    issuesDeleted: 0,
     notificationsDeleted: 0,
     sessionsDeleted: 0,
   };
@@ -196,12 +195,8 @@ export async function applyRetention(db: Db, now = new Date()): Promise<Retentio
         .where(and(eq(alerts.organizationId, org.id), lt(alerts.createdAt, checkinCutoff)))
         .returning({ id: alerts.id })
     ).length;
-    r.issuesDeleted += (
-      await db
-        .delete(checklistIssues)
-        .where(and(eq(checklistIssues.organizationId, org.id), isNotNull(checklistIssues.resolvedAt), lt(checklistIssues.resolvedAt, checkinCutoff)))
-        .returning({ id: checklistIssues.id })
-    ).length;
+    // Maintenance items are the machine's service history and are kept; their checklist reports lose the link to
+    // the deleted check-ins (and with it the operator and photos) but keep the answer and note.
     if (oldPhotos.length < 1000) {
       // (Only once their photos are gone: deleting a check-in deletes its photo rows, not the files.)
       r.checkinsDeleted += (
@@ -417,12 +412,27 @@ export async function eraseOperator(db: Db, organizationId: number, operatorId: 
       for (const a of theirAlerts) {
         await tx.update(alerts).set({ title: scrub(a.title), detail: scrub(a.detail), ackNote: scrub(a.ackNote) }).where(eq(alerts.id, a.id));
       }
+      // Maintenance items and reports from their checklists: their name out of the notes and complaint.
+      const reports = await tx.select().from(maintenanceReports).where(inArray(maintenanceReports.checkinId, checkinIds));
+      for (const rep of reports) {
+        if (rep.note) await tx.update(maintenanceReports).set({ note: scrub(rep.note) }).where(eq(maintenanceReports.id, rep.id));
+      }
+      const issueIds = [...new Set(reports.map((rep) => rep.issueId))];
       const issues = await tx
         .select()
-        .from(checklistIssues)
-        .where(or(inArray(checklistIssues.firstCheckinId, checkinIds), inArray(checklistIssues.lastCheckinId, checkinIds)));
+        .from(maintenanceIssues)
+        .where(
+          or(
+            inArray(maintenanceIssues.firstCheckinId, checkinIds),
+            inArray(maintenanceIssues.lastCheckinId, checkinIds),
+            issueIds.length ? inArray(maintenanceIssues.id, issueIds) : undefined,
+          ),
+        );
       for (const i of issues) {
-        await tx.update(checklistIssues).set({ note: scrub(i.note) }).where(eq(checklistIssues.id, i.id));
+        await tx
+          .update(maintenanceIssues)
+          .set({ note: scrub(i.note), complaint: scrub(i.complaint) ?? "", cause: scrub(i.cause), correction: scrub(i.correction) })
+          .where(eq(maintenanceIssues.id, i.id));
       }
       const locked = await tx.select().from(machines).where(inArray(machines.lockedOutCheckinId, checkinIds));
       for (const m of locked) {

@@ -90,7 +90,8 @@ function PrivacyNotice({
         <p>
           {privacy.name} records who operates its equipment, for safety, security and inspection records: your name, the
           time, your checklist answers, notes and photos, and when the machine was running. If you allow it, your
-          phone&apos;s location at check-in is used to confirm you&apos;re at the machine.
+          phone&apos;s location at check-in is used to confirm you&apos;re at the machine (and, on some checklists, to fill in the
+          town for the inspection report).
         </p>
         <p>
           While you&apos;re checked in, the machine&apos;s safety records are linked to you: hours operated and breaks (for

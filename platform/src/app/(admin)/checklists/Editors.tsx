@@ -41,7 +41,7 @@ function Reorder({ index, count, onMove, onRemove, label }: { index: number; cou
   );
 }
 
-type EditableQuestion = { id?: string; text: string; noteRequired: boolean; photoRequired?: boolean; photoOnly?: boolean; textOnly?: boolean };
+type EditableQuestion = { id?: string; text: string; noteRequired: boolean; photoRequired?: boolean; photoOnly?: boolean; textOnly?: boolean; prefill?: "place" };
 type EditableSection = { id?: string; title: string; questions: EditableQuestion[] };
 
 /**
@@ -53,14 +53,17 @@ const KINDS = [
   { value: "answer+photo", label: "Answer + required photo" },
   { value: "photo", label: "Photo only" },
   { value: "text", label: "Written answer" },
+  { value: "place", label: "Written: town, province (filled in)" },
 ] as const;
-const kindOf = (q: EditableQuestion) => (q.photoOnly ? "photo" : q.textOnly ? "text" : q.photoRequired ? "answer+photo" : "answer");
+const kindOf = (q: EditableQuestion) =>
+  q.photoOnly ? "photo" : q.textOnly ? (q.prefill === "place" ? "place" : "text") : q.photoRequired ? "answer+photo" : "answer";
 const withKind = (q: EditableQuestion, kind: string): EditableQuestion => ({
   ...q,
   photoOnly: kind === "photo",
   photoRequired: kind === "photo" || kind === "answer+photo",
-  textOnly: kind === "text",
-  noteRequired: kind === "photo" || kind === "text" ? false : q.noteRequired,
+  textOnly: kind === "text" || kind === "place",
+  prefill: kind === "place" ? "place" : undefined,
+  noteRequired: kind === "photo" || kind === "text" || kind === "place" ? false : q.noteRequired,
 });
 
 export function TemplateEditor({

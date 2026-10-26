@@ -50,6 +50,7 @@ export const PID_NAMES: Record<number, string> = {
   0x142: "obdControlModuleV",
   0x146: "obdAmbientTempC",
   0x15c: "obdOilTempC",
+  0x1a6: "obdOdometerKm", // PID A6 (newer vehicles only), km; our firmware converts from 0.1 km
   // J1939 (heavy equipment engine computers). Not sent by the stock Telelogger: these are VS Lab's own
   // PIDs for our firmware fork, which listens to the engine's J1939 broadcasts. See docs/can-data.md.
   0x301: "j1939EngineHours", // SPN 247, total engine hours (h)
@@ -62,6 +63,7 @@ export const PID_NAMES: Record<number, string> = {
   0x308: "j1939IdleHours", // SPN 235, total idle hours (h)
   0x309: "j1939IdleFuelL", // SPN 236, total idle fuel used (L)
   0x30a: "j1939FuelLevelPct", // SPN 96, fuel tank level (%)
+  0x30b: "j1939OdometerKm", // SPN 917 (or 245), total vehicle distance (km)
   0x310: "j1939Faults", // DM1 active faults: SPN × 32 + FMI each, ";"-separated; 0 = none active
   0x311: "j1939Lamps", // DM1 lamps: 1 = malfunction, 2 = red stop, 4 = amber warning, 8 = protect
 };

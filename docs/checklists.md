@@ -144,3 +144,9 @@ Each checklist has a **How often** setting (Checklists → Edit):
 ## Seeing completed checklists
 
 Safety → **Checklist results**: filter, open, print or download every completed checklist. See `docs/checklist-results.md`.
+
+## Meter reading and town on every checklist (2026-10-26)
+
+Every checklist asks for the hour meter (km on on-road machines), filled in from the engine computer when the device
+reads it. Written answers can start as the town and province (editor: "Written: town, province (filled in)").
+Defects become maintenance items. Details: [maintenance.md](maintenance.md).

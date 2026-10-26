@@ -128,7 +128,7 @@ describe("check-in alerts", () => {
     if (!result.ok) throw new Error("check-in failed");
     const raised = await raiseCheckinAlerts(db, result.checkinId);
     expect(raised.map((a) => a.type).sort()).toEqual(["checklist-failed", "not-approved", "not-at-machine"]);
-    expect(raised.find((a) => a.type === "checklist-failed")!.detail).toContain('Jane reported Seatbelt in good condition and working (Service soon). Notes: "buckle broken"');
+    expect(raised.find((a) => a.type === "checklist-failed")!.detail).toContain('Jane reported #1001 Seatbelt in good condition and working (Service soon). Notes: "buckle broken"');
     expect(raised.find((a) => a.type === "not-at-machine")!.detail).toMatch(/Jane checked in [\d.]+ km away/);
     expect(await raiseCheckinAlerts(db, result.checkinId)).toHaveLength(0);
   });

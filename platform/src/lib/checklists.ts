@@ -5,7 +5,6 @@ import type { Db } from "@/lib/db";
 import {
   checklistAnswerSets,
   checkins,
-  checklistIssues,
   checklistTemplates,
   machines,
   SEVERITIES,
@@ -33,8 +32,6 @@ export const SEVERITY_LABELS: Record<Severity, string> = {
   major: "Major defect (repair needed, can lock out)",
   na: "Not applicable",
 };
-
-const RANK: Record<Severity, number> = { na: 0, pass: 0, minor: 1, major: 2 };
 
 export const DEFAULT_ANSWER_SETS: { name: string; options: AnswerOption[] }[] = [
   {
@@ -207,72 +204,8 @@ export function evaluateAnswers(sections: ChecklistSection[], options: AnswerOpt
   return { ok: true, answers, defects, hasMajor: defects.some((d) => d.severity === "major") };
 }
 
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+// ---------- Lockout (managers) ----------
 
-/**
- * Adds a check-in's defects to the machine's open issues. A defect already open stacks (count, latest
- * report); reported as more severe, it escalates. New and escalated issues are marked with this check-in,
- * which is what raises the "Repair needed" alert. Returns how many were new/escalated and how many repeats.
- */
-export async function recordIssues(
-  db: Db | Tx,
-  input: { organizationId: number; machineId: number; checkinId: number; defects: Defect[]; now: Date },
-) {
-  let raised = 0;
-  let repeated = 0;
-  for (const d of input.defects) {
-    const [open] = await db
-      .select()
-      .from(checklistIssues)
-      .where(and(eq(checklistIssues.machineId, input.machineId), eq(checklistIssues.questionId, d.questionId), isNull(checklistIssues.resolvedAt)));
-    if (!open) {
-      await db.insert(checklistIssues).values({
-        organizationId: input.organizationId,
-        machineId: input.machineId,
-        questionId: d.questionId,
-        question: d.question,
-        section: d.section,
-        severity: d.severity,
-        answerLabel: d.answerLabel,
-        note: d.note,
-        firstReportedAt: input.now,
-        lastReportedAt: input.now,
-        firstCheckinId: input.checkinId,
-        lastCheckinId: input.checkinId,
-        alertCheckinId: input.checkinId,
-      });
-      raised++;
-      continue;
-    }
-    const escalated = RANK[d.severity] > RANK[open.severity as Severity];
-    await db
-      .update(checklistIssues)
-      .set({
-        reportCount: open.reportCount + 1,
-        lastReportedAt: input.now,
-        lastCheckinId: input.checkinId,
-        answerLabel: d.answerLabel,
-        note: d.note ?? open.note,
-        question: d.question,
-        ...(escalated && { severity: d.severity, alertCheckinId: input.checkinId }),
-      })
-      .where(eq(checklistIssues.id, open.id));
-    if (escalated) raised++;
-    else repeated++;
-  }
-  return { raised, repeated };
-}
-
-// ---------- Issues and lockout (managers) ----------
-
-export async function resolveIssue(db: Db, organizationId: number, issueId: number, userId: number, note: string, now = new Date()) {
-  await db
-    .update(checklistIssues)
-    .set({ resolvedAt: now, resolvedByUserId: userId, resolutionNote: note.trim().slice(0, 500) || null })
-    .where(and(eq(checklistIssues.id, issueId), eq(checklistIssues.organizationId, organizationId), isNull(checklistIssues.resolvedAt)));
-}
-
-/** A manager returns a locked-out machine to service (after the repair). */
 export async function clearLockout(db: Db, organizationId: number, machineId: number) {
   await db
     .update(machines)
@@ -299,7 +232,7 @@ export type TemplateInput = {
   frequency?: string;
   answerSetId: number;
   confirmationText: string;
-  sections: { id?: string; title: string; questions: { id?: string; text: string; noteRequired?: boolean; photoRequired?: boolean; photoOnly?: boolean; textOnly?: boolean }[] }[];
+  sections: { id?: string; title: string; questions: { id?: string; text: string; noteRequired?: boolean; photoRequired?: boolean; photoOnly?: boolean; textOnly?: boolean; prefill?: string }[] }[];
 };
 
 async function cleanTemplate(db: Db, organizationId: number, input: TemplateInput, exceptId?: number) {
@@ -342,6 +275,7 @@ async function cleanTemplate(db: Db, organizationId: number, input: TemplateInpu
           photoRequired: photoOnly || Boolean(q.photoRequired),
           photoOnly,
           ...(textOnly && { textOnly }),
+          ...(textOnly && q.prefill === "place" && { prefill: "place" as const }),
         };
       });
     if (questions.length === 0) continue;

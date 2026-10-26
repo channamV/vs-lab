@@ -9,7 +9,7 @@ import {
   auditLog,
   checkinPhotos,
   checkins,
-  checklistIssues,
+  maintenanceIssues,
   devices,
   loginTokens,
   machineOperators,
@@ -105,8 +105,8 @@ describe("retention clean-up", () => {
     expect(await applyRetention(db, daysAfter(731))).toMatchObject({ telemetryDeleted: 2, checkinsDeleted: 0 });
 
     // After three years: the check-in and its alerts. The open defect stays (the machine still needs the repair).
-    expect(await applyRetention(db, daysAfter(1096))).toMatchObject({ checkinsDeleted: 1, alertsDeleted: 1, issuesDeleted: 0 });
-    expect(await db.select().from(checklistIssues)).toHaveLength(1);
+    expect(await applyRetention(db, daysAfter(1096))).toMatchObject({ checkinsDeleted: 1, alertsDeleted: 1 });
+    expect(await db.select().from(maintenanceIssues)).toHaveLength(1);
   });
 
   it("uses the organization's own settings, within limits", async () => {
@@ -189,7 +189,8 @@ describe("operator erasure", () => {
     const [alert] = await db.select().from(alerts);
     expect(alert.detail).toContain(`Former operator #${janeId} reported`);
     expect(alert.detail).not.toContain("Jane");
-    expect((await db.select().from(checklistIssues))[0].note).not.toContain("Jane");
+    expect((await db.select().from(maintenanceIssues))[0].note).not.toContain("Jane");
+    expect((await db.select().from(maintenanceIssues))[0].complaint).not.toContain("Jane");
     expect((await db.select().from(machines))[0].lockedOutReason).toBe(`Former operator #${janeId} reported: seatbelt`);
     expect((await db.select().from(notificationEvents))[0].detail).toBe(`Locked by Former operator #${janeId}`);
     expect(await db.select().from(machineOperators)).toEqual([]);

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { afterCheckin } from "@/lib/alert-jobs";
 import type { PhotoFile } from "@/lib/photos";
+import { placeNearMachine } from "@/lib/checkin-page";
 import { CHECKIN_RULES, checkIn, checkOut, type CheckinFailure, type LocationCheck, type PhoneLocation } from "@/lib/operators";
 
 /**
@@ -43,6 +44,7 @@ const MESSAGES: Record<CheckinFailure, string> = {
   "machine-locked": "This machine is Locked by a manager. Don't operate it: ask your supervisor.",
   "training-required": "You need valid training to operate this machine. Ask your supervisor about:",
   "not-checked-in": "Nobody is checked in on this machine.",
+  "meter-invalid": "Enter the hour meter / odometer reading as a number, e.g. 1234.5.",
 };
 
 const Base = z.object({ machineCode: z.string().min(1).max(32), pin: z.string().trim().max(16) });
@@ -93,6 +95,7 @@ export async function checkInAction(prev: CheckinFormState, formData: FormData):
     skipChecklist: formData.get("skipChecklist") === "on",
     photos,
     phoneLocation: phoneLocation(formData),
+    meterReading: String(formData.get("meterReading") ?? "").slice(0, 20),
   });
   if (!result.ok) {
     const list = result.questions?.slice(0, 3).join("; ");
@@ -121,4 +124,14 @@ export async function checkOutAction(prev: CheckinFormState, formData: FormData)
   if (!result.ok) return { status: "error", message: MESSAGES[result.reason], attempt: nextAttempt(prev) };
   // Reload the page with a confirmation (the check-out box disappears once nobody is checked in).
   redirect(`/checkin/${encodeURIComponent(machineCode)}?checkedOut=1`);
+}
+
+/**
+ * The town and province where the operator's phone is, to start a "Place of inspection" answer (they can change
+ * it). Only near the machine, so the page can't be used to look up places anywhere.
+ */
+export async function placeNameAction(machineCode: string, lat: number, lng: number): Promise<string | null> {
+  const parsed = z.object({ code: z.string().min(1).max(32), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).safeParse({ code: machineCode, lat, lng });
+  if (!parsed.success) return null;
+  return placeNearMachine(getDb(), parsed.data.code, parsed.data.lat, parsed.data.lng);
 }

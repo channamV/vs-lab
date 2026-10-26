@@ -287,6 +287,9 @@ export const machines = pgTable(
     idleSince: timestamp("idle_since", { withTimezone: true }),
     idleEventId: bigint("idle_event_id", { mode: "number" }),
     engineHourMeterAt: timestamp("engine_hour_meter_at", { withTimezone: true }),
+    /** The vehicle's own odometer (OBD PID A6 or J1939), when the device reads it, and when it was read. */
+    odometerKm: doublePrecision("odometer_km"),
+    odometerKmAt: timestamp("odometer_km_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Latest state, from whichever device is paired. Null until a device has reported for this machine.
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
@@ -545,7 +548,16 @@ export type AnswerOption = { key: string; label: string; severity: Severity; col
  * `textOnly` makes it a written answer instead of a choice (e.g. "Odometer reading", "Inspection location").
  * Older templates don't have these fields: treat missing as false.
  */
-export type ChecklistQuestion = { id: string; text: string; noteRequired: boolean; photoRequired?: boolean; photoOnly?: boolean; textOnly?: boolean };
+export type ChecklistQuestion = {
+  id: string;
+  text: string;
+  noteRequired: boolean;
+  photoRequired?: boolean;
+  photoOnly?: boolean;
+  textOnly?: boolean;
+  /** Written answers only: "place" starts the answer as the city and province where the operator is (editable). */
+  prefill?: "place";
+};
 export type ChecklistSection = { id: string; title: string; questions: ChecklistQuestion[] };
 
 /**
@@ -660,6 +672,9 @@ export const checkins = pgTable(
     distanceM: real("distance_m"),
     /** near, far, no-phone-location or no-machine-location. Null for check-ins made before this check existed. */
     locationCheck: text("location_check"),
+    /** The hour meter (hours) or odometer (km) reading the operator gave with the checklist. */
+    meterKind: text("meter_kind"),
+    meterReading: doublePrecision("meter_reading"),
     /**
      * The engine-on period this check-in covers. The operator has a few minutes after checking in to
      * start the engine; the check-in then ends automatically when the engine stops.
@@ -836,12 +851,14 @@ export const notificationDeliveries = pgTable(
 );
 
 /**
- * Defects reported on pre-start checklists, one open row per machine and question. A defect reported
- * again stacks onto the open issue (count + latest report) instead of creating another; reporting it
- * as more severe escalates it. Managers resolve issues. (A maintenance module will build on this.)
+ * Maintenance work items (src/lib/maintenance.ts; docs/maintenance.md; modelled on Veristart Insights' maintenance
+ * module): checklist defects, service schedules coming due, devices offline, and items staff add. Each follows the
+ * "three C's": complaint (what was reported), cause, correction. One open item per `dedupe_key` (a checklist question
+ * on a machine, a schedule, a machine's connectivity): a defect reported again is added to the open item as another
+ * report (maintenance_reports) instead of a new item. Replaces checklist_issues (2026-10-26).
  */
-export const checklistIssues = pgTable(
-  "checklist_issues",
+export const maintenanceIssues = pgTable(
+  "maintenance_issues",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
     organizationId: bigint("organization_id", { mode: "number" })
@@ -850,32 +867,182 @@ export const checklistIssues = pgTable(
     machineId: bigint("machine_id", { mode: "number" })
       .notNull()
       .references(() => machines.id, { onDelete: "cascade" }),
-    /** The template question's id; with the machine, this is what stacks repeat reports. */
-    questionId: text("question_id").notNull(),
-    question: text("question").notNull(),
+    /** Shown as #1001 …, per organization. */
+    number: integer("number").notNull(),
+    /** checklist / schedule / connectivity / manual. */
+    source: text("source").notNull(),
+    /** lockout / major / overdue_pm / minor / connectivity / low (src/lib/maintenance-types.ts). */
+    priority: text("priority").notNull(),
+    /** new / in_progress / awaiting_parts / resolved. */
+    status: text("status").notNull().default("new"),
+    title: text("title").notNull(),
+    complaint: text("complaint").notNull().default(""),
+    cause: text("cause"),
+    correction: text("correction"),
+    /** internal / vendor (who did the work), and the vendor's name. */
+    performedBy: text("performed_by"),
+    vendorName: text("vendor_name"),
+    /** One open item per key: checklist:<questionId>, schedule:<id>, connectivity. Null = never merged (manual). */
+    dedupeKey: text("dedupe_key"),
+    // Checklist defects: the question, the most severe report so far, and the latest answer.
+    questionId: text("question_id"),
     section: text("section"),
-    /** minor or major (the most severe reported so far). */
-    severity: text("severity").notNull(),
-    /** The latest answer's label and note, e.g. "Minor defect", "buckle sticks". */
-    answerLabel: text("answer_label").notNull(),
+    severity: text("severity"),
+    answerLabel: text("answer_label"),
     note: text("note"),
     reportCount: integer("report_count").notNull().default(1),
     firstReportedAt: timestamp("first_reported_at", { withTimezone: true }).notNull(),
     lastReportedAt: timestamp("last_reported_at", { withTimezone: true }).notNull(),
     firstCheckinId: bigint("first_checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
     lastCheckinId: bigint("last_checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
-    /** The check-in that last raised a "Repair needed" alert for this issue (when new, or escalated). */
+    /** The check-in that last raised a "Repair needed" alert for this item (when new, or escalated). */
     alertCheckinId: bigint("alert_checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
+    /** Service items: the schedule, and the machine's reading when the work was done (sets the next due). */
+    scheduleId: bigint("schedule_id", { mode: "number" }).references(() => maintenanceSchedules.id, { onDelete: "set null" }),
+    servicedHours: doublePrecision("serviced_hours"),
+    servicedKm: doublePrecision("serviced_km"),
+    /** YYYY-MM-DD in the company time zone. */
+    servicedOn: text("serviced_on"),
+    /** Where the machine was when it was reported. */
+    lat: doublePrecision("lat"),
+    lng: doublePrecision("lng"),
+    worksiteId: bigint("worksite_id", { mode: "number" }).references(() => worksites.id, { onDelete: "set null" }),
+    createdByUserId: bigint("created_by_user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolvedByUserId: bigint("resolved_by_user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
-    resolutionNote: text("resolution_note"),
   },
   (t) => [
-    uniqueIndex("checklist_issues_one_open_idx").on(t.machineId, t.questionId).where(sql`${t.resolvedAt} is null`),
-    index("checklist_issues_machine_idx").on(t.machineId, t.lastReportedAt),
-    index("checklist_issues_alert_checkin_idx").on(t.alertCheckinId),
+    uniqueIndex("maintenance_issues_number_idx").on(t.organizationId, t.number),
+    uniqueIndex("maintenance_issues_one_open_idx")
+      .on(t.machineId, t.dedupeKey)
+      .where(sql`${t.resolvedAt} is null and ${t.dedupeKey} is not null`),
+    index("maintenance_issues_org_idx").on(t.organizationId, t.resolvedAt),
+    index("maintenance_issues_machine_idx").on(t.machineId, t.lastReportedAt),
+    index("maintenance_issues_alert_checkin_idx").on(t.alertCheckinId),
   ],
 );
+
+/** Each checklist that reported a maintenance item (the first and every repeat), with that report's answer and note. */
+export const maintenanceReports = pgTable(
+  "maintenance_reports",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    issueId: bigint("issue_id", { mode: "number" })
+      .notNull()
+      .references(() => maintenanceIssues.id, { onDelete: "cascade" }),
+    /** Null once the check-in is deleted by the retention clean-up (the report stays). */
+    checkinId: bigint("checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
+    reportedAt: timestamp("reported_at", { withTimezone: true }).notNull(),
+    answerLabel: text("answer_label").notNull(),
+    severity: text("severity").notNull(),
+    note: text("note"),
+  },
+  (t) => [index("maintenance_reports_issue_idx").on(t.issueId, t.reportedAt), index("maintenance_reports_checkin_idx").on(t.checkinId)],
+);
+
+/** Files staff attach to a maintenance item, per section (complaint / cause / correction). Private storage. */
+export const maintenanceAttachments = pgTable(
+  "maintenance_attachments",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    issueId: bigint("issue_id", { mode: "number" })
+      .notNull()
+      .references(() => maintenanceIssues.id, { onDelete: "cascade" }),
+    section: text("section").notNull(),
+    storageKey: text("storage_key").notNull(),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull(),
+    bytes: integer("bytes").notNull(),
+    uploadedByUserId: bigint("uploaded_by_user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("maintenance_attachments_issue_idx").on(t.issueId)],
+);
+
+/** What happened to a maintenance item, in words ("Status: In progress → Resolved"). */
+export const maintenanceActivity = pgTable(
+  "maintenance_activity",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    issueId: bigint("issue_id", { mode: "number" })
+      .notNull()
+      .references(() => maintenanceIssues.id, { onDelete: "cascade" }),
+    /** Null = VS-lab itself (a checklist, a schedule, the watchdog). */
+    userId: bigint("user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    kind: text("kind").notNull(),
+    detail: text("detail").notNull(),
+  },
+  (t) => [index("maintenance_activity_issue_idx").on(t.issueId, t.at)],
+);
+
+/**
+ * Preventive maintenance: a service every N days and/or N engine hours and/or N km, whichever comes first. Due
+ * soon in the last 10% of the interval; due (an open "Service due" item) once any is reached. Resolving that item
+ * sets the next due from the reading at service.
+ */
+export const maintenanceSchedules = pgTable(
+  "maintenance_schedules",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    description: text("description").notNull(),
+    everyDays: integer("every_days"),
+    everyHours: doublePrecision("every_hours"),
+    everyKm: doublePrecision("every_km"),
+    /** YYYY-MM-DD (company time zone). */
+    nextDueOn: text("next_due_on"),
+    nextDueHours: doublePrecision("next_due_hours"),
+    nextDueKm: doublePrecision("next_due_km"),
+    lastServicedAt: timestamp("last_serviced_at", { withTimezone: true }),
+    active: boolean("active").notNull().default(true),
+    createdByUserId: bigint("created_by_user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("maintenance_schedules_machine_idx").on(t.machineId)],
+);
+
+/**
+ * Hour meter and odometer readings (src/lib/meters.ts): from checklists, typed in by staff, or at a service. The
+ * engine computer's own readings stay on the machine (engine_hour_meter, odometer_km) and aren't copied here.
+ */
+export const meterReadings = pgTable(
+  "meter_readings",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    machineId: bigint("machine_id", { mode: "number" })
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    /** hours / km. */
+    kind: text("kind").notNull(),
+    value: doublePrecision("value").notNull(),
+    /** checklist / manual / service. */
+    source: text("source").notNull(),
+    checkinId: bigint("checkin_id", { mode: "number" }).references(() => checkins.id, { onDelete: "set null" }),
+    userId: bigint("user_id", { mode: "number" }).references(() => users.id, { onDelete: "set null" }),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("meter_readings_machine_idx").on(t.machineId, t.kind, t.recordedAt)],
+);
+
+/** Place names ("Mount Pearl, NL") for ~1 km squares, from OpenStreetMap Nominatim (src/lib/places.ts). */
+export const placeNames = pgTable("place_names", {
+  key: text("key").primaryKey(),
+  name: text("name"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+});
 
 /**
  * Photos taken during a check-in, one row per photo, attached to a checklist question. The file is in
@@ -1216,7 +1383,8 @@ export type DeviceIncident = typeof deviceIncidents.$inferSelect;
 export type CheckinPhoto = typeof checkinPhotos.$inferSelect;
 export type ChecklistTemplate = typeof checklistTemplates.$inferSelect;
 export type ChecklistAnswerSet = typeof checklistAnswerSets.$inferSelect;
-export type ChecklistIssue = typeof checklistIssues.$inferSelect;
+export type MaintenanceIssue = typeof maintenanceIssues.$inferSelect;
+export type MaintenanceSchedule = typeof maintenanceSchedules.$inferSelect;
 export type NotificationRule = typeof notificationRules.$inferSelect;
 export type NotificationEvent = typeof notificationEvents.$inferSelect;
 export type Division = typeof divisions.$inferSelect;

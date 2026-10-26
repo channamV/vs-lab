@@ -36,14 +36,13 @@ const NL_SCHEDULE_A: LibraryTemplate = {
   name: "NL trip inspection – truck, tractor, trailer (Schedule A)",
   summary:
     "Newfoundland and Labrador daily trip inspection for trucks, tractors and trailers over 4,500 kg (NLR 27/12 Schedule A, " +
-    "based on NSC Standard 13 Schedule 1): all 23 systems, location, odometer and trailer.",
+    "based on NSC Standard 13 Schedule 1): all 23 systems, location and trailer (the odometer is asked on every checklist).",
   sections: [
     {
       id: "trip",
       title: "Trip inspection details",
       questions: [
-        { id: "location", text: "Place of inspection (city, town or highway)", noteRequired: false, textOnly: true },
-        { id: "odometer", text: "Odometer reading (km)", noteRequired: false, textOnly: true },
+        { id: "location", text: "Place of inspection (city, town or highway)", noteRequired: false, textOnly: true, prefill: "place" },
         { id: "trailers", text: "Trailer(s) towed: licence plate or unit number (write \"None\" if not towing)", noteRequired: false, textOnly: true },
       ],
     },

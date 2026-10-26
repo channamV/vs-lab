@@ -1,9 +1,9 @@
 "use client";
 
-import { startTransition, useActionState, useState, type FormEvent } from "react";
+import { startTransition, useActionState, useEffect, useRef, useState, type FormEvent } from "react";
 import type { AnswerOption, ChecklistSection } from "@/lib/db/schema";
 import { formatDistance } from "@/lib/format";
-import { checkInAction, checkOutAction, type CheckinFormState } from "./actions";
+import { checkInAction, checkOutAction, placeNameAction, type CheckinFormState } from "./actions";
 import { shrinkPhoto } from "@/lib/shrink-photo";
 
 const idle: CheckinFormState = { status: "idle" };
@@ -54,6 +54,11 @@ export type PublicChecklist = {
   frequency: string;
   /** Once a day per machine: when today's checklist was done, as a time in the company's zone (null = not yet). */
   doneTodayAt: string | null;
+  /** The hour meter (hours) or odometer (km) reading asked with every checklist: the engine computer's, or a hint. */
+  meter: { kind: "hours" | "km"; value: number | null; hint: number | null };
+  /** Written answers that start as the town and province, and that town (from the machine's position). */
+  placeQuestionIds: string[];
+  place: string | null;
 };
 
 const MAX_PHOTOS_PER_QUESTION = 3;
@@ -122,7 +127,26 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
   const [state, action, pending] = useActionState(checkInAction, idle);
   const [locating, setLocating] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>(() =>
+    Object.fromEntries(checklist.placeQuestionIds.map((id) => [id, checklist.place ?? ""])),
+  );
+  const [meter, setMeter] = useState(checklist.meter.value !== null ? String(checklist.meter.value) : "");
+  // Place answers the operator has typed in are left alone when the phone's position comes in.
+  const edited = useRef(new Set<string>());
+  useEffect(() => {
+    if (!checklist.placeQuestionIds.length) return;
+    let cancelled = false;
+    (async () => {
+      const position = await getPhoneLocation();
+      if (!position || cancelled) return;
+      const name = await placeNameAction(machineCode, position.coords.latitude, position.coords.longitude);
+      if (!name || cancelled) return;
+      setNotes((n) => ({ ...n, ...Object.fromEntries(checklist.placeQuestionIds.filter((id) => !edited.current.has(id)).map((id) => [id, name])) }));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [checklist.placeQuestionIds, machineCode]);
   const [generalNotes, setGeneralNotes] = useState("");
   const [lockout, setLockout] = useState<"yes" | "no" | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -265,6 +289,29 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
 
       <fieldset hidden={skip} disabled={skip} className="space-y-3">
         <legend className="font-medium">2. Pre-start checklist</legend>
+        <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+          <label htmlFor="meterReading" className="block">
+            {checklist.meter.kind === "km" ? "Odometer reading (km)" : "Hour meter reading (hours)"}
+          </label>
+          <input
+            id="meterReading"
+            name="meterReading"
+            inputMode="decimal"
+            value={meter}
+            onChange={(e) => setMeter(e.target.value)}
+            required
+            maxLength={12}
+            pattern="[0-9 ,.]*"
+            className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-lg dark:border-slate-700 dark:bg-slate-900"
+          />
+          <p className="mt-1 text-sm text-slate-500">
+            {checklist.meter.value !== null
+              ? "Filled in from the engine computer. Change it if the meter shows something different."
+              : checklist.meter.hint !== null
+                ? `Last known: about ${checklist.meter.hint.toLocaleString("en-CA")} ${checklist.meter.kind === "km" ? "km" : "h"}.`
+                : "As shown on the machine's meter."}
+          </p>
+        </div>
         {checklist.sections.map((section) => (
           <div key={section.id} className="space-y-2">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{section.title}</h3>
@@ -292,7 +339,10 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
                       id={`text-${q.id}`}
                       name={`note:${q.id}`}
                       value={notes[q.id] ?? ""}
-                      onChange={(e) => setNotes((n) => ({ ...n, [q.id]: e.target.value }))}
+                      onChange={(e) => {
+                        edited.current.add(q.id);
+                        setNotes((n) => ({ ...n, [q.id]: e.target.value }));
+                      }}
                       required
                       maxLength={500}
                       className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"

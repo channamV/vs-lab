@@ -46,6 +46,7 @@ const TemplateJson = z.object({
               photoRequired: z.boolean().optional(),
               photoOnly: z.boolean().optional(),
               textOnly: z.boolean().optional(),
+              prefill: z.enum(["place"]).optional(),
             }),
           )
           .max(200),

@@ -129,6 +129,10 @@ export const EVENT_TYPES = {
     label: "Training Expired",
     description: "An operator's certification has expired. If it's required for some machines, they can't check in on them (after any grace period).",
   },
+  service_due: {
+    label: "Service Due",
+    description: "A machine's scheduled service (every so many hours, km or days) has come due, and a maintenance item was opened.",
+  },
   possible_tamper: {
     label: "Possible Tamper",
     description:

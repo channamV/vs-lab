@@ -22,6 +22,7 @@ import {
   Truck,
   UserCog,
   X,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { signOutAction } from "@/app/(admin)/login/actions";
@@ -44,6 +45,7 @@ const ICONS = {
   reports: BarChart3,
   operators: HardHat,
   checklists: ClipboardCheck,
+  maintenance: Wrench,
   training: GraduationCap,
   users: UserCog,
   settings: Settings,

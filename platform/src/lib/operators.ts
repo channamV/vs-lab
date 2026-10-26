@@ -8,13 +8,16 @@ import {
   checkins,
   engineSessions,
   machines,
+  meterReadings,
   machineOperators,
   operators,
   pinFailures,
   checkinPhotos,
   type ChecklistAnswer,
 } from "@/lib/db/schema";
-import { checklistForMachine, coveringChecklist, evaluateAnswers, recordIssues, type Defect } from "@/lib/checklists";
+import { checklistForMachine, coveringChecklist, evaluateAnswers, type Defect } from "@/lib/checklists";
+import { recordChecklistDefects } from "@/lib/maintenance";
+import { meterKindFor, parseReading } from "@/lib/meters";
 import { orgTimeZone } from "@/lib/org-time";
 import { PHOTO_RULES, photoStorageAvailable, savePhoto, type PhotoFile } from "@/lib/photos";
 import { effectiveEnd, type SessionSpan } from "@/lib/telemetry/engine";
@@ -375,7 +378,8 @@ export type CheckinFailure =
   | "machine-locked-out"
   | "machine-locked"
   | "training-required"
-  | "not-checked-in";
+  | "not-checked-in"
+  | "meter-invalid";
 
 export type CheckInResult =
   | {
@@ -426,6 +430,8 @@ export async function checkIn(
     /** Photos attached to checklist questions (already shrunk by the phone). */
     photos?: PhotoFile[];
     phoneLocation?: PhoneLocation | null;
+    /** The hour meter (or, on on-road machines, odometer) reading given with the checklist, as typed. */
+    meterReading?: string | null;
   },
   now = new Date(),
 ): Promise<CheckInResult> {
@@ -442,6 +448,7 @@ export async function checkIn(
       modeRevertTo: machines.modeRevertTo,
       tier: machines.tier,
       categoryId: machines.categoryId,
+      onRoad: machines.onRoad,
     })
     .from(machines)
     .where(eq(machines.code, input.machineCode));
@@ -492,6 +499,10 @@ export async function checkIn(
         enforcePhotos: photoStorageAvailable(),
       });
   if (!evaluation.ok) return { ok: false, reason: evaluation.reason, questions: evaluation.questions };
+  // The hour meter / odometer reading (with the checklist only; the form asks for it, a typo is refused).
+  const meter = covering ? null : parseReading(input.meterReading);
+  if (meter !== null && typeof meter === "object") return { ok: false, reason: "meter-invalid" };
+  const meterKind = meterKindFor(machine);
   const { answers, defects } = evaluation;
   const lockout = Boolean(input.lockout) && evaluation.hasMajor;
   // Covered by an earlier checklist: nothing inspected now, so no confirmation statement to agree to.
@@ -566,8 +577,13 @@ export async function checkIn(
         engineSessionId: live?.id ?? null,
         engineLink,
         method: "web",
+        meterKind: meter !== null ? meterKind : null,
+        meterReading: meter,
       })
       .returning({ id: checkins.id });
+    if (meter !== null) {
+      await tx.insert(meterReadings).values({ organizationId, machineId: machine.id, kind: meterKind, value: meter, source: "checklist", checkinId: row.id, recordedAt: now });
+    }
     if (stored.length) {
       await tx.insert(checkinPhotos).values(
         stored.map((p) => ({
@@ -582,7 +598,7 @@ export async function checkIn(
         })),
       );
     }
-    await recordIssues(tx, { organizationId, machineId: machine.id, checkinId: row.id, defects, now });
+    await recordChecklistDefects(tx, { organizationId, machineId: machine.id, checkinId: row.id, defects, lockout, now });
     if (lockout) {
       const major = defects.filter((d) => d.severity === "major").map((d) => d.question);
       await tx

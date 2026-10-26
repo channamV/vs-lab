@@ -127,8 +127,8 @@ says it's compliant. Update that doc when items are done.
   (labels free, each with a severity pass/minor/major/na) and templates (sections → questions with stable ids,
   one answer set, customizable confirmation text; one `is_default`). Machine uses `checklist_template_id` or the
   default; `ensureChecklistDefaults` creates defaults lazily. Check-ins snapshot questions/answers/confirmation.
-  Defects → `checklist_issues` (one open per machine+question; repeats stack, escalation re-alerts via
-  `alert_checkin_id`); minor and major both raise "Repair needed". Major + operator's choice → machine
+  Defects → maintenance items (`recordChecklistDefects`: one open per machine+question; repeats add a report, escalation
+  re-alerts via `alert_checkin_id`); minor and major both raise "Repair needed". Major + operator's choice → machine
   `locked_out_at` (no check-ins until a manager clears it) + `equipment_locked` notification.
   How often (`checklist_templates.frequency`, labels in browser-safe `src/lib/checklist-frequency.ts`): every_checkin /
   operator_daily / machine_daily (company day); `checkIn({ skipChecklist })` → `coveringChecklist` or `checklist-needed`;
@@ -137,6 +137,19 @@ says it's compliant. Update that doc when items are done.
   (dates ≤366 days, machine, division, operator, result, covered), detail + print, CSV one row per answer, bulk print.
   Question kinds also include `textOnly` (written answer, e.g. odometer; the text is the answer). Ready-made checklists
   (`src/lib/checklist-library.ts`, tested; Checklists → Ready-made → Add): NL trip inspection Schedule A (NLR 27/12).
+- Maintenance (`src/lib/maintenance.ts` + browser-safe `maintenance-types.ts`, page reads `maintenance-queries.ts`, tested;
+  `docs/maintenance.md`; Craig 2026-10-26, modelled on Insights/Lovable): `maintenance_issues` (replaced `checklist_issues`,
+  #number per org, source checklist/schedule/connectivity/manual, priority lockout/major/overdue_pm/minor/connectivity/low,
+  status new/in_progress/awaiting_parts/resolved, three C's complaint/cause/correction). One open per machine+`dedupe_key`
+  (`checklist:<q>`, `schedule:<id>`, `connectivity`); repeats → `maintenance_reports` (photos = that check-in's photos of
+  the question). Resolve needs all three C's (server); a schedule item moves `maintenance_schedules` on from the
+  serviced reading (every days/hours/km, whichever first; due soon last 10%); last open lockout item clears
+  `locked_out_at`. `runMaintenanceChecks` in `runWatchdog` (schedules due → `service_due` event; paired machines silent
+  72 h → item, auto-resolved when back). Attachments private via `/maintenance/files/<id>`. Managers edit, divisions apply.
+  Meter readings (`src/lib/meters.ts`): every checklist asks hours (km if `on_road`) → `checkins.meter_reading` +
+  `meter_readings`; current hours = J1939 meter, else latest reading + measured engine time; km = `odometer_km`
+  (PIDs 0x1A6/0x30B) else latest. Place prefill: textOnly questions with `prefill: "place"` (or id `location`) start as
+  "Town, PROV" (`src/lib/places.ts`, Nominatim, cached in `place_names`; phone position via `placeNameAction`).
 - Operator alerts (`src/lib/operator-alerts.ts`, tested; `docs/operator-alerts.md`; Craig 2026-10-25): `desiredAlert` (pure)
   → not_checked_in / checklist_due / none (Access-Controlled, monitor/control tier, engine running only);
   `syncOperatorAlert` (after device reports and check-ins) queues `ALERT=<kind>` when `machines.operator_alert` changes

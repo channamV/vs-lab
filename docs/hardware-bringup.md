@@ -147,6 +147,12 @@ sign-off (logout) ends the engine-on period. In order:
    `&RST=<reason>&BOOT=<n>` to the login notification, and post the previous start-up's last log lines to
    `/hub/api/diag/<DEVID>`. Spec: [device-diagnostics.md](device-diagnostics.md). VS-lab side is done.
 
+8. **Odometer for maintenance and checklists** (Craig, 2026-10-26; low priority): every checklist now asks for the hour
+   meter (or the odometer on on-road vehicles), filled in from the vehicle when the device reads it. Hours already
+   come from J1939 (0x301). Add the odometer: OBD-II PID `0xA6` (only on newer vehicles: check the supported-PIDs
+   bitmap, don't poll it otherwise) sent as `0x1A6` in **km** (the PID gives 0.1 km), and J1939 SPN 917 (or 245) as
+   `0x30B` in km. Send it about once a minute, not with every reading. VS-lab side is done (`machines.odometer_km`).
+
 Rules as before: mark changes `// VSLAB:`, keep Bluetooth on in deployment builds, build/flash on Craig's PC, update this
 file after each step.
 

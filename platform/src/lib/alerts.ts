@@ -2,7 +2,7 @@ import { currentMode } from "@/lib/mode-types";
 import { orgTimeZone } from "@/lib/org-time";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { alerts, checkins, checklistIssues, engineSessions, machines, operators, type Alert, type Machine } from "@/lib/db/schema";
+import { alerts, checkins, engineSessions, machines, maintenanceIssues, operators, type Alert, type Machine } from "@/lib/db/schema";
 import { isCheckinCurrent } from "@/lib/operators";
 import { clockTime, formatDistance, machineLabel } from "@/lib/format";
 
@@ -120,21 +120,21 @@ export async function raiseCheckinAlerts(db: Db, checkinId: number, now = new Da
   const base = { organizationId: c.organizationId, machineId: machine.id, checkinId: c.id, createdAt: now };
   const raised: Alert[] = [];
 
-  // Repair needed: only for issues this check-in opened or made more severe. A defect that's already
-  // open stacks onto its issue without another alert (see recordIssues in checklists.ts).
+  // Repair needed: only for maintenance items this check-in opened or made more urgent. A defect that's already
+  // open is added to its item without another alert (see recordChecklistDefects in maintenance.ts).
   const issues = await db
     .select()
-    .from(checklistIssues)
-    .where(eq(checklistIssues.alertCheckinId, c.id));
+    .from(maintenanceIssues)
+    .where(eq(maintenanceIssues.alertCheckinId, c.id));
   if (issues.length) {
     const others = (
       await db
-        .select({ id: checklistIssues.id })
-        .from(checklistIssues)
-        .where(and(eq(checklistIssues.machineId, machine.id), isNull(checklistIssues.resolvedAt)))
+        .select({ id: maintenanceIssues.id })
+        .from(maintenanceIssues)
+        .where(and(eq(maintenanceIssues.machineId, machine.id), isNull(maintenanceIssues.resolvedAt)))
     ).length - issues.length;
     const list = issues
-      .map((i) => `${i.question} (${i.answerLabel}${i.reportCount > 1 ? `, now ${i.severity}` : ""})${i.note ? `: "${i.note}"` : ""}`)
+      .map((i) => `#${i.number} ${i.title} (${i.answerLabel}${i.reportCount > 1 ? `, now ${i.severity}` : ""})${i.note ? `: "${i.note}"` : ""}`)
       .join("; ");
     raised.push(
       ...(await raise(db, {

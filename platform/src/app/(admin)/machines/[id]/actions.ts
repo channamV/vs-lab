@@ -10,7 +10,7 @@ import { zonedTime } from "@/lib/telemetry/engine";
 import { durationEnd, ModeError, setMode, setOfflineFallback } from "@/lib/modes";
 import { recordEvent } from "@/lib/notifications";
 import { afterEvents } from "@/lib/alert-jobs";
-import { clearLockout, resolveIssue, setMachineTemplate } from "@/lib/checklists";
+import { clearLockout, setMachineTemplate } from "@/lib/checklists";
 
 const AllowedOperators = z.object({
   id: z.coerce.number().int().positive(),
@@ -90,16 +90,6 @@ export async function setMachineTemplateAction(formData: FormData) {
   const raw = String(formData.get("templateId") ?? "");
   await assertMachineInScope(getDb(), auth, id);
   await setMachineTemplate(getDb(), auth.organizationId, id, raw ? z.coerce.number().int().positive().parse(raw) : null);
-  refresh();
-}
-
-/** Mark a checklist issue as fixed. A new report of the same item then opens a new issue. */
-export async function resolveIssueAction(formData: FormData) {
-  const auth = await requireAuth("manager");
-  const id = z.coerce.number().int().positive().parse(formData.get("id"));
-  const issueId = z.coerce.number().int().positive().parse(formData.get("issueId"));
-  await assertMachineInScope(getDb(), auth, id);
-  await resolveIssue(getDb(), auth.organizationId, issueId, auth.userId, String(formData.get("note") ?? ""));
   refresh();
 }
 

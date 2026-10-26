@@ -260,6 +260,20 @@
       "when": 1793024614181,
       "tag": "0036_device_diagnostics",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793029245422,
+      "tag": "0037_maintenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793029260487,
+      "tag": "0038_drop_checklist_issues",
+      "breakpoints": true
     }
   ]
 }

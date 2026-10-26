@@ -1,0 +1,1 @@
+DROP TABLE "checklist_issues" CASCADE;
