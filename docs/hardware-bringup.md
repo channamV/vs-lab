@@ -150,6 +150,42 @@ sign-off (logout) ends the engine-on period. In order:
 Rules as before: mark changes `// VSLAB:`, keep Bluetooth on in deployment builds, build/flash on Craig's PC, update this
 file after each step.
 
+## Field test 1 follow-up (2026-10-26, CX-9 drive; desktop session)
+
+The report: after a boot the device reported for a while, then went quiet in good coverage (twice); once it restarted
+by itself after ~5 min, once not within 14 min; beeps with the engine off at 11:16; a stale position shown as live.
+
+**What the firmware can do on its own** (checked in the source): the ESP32 only restarts by itself when it **wakes from
+sleep** (`RESET_AFTER_WAKEUP`), after a crash/watchdog/brownout, or on a restart command. "Quiet, then restarted with
+nobody touching it" therefore most likely means **it went to sleep while driving and a bump woke it** (wake needs 0.4 g
+of motion, so a smooth drive or parking can keep it asleep: the 14-minute case). The sleep trigger that fits a moving
+car: OBD builds sleep when the engine computer misses 3 readings in a row **and** a reconnect fails (`[OBD] ECU OFF`),
+regardless of movement. Not proven yet (no serial log from the car). The 11:16 beeps: with the engine computer silent,
+`engineRunning()` fell back to voltage, and 14.4 V right after a drive read as "running".
+
+**Changed** (`feat/cell-beam` `4d495a4`, on the device now, `bench-beam-obd`):
+- no sleep on `ECU OFF` while GPS or motion shows movement in the last 30 s: keep tracking, keep retrying OBD;
+- OBD builds: "engine running" (for alert beeps) = engine computer answering and RPM ≥ 300; voltage isn't used;
+- **for VS-lab (cloud session):** the first sign-in after a boot carries `&RST=` (`power_on` = plugged in or reset,
+  `software` = woke from sleep or restart command, `crash`, `watchdog`, `brownout`, `external`, `unknown`), and every
+  sign-off carries `&WHY=` (`stationary`, `ecu_off`, `bluetooth_off`). Store them on the device events; the tamper
+  watchdog can then tell a wake or crash from an unplug (`RST=software` after `WHY=…` isn't tampering). Desk check:
+  `power_on`, `stationary`.
+
+**Answers to the report's requests:**
+1. Bench reproduction: the drive conditions (engine computer, motion) don't happen on the desk. Next drive, record
+   the serial log in the car (laptop on the passenger seat; Claude on the PC records it).
+2. Restart reason: done (`&RST=`), plus the sleep reason (`&WHY=`).
+3. Watchdog: the firmware sets a 600 s task watchdog **without** reset (`esp_task_wdt_init(600, 0)`), so a stuck
+   network task isn't restarted by it. Recovery from network trouble is the existing logic: 5 failed uploads →
+   modem off, re-init (with a 3-minute pause if that fails). Revisit with the car log.
+4. Stale position: the firmware already sends a position only with a new GPS fix time, plus satellites and HDOP. The
+   frozen map and 30 km/h are VS-lab keeping the last snapshot (item 6 of the report, VS-lab side).
+5. Engine rule after boot: the check-in state lives in VS-lab, not the device; a booted device is quiet until VS-lab
+   sends `ALERT=…`. The device-side "engine running" is now RPM-only in OBD builds (above). VS-lab should send
+   `ALERT=none` when it sees the engine stop.
+6. VS-lab: stale position and conflicting status lines: cloud session.
+
 ## Open items (in order)
 
 1. ✅ **Merge `fix/engine-vibration`** (`be90819`), 2026-10-25 with Craig's go-ahead: merged as `f87ac2f`, checks passed (271 tests), deployed (`dpl_CZFYtQG2xtw8CFM5STwFbgJcUnAD`, READY). The deploy's migration step ran without errors ("Database is up to date"), and no new runtime errors since. `fix/battery-floor` merged next, also with Craig's go-ahead (see item 4).
