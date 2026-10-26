@@ -23,7 +23,7 @@ export function PriorityBadge({ priority, resolved = false }: { priority: string
 
 export const statusLabel = (s: string) => STATUSES[s as Status]?.label ?? s;
 export const sourceLabel = (s: string) => SOURCES[s as Source] ?? s;
-export const SOURCE_ICON: Record<string, string> = { checklist: "📋", schedule: "🛠️", connectivity: "📡", manual: "✍️" };
+export const SOURCE_ICON: Record<string, string> = { checklist: "📋", schedule: "🛠️", connectivity: "📡", manual: "✍️", operator: "📱" };
 
 /** "today", "3d", "5w" since a date. */
 export function age(from: Date, now: number) {

@@ -528,6 +528,45 @@ export const operators = pgTable(
 );
 
 /**
+ * The operator app (src/lib/operator-app.ts; docs/operator-app.md): one-time sign-in codes emailed to an operator's
+ * address (only the hash is kept), and the app's sign-ins (one per operator per phone; only the token's hash is kept).
+ */
+export const operatorLoginCodes = pgTable(
+  "operator_login_codes",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    /** Lower-case email the code was sent to (it can belong to operators in several companies). */
+    email: text("email").notNull(),
+    codeHash: text("code_hash").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (t) => [index("operator_login_codes_email_idx").on(t.email, t.createdAt)],
+);
+
+export const operatorAppSessions = pgTable(
+  "operator_app_sessions",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    organizationId: bigint("organization_id", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    operatorId: bigint("operator_id", { mode: "number" })
+      .notNull()
+      .references(() => operators.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    /** What the phone called itself ("Pixel 8"), so a manager can tell sign-ins apart. */
+    deviceName: text("device_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("operator_app_sessions_operator_idx").on(t.operatorId)],
+);
+
+/**
  * Which operators may run which machine. A machine with no rows here accepts any active operator.
  */
 export const machineOperators = pgTable(

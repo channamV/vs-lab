@@ -12,6 +12,8 @@ import {
   deviceIncidents,
   fuelEvents,
   loginTokens,
+  operatorAppSessions,
+  operatorLoginCodes,
   machineFaults,
   machineOperators,
   machines,
@@ -233,6 +235,9 @@ export async function applyRetention(db: Db, now = new Date()): Promise<Retentio
   const yesterday = daysBefore(now, 1);
   r.sessionsDeleted += (await db.delete(sessions).where(lt(sessions.expiresAt, now)).returning({ id: sessions.id })).length;
   await db.delete(loginTokens).where(lt(loginTokens.expiresAt, yesterday));
+  // Operator app: expired sign-ins and old sign-in codes.
+  r.sessionsDeleted += (await db.delete(operatorAppSessions).where(lt(operatorAppSessions.expiresAt, now)).returning({ id: operatorAppSessions.id })).length;
+  await db.delete(operatorLoginCodes).where(lt(operatorLoginCodes.expiresAt, yesterday));
   await db.delete(pinFailures).where(lt(pinFailures.at, yesterday));
   return r;
 }
@@ -449,6 +454,7 @@ export async function eraseOperator(db: Db, organizationId: number, operatorId: 
       if (e.detail) await tx.update(safetyEvents).set({ detail: scrub(e.detail) }).where(eq(safetyEvents.id, e.id));
     }
     await tx.delete(machineOperators).where(eq(machineOperators.operatorId, op.id));
+    await tx.delete(operatorAppSessions).where(eq(operatorAppSessions.operatorId, op.id));
     await tx
       .update(operators)
       .set({

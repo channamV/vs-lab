@@ -58,14 +58,14 @@ export function shouldAllow(m: Pick<Machine, "tier" | "mode" | "modeUntil" | "mo
 /** After a QR check-in: let the operator start (when they're approved and the machine is Access-Controlled). */
 export async function sendAllow(db: Db, checkinId: number, now = new Date()) {
   const [c] = await db.select().from(checkins).where(eq(checkins.id, checkinId));
-  if (!c || c.method !== "web") return false;
+  if (!c || (c.method !== "web" && c.method !== "app")) return false;
   const relay = await relayDevice(db, c.machineId);
   if (!relay || !shouldAllow(relay.machine, c, now.getTime())) return false;
   await replaceCommand(
     db,
     relay.deviceId,
     "ALLOW=",
-    `ALLOW=${c.id}\t${CHECKIN_RULES.engineStartWindowMinutes}\t${CHECKIN_RULES.breakMinutes.web}`,
+    `ALLOW=${c.id}\t${CHECKIN_RULES.engineStartWindowMinutes}\t${CHECKIN_RULES.breakMinutes[c.method] ?? 0}`,
     `Let check-in #${c.id} start the machine`,
     RELAY_RULES.allowExpiryMinutes * 60_000,
     now,
@@ -83,7 +83,7 @@ export async function sendRevoke(db: Db, checkinId: number, now = new Date()) {
   await db
     .update(deviceCommands)
     .set({ status: "cancelled" })
-    .where(and(eq(deviceCommands.deviceId, relay.deviceId), inArray(deviceCommands.status, ["pending", "sent"]), eq(deviceCommands.command, `ALLOW=${c.id}\t${CHECKIN_RULES.engineStartWindowMinutes}\t${CHECKIN_RULES.breakMinutes.web}`)));
+    .where(and(eq(deviceCommands.deviceId, relay.deviceId), inArray(deviceCommands.status, ["pending", "sent"]), like(deviceCommands.command, `ALLOW=${c.id}\t%`)));
   await replaceCommand(db, relay.deviceId, "REVOKE=", `REVOKE=${c.id}`, `Stop check-in #${c.id} starting the machine`, RELAY_RULES.allowExpiryMinutes * 60_000 * 4, now);
   return true;
 }
@@ -188,7 +188,9 @@ export async function beaconCheckIn(db: Db, deviceId: string, input: { operatorI
     .select()
     .from(operators)
     .where(and(eq(operators.id, input.operatorId), eq(operators.organizationId, m.organizationId), isNull(operators.erasedAt)));
-  if (!op || op.beaconName !== input.beacon.toUpperCase()) throw new RelayError("Unknown operator or beacon");
+  // b=APP: the operator app's pass (src/lib/operator-app.ts) rather than a beacon.
+  const viaApp = input.beacon.toUpperCase() === "APP";
+  if (!op || (!viaApp && op.beaconName !== input.beacon.toUpperCase())) throw new RelayError("Unknown operator or beacon");
   const at = new Date(Math.min(now.getTime(), Math.max(input.at.getTime(), now.getTime() - RELAY_RULES.maxReportDelayHours * 3_600_000)));
   await syncCheckins(db, m.id, now);
   const [open] = await db
@@ -217,7 +219,7 @@ export async function beaconCheckIn(db: Db, deviceId: string, input: { operatorI
         answers: [],
         // The beacon was within reach of the device: the operator was at the machine.
         locationCheck: "near",
-        method: "ble",
+        method: viaApp ? "app" : "ble",
         relayAllowedAt: at,
       })
       .returning({ id: checkins.id });

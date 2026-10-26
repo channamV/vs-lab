@@ -182,7 +182,7 @@ export async function createManualIssue(
   db: Db,
   organizationId: number,
   userId: number | null,
-  input: { machineId: number; title: string; priority: string; complaint: string },
+  input: { machineId: number; title: string; priority: string; complaint: string; reportedBy?: string },
   now = new Date(),
 ) {
   const title = clean(input.title, 200);
@@ -198,16 +198,16 @@ export async function createManualIssue(
     {
       organizationId,
       machineId: machine.id,
-      source: "manual",
+      source: input.reportedBy ? "operator" : "manual",
       priority: input.priority,
       title,
-      complaint: clean(input.complaint) ?? "",
+      complaint: [input.reportedBy && `Reported by ${input.reportedBy} in the app.`, clean(input.complaint)].filter(Boolean).join(" "),
       firstReportedAt: now,
       lastReportedAt: now,
       createdByUserId: userId,
       ...(await machinePlace(db, machine.id)),
     },
-    { userId, detail: "Added" },
+    { userId, detail: input.reportedBy ? `Reported by ${input.reportedBy} (operator app)` : "Added" },
   );
 }
 

@@ -28,6 +28,7 @@ Each organization chooses how long data is kept (**Settings**, owners only). Eve
 | Notification history (who was emailed what) | 1 year | 30 days – 10 years |
 | Operators' training records and certificate copies | Until a manager deletes them or the operator is erased | — |
 | Maintenance items (the machine's service record) and meter readings | Kept (about the machine) | — |
+| Operator app sign-ins (phone name, last used) and sign-in codes | Until 90 days unused; codes a day | — |
 
 Details:
 - When the phone location goes, the check-in keeps the *result* (at the machine / not at the machine) and the distance.

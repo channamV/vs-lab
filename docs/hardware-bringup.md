@@ -168,6 +168,9 @@ sign-off (logout) ends the engine-on period. In order:
    - e. **ACCESS list + beacons:** keep the list in NVS; scan for `VS-BEACON-*` (Veristart's 70 cm / RSSI rules);
      an approved beacon closes the relay like an ALLOW (break 0: the beacon must stay near); report each start at
      `/hub/api/access`, queued if there's no signal.
+   - f. **Operator app passes:** advertise as `VS-<device ID>`; a writable characteristic takes an unlock pass
+     `U1|<operator>|<check-in>|<from>|<until>|<sig>` ([operator-app.md](operator-app.md)); check the HMAC with the device
+     key and the window with GPS time; act as ALLOW; check-in 0 = offline pass → report at `/hub/api/access?b=APP`.
    - Install on a test machine only with the starter-only wiring (starter-relay.md → Safety rules).
 
 Rules as before: mark changes `// VSLAB:`, keep Bluetooth on in deployment builds, build/flash on Craig's PC, update this

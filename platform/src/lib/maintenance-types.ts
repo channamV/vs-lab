@@ -41,6 +41,7 @@ export const SOURCES = {
   schedule: "Service schedule",
   connectivity: "Device",
   manual: "Added by staff",
+  operator: "Reported by an operator",
 } as const;
 export type Source = keyof typeof SOURCES;
 

@@ -81,6 +81,10 @@ const sign = (key: string, text: string) => createHmac("sha256", key).update(tex
 const commandSignature = (key: string, deviceId: string, id: number, command: string) => sign(key, `${deviceId}\n${id}\n${command}`);
 export const ackSignature = (key: string, deviceId: string, id: number, ok: boolean, result: string) =>
   sign(key, `ack\n${deviceId}\n${id}\n${ok ? 1 : 0}\n${result}`);
+/** An unlock pass the operator app hands a relay device over Bluetooth (src/lib/operator-app.ts). */
+export const unlockSignature = (key: string, deviceId: string, operatorId: number, checkinId: number, from: number, until: number) =>
+  sign(key, `unlock\n${deviceId}\n${operatorId}\n${checkinId}\n${from}\n${until}`);
+
 /** A relay device reporting a beacon start (src/lib/relay.ts, /hub/api/access). */
 export const accessSignature = (key: string, deviceId: string, operatorId: number, beacon: string, t: number) =>
   sign(key, `access\n${deviceId}\n${operatorId}\n${beacon}\n${t}`);

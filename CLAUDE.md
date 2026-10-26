@@ -311,6 +311,13 @@ says it's compliant. Update that doc when items are done.
   (`syncAccessList`: active operators with `operators.beacon_name`, approved/scheduled/certified, required training; watchdog
   + approval/operator changes; ack → `machines.access_list_hash`). Beacon starts → `beaconCheckIn` (method ble, no
   checklist; not a checklist result). Firmware side: hardware-bringup to-do 9.
+- Operator app (`src/lib/operator-app.ts`, tested; `docs/operator-app.md`; Craig 2026-10-26; app code to come in `mobile/`):
+  `/api/app/*` (excluded from `src/proxy.ts`; each route checks `Authorization: Bearer` via `withApp` in `src/lib/app-api.ts`).
+  Email-code sign-in (`operator_login_codes`, hashed, 10 min, 5 tries, 5/hour) → `operator_app_sessions` (hashed token,
+  90 days rolling). `checkIn({ operatorId, method: "app", startedAt })` skips the PIN. Relay machines: signed unlock pass
+  `U1|op|checkin|from|until|sig` (`unlockSignature` in commands.ts) after check-in (`passForCheckin`) and 12 h offline
+  passes (`offlinePasses`); device reports offline app starts via `/hub/api/access?b=APP` (→ check-in method app),
+  replaced when the app uploads its checklist (`replaceAppStart`). Problems → maintenance source `operator`.
 - Product language: tiers are "GPS & Telematics", "Safety & Access Monitoring",
   "Safety & Access Control" (`gps` / `monitor` / `control`). Control (starter relay): VS-lab side built 2026-10-26,
   firmware in progress.

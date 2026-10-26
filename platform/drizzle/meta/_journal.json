@@ -281,6 +281,13 @@
       "when": 1793041069693,
       "tag": "0039_relay_access",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793043880793,
+      "tag": "0040_operator_app",
+      "breakpoints": true
     }
   ]
 }

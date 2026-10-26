@@ -47,7 +47,7 @@ export const CHECKIN_RULES = {
    * checked out, by check-in method. A restart within this time stays with the same operator.
    * Beacon check-ins need no allowance: the device sees the beacon again when the operator returns.
    */
-  breakMinutes: { web: 30, ble: 0 } as Record<string, number>,
+  breakMinutes: { web: 30, app: 30, ble: 0 } as Record<string, number>,
 };
 
 // ---------- Location check: is the phone near the machine? ----------
@@ -441,6 +441,15 @@ export async function checkIn(
     /** The machine's code, from its QR sticker. */
     machineCode: string;
     pin: string;
+    /**
+     * The operator app (src/lib/operator-app.ts): the operator is already signed in, so no PIN. Must be an operator
+     * of the machine's organization.
+     */
+    operatorId?: number;
+    /** web = QR page (default); app = the operator app. */
+    method?: "web" | "app";
+    /** The app filled in the checklist without signal earlier: when it was done (the check-in is dated then). */
+    startedAt?: Date;
     answers: Record<string, string | undefined>;
     /** Notes per question (shown for defects). */
     answerNotes?: Record<string, string | undefined>;
@@ -483,9 +492,20 @@ export async function checkIn(
   if (machine.lockedOutAt) return { ok: false, reason: "machine-locked-out" };
   if (currentMode(machine, now.getTime()) === "locked") return { ok: false, reason: "machine-locked" };
   const organizationId = machine.organizationId;
-  if (await pinLockedOut(db, machine.id, now)) return { ok: false, reason: "locked" };
+  // Done earlier without signal (operator app): dated then, up to a day back. Everything else is checked as of now.
+  const startedAt =
+    input.startedAt && input.startedAt.getTime() < now.getTime() && now.getTime() - input.startedAt.getTime() < 86_400_000 ? input.startedAt : now;
+  const signedIn = input.operatorId !== undefined;
+  if (!signedIn && (await pinLockedOut(db, machine.id, now))) return { ok: false, reason: "locked" };
 
-  const operator = await operatorForPin(db, organizationId, machine.id, input.pin, now);
+  const operator = signedIn
+    ? ((
+        await db
+          .select()
+          .from(operators)
+          .where(and(eq(operators.id, input.operatorId!), eq(operators.organizationId, organizationId), eq(operators.active, true), isNull(operators.erasedAt)))
+      )[0] ?? null)
+    : await operatorForPin(db, organizationId, machine.id, input.pin, now);
   if (!operator) return { ok: false, reason: "bad-pin" };
   // Training (src/lib/training.ts): required certifications this operator doesn't hold block the check-in.
   const training = await trainingAccess(db, organizationId, machine, operator.id, now);
@@ -585,7 +605,7 @@ export async function checkIn(
         organizationId,
         machineId: machine.id,
         operatorId: operator.id,
-        startedAt: now,
+        startedAt: startedAt,
         // Locking out ends the check-in straight away: nobody operates a locked-out machine.
         ...(lockout && { endedAt: now, endReason: "locked out" }),
         authorized,
@@ -603,7 +623,7 @@ export async function checkIn(
         locationCheck: location.check,
         engineSessionId: live?.id ?? null,
         engineLink,
-        method: "web",
+        method: input.method ?? "web",
         meterKind: meter !== null ? meterKind : null,
         meterReading: meter,
       })
@@ -621,7 +641,7 @@ export async function checkIn(
           storageKey: p.storageKey,
           contentType: p.contentType,
           bytes: p.data.byteLength,
-          takenAt: now,
+          takenAt: startedAt,
         })),
       );
     }

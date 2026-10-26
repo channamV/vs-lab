@@ -428,6 +428,8 @@ export async function coveringChecklist(
         eq(checkins.machineId, input.machineId),
         gte(checkins.startedAt, since),
         isNull(checkins.checklistFromCheckinId),
+        // A beacon / app start without a checklist covers nothing.
+        sql`jsonb_array_length(${checkins.answers}) > 0`,
         input.frequency === "operator_daily" ? eq(checkins.operatorId, input.operatorId!) : undefined,
       ),
     )
