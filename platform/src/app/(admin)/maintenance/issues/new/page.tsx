@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { maintenanceMachineChoices } from "@/lib/data";
 import { requireRoleForPage } from "@/lib/session";
@@ -20,6 +21,7 @@ export default function NewIssuePage({ searchParams }: PageProps<"/maintenance/i
 }
 
 async function Form({ searchParams }: { searchParams: PageProps<"/maintenance/issues/new">["searchParams"] }) {
+  await connection(); // request-time page: read the session (and the time) now, not while prerendering
   await requireRoleForPage("manager");
   const machine = (await searchParams).machine;
   const machines = await maintenanceMachineChoices();

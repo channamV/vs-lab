@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { maintenanceMachineChoices, maintenanceScheduleById } from "@/lib/data";
 import { requireRoleForPage } from "@/lib/session";
@@ -21,6 +22,7 @@ export default function EditSchedulePage({ params }: PageProps<"/maintenance/sch
 }
 
 async function Form({ params }: { params: PageProps<"/maintenance/schedules/[id]">["params"] }) {
+  await connection(); // request-time page: read the session (and the time) now, not while prerendering
   await requireRoleForPage("manager");
   const id = Number((await params).id);
   const schedule = Number.isSafeInteger(id) && id > 0 ? await maintenanceScheduleById(id) : null;
