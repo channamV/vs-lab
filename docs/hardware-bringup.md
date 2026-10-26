@@ -153,6 +153,23 @@ sign-off (logout) ends the engine-on period. In order:
    bitmap, don't poll it otherwise) sent as `0x1A6` in **km** (the PID gives 0.1 km), and J1939 SPN 917 (or 245) as
    `0x30B` in km. Send it about once a minute, not with every reading. VS-lab side is done (`machines.odometer_km`).
 
+9. **Starter relay for Safety & Access Control** (Craig, 2026-10-26): copy the relay from Veristart's production
+   firmware (`Veristart/veristart-hardware-device`, `include/user_setup.h`, `include/device_pins.h`,
+   `src/ble_manager.cpp` `applyRelayPolicy`). Full spec: [starter-relay.md](starter-relay.md). VS-lab side is done.
+   Steps, each tested on the bench with a relay module (or an LED) on the external socket:
+   - a. **Relay output:** GPIO26 output, LOW at power-up; GPIO12 HIGH (socket VCC); LED GPIO4 mirrors the relay.
+     Stop reading GPIO26 as `PIN_SENSOR2` in relay builds. New env `bench-beam-relay` (flag `VSLAB_RELAY=1`).
+   - b. **MODE** enforced: Unlocked closed, Locked open, Access-Controlled open unless allowed; the offline fallback
+     (`<offline mode>` after `<hours>` without contact). Answer the command as now.
+   - c. **ALLOW / REVOKE** with the start window and break timers (engine state from RPM, as the alerts use).
+   - d. **Stay awake while parked (relay builds):** no `standby()`; Bluetooth on; modem stays registered and the
+     device checks in every **30 s** (`VSLAB_RELAY_POLL_SECONDS`), so a QR check-in reaches it within about a
+     minute. Measure the parked current with the battery check-in (`&BV=`) and note it here.
+   - e. **ACCESS list + beacons:** keep the list in NVS; scan for `VS-BEACON-*` (Veristart's 70 cm / RSSI rules);
+     an approved beacon closes the relay like an ALLOW (break 0: the beacon must stay near); report each start at
+     `/hub/api/access`, queued if there's no signal.
+   - Install on a test machine only with the starter-only wiring (starter-relay.md → Safety rules).
+
 Rules as before: mark changes `// VSLAB:`, keep Bluetooth on in deployment builds, build/flash on Craig's PC, update this
 file after each step.
 

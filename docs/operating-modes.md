@@ -49,6 +49,8 @@ returns to its normal mode. A safety lock is never undone by a timer or the offl
 
 ## Offline fallback (machines with an ignition relay)
 
+How the relay itself works, and what else it's sent: [starter-relay.md](starter-relay.md).
+
 A relay machine decides for itself when it can't reach us. Each machine has a choice, in **Operating mode → When
 offline**: after **N hours** without a connection, either
 

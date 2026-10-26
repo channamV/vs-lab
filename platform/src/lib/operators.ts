@@ -223,6 +223,27 @@ async function assertPinFree(db: Db, organizationId: number, pin: string, except
   if (taken) throw new OperatorError("That PIN is already used by another operator. Choose a different one.");
 }
 
+/** A beacon name as operators type it (pure): trimmed, upper case, letters/digits/dash/underscore, ≤ 31 characters. */
+export function cleanBeaconName(raw: string | null | undefined): string | null | { error: string } {
+  const name = (raw ?? "").trim().toUpperCase();
+  if (!name) return null;
+  if (!/^[A-Z0-9_-]{1,31}$/.test(name)) return { error: "A beacon name is letters, numbers and dashes, e.g. VS-BEACON-20." };
+  return name;
+}
+
+/** An operator's Bluetooth beacon name (relay machines, src/lib/relay.ts): unique in the organization. */
+async function cleanBeacon(db: Db, organizationId: number, value: string, exceptOperatorId: number) {
+  const name = cleanBeaconName(value);
+  if (name && typeof name === "object") throw new OperatorError(name.error);
+  if (!name) return null;
+  const [taken] = await db
+    .select({ id: operators.id })
+    .from(operators)
+    .where(and(eq(operators.organizationId, organizationId), eq(operators.beaconName, name), ne(operators.id, exceptOperatorId)));
+  if (taken) throw new OperatorError(`Beacon ${name} is already given to another operator.`);
+  return name;
+}
+
 /** Employee numbers are optional, and unique within an organization. Names can repeat. */
 async function cleanEmployeeNumber(db: Db, organizationId: number, value: string | undefined, exceptOperatorId?: number) {
   const employeeNumber = value?.trim() || null;
@@ -280,7 +301,7 @@ export async function updateOperator(
   db: Db,
   organizationId: number,
   id: number,
-  input: { name: string; active: boolean; newPin?: string; employeeNumber?: string; email?: string; phone?: string },
+  input: { name: string; active: boolean; newPin?: string; employeeNumber?: string; email?: string; phone?: string; beaconName?: string },
 ) {
   const name = input.name.trim();
   if (!name) throw new OperatorError("Enter the operator's name.");
@@ -295,6 +316,7 @@ export async function updateOperator(
     active: input.active,
     employeeNumber: await cleanEmployeeNumber(db, organizationId, input.employeeNumber, id),
     ...cleanContact(input),
+    ...(input.beaconName !== undefined && { beaconName: await cleanBeacon(db, organizationId, input.beaconName, id) }),
   };
   if (input.newPin) {
     checkPin(input.newPin);
@@ -396,6 +418,11 @@ export type CheckInResult =
       distanceM: number | null;
       /** True if the engine was already running, so the check-in is linked to it straight away. */
       engineRunning: boolean;
+      /**
+       * Safety & Access Control (starter relay): "wait" = the machine is being told to let them start (it hears at its
+       * next contact, within about a minute); "blocked" = not approved, the starter stays blocked. null = no relay.
+       */
+      relay: "wait" | "blocked" | null;
     }
   | { ok: false; reason: CheckinFailure; questions?: string[] };
 
@@ -620,6 +647,8 @@ export async function checkIn(
     location: location.check,
     distanceM: location.distanceM,
     engineRunning: live !== null,
+    relay:
+      machine.tier === "control" && !lockout && currentMode(machine, now.getTime()) === "access_controlled" ? (authorized ? "wait" : "blocked") : null,
   };
 }
 

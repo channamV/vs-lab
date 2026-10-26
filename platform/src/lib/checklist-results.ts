@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, isNull, lt, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { checkinPhotos, checkins, machines, operators } from "@/lib/db/schema";
 import { machineScope, type Scope } from "@/lib/divisions";
@@ -94,6 +94,8 @@ function where(organizationId: number, scope: Scope, f: ResultFilters): SQL {
     f.operatorId ? eq(checkins.operatorId, f.operatorId) : undefined,
     f.divisionId ? eq(machines.divisionId, f.divisionId) : undefined,
     f.includeCovered ? undefined : isNull(checkins.checklistFromCheckinId),
+    // Beacon check-ins (relay machines) have no checklist and aren't covered by one: not a result.
+    sql`(jsonb_array_length(${checkins.answers}) > 0 or ${checkins.checklistFromCheckinId} is not null)`,
   ];
   if (f.result === "defects") parts.push(eq(checkins.checklistOk, false));
   if (f.result === "locked_out") parts.push(eq(checkins.lockoutRequested, true));

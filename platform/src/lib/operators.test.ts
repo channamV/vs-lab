@@ -71,6 +71,7 @@ describe("checkIn", () => {
       location: "no-phone-location",
       distanceM: null,
       engineRunning: false,
+      relay: null,
     });
     const [row] = await db.select().from(checkins);
     expect(row).toMatchObject({ machineId: M.MACH0001, endedAt: null, notes: "all good", checklistOk: true });

@@ -233,6 +233,14 @@ export function CheckInForm({ machineCode, checklist }: { machineCode: string; c
             </ul>
           </div>
         )}
+        {state.relay === "blocked" && (
+          <p className="rounded bg-red-100 px-3 py-2 font-medium text-red-900 dark:bg-red-900/50 dark:text-red-200">
+            This machine won&apos;t start for you: you&apos;re not approved to operate it. Talk to your supervisor.
+          </p>
+        )}
+        {state.relay === "wait" && !state.engineRunning && (
+          <p className="text-emerald-800 dark:text-emerald-300">🔑 The machine is being unlocked for you. If it doesn&apos;t start, wait a minute and try again.</p>
+        )}
         <p className="font-medium">
           {state.engineRunning
             ? "The engine is running: you're now the operator."

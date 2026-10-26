@@ -5,11 +5,14 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { requireAuth } from "@/lib/session";
 import { getDb } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { checkins } from "@/lib/db/schema";
 import { createOperator, OperatorError, updateOperator } from "@/lib/operators";
+import { sendRevoke, syncAccessLists } from "@/lib/relay";
 import { eraseOperator, logAudit, PrivacyError } from "@/lib/privacy";
 
 /** `name` refills the form after an error; `version` changes on every submit so the form re-renders with it. */
-export type OperatorFormState = { error: string | null; version: number; name?: string; employeeNumber?: string; email?: string; phone?: string };
+export type OperatorFormState = { error: string | null; version: number; name?: string; employeeNumber?: string; email?: string; phone?: string; beaconName?: string };
 
 export async function addOperatorAction(prev: OperatorFormState, formData: FormData): Promise<OperatorFormState> {
   const auth = await requireAuth("manager");
@@ -38,6 +41,7 @@ const UpdateOperator = z.object({
   employeeNumber: z.string().max(40),
   email: z.string().max(120),
   phone: z.string().max(20),
+  beaconName: z.string().max(40),
 });
 
 export async function updateOperatorAction(prev: OperatorFormState, formData: FormData): Promise<OperatorFormState> {
@@ -50,7 +54,13 @@ export async function updateOperatorAction(prev: OperatorFormState, formData: Fo
     employeeNumber: formData.get("employeeNumber") ?? "",
     email: formData.get("email") ?? "",
     phone: formData.get("phone") ?? "",
+    beaconName: formData.get("beaconName") ?? "",
   });
+  const db = getDb();
+  // Relay machines: an operator being deactivated can't keep a machine they've been let into.
+  const open = input.active
+    ? []
+    : await db.select({ id: checkins.id }).from(checkins).where(and(eq(checkins.operatorId, input.id), eq(checkins.organizationId, auth.organizationId), isNull(checkins.endedAt)));
   try {
     await updateOperator(getDb(), auth.organizationId, input.id, {
       name: input.name,
@@ -59,13 +69,25 @@ export async function updateOperatorAction(prev: OperatorFormState, formData: Fo
       employeeNumber: input.employeeNumber,
       email: input.email,
       phone: input.phone,
+      beaconName: input.beaconName,
     });
   } catch (err) {
     if (err instanceof OperatorError) {
-      return { error: err.message, version: prev.version + 1, name: input.name, employeeNumber: input.employeeNumber, email: input.email, phone: input.phone };
+      return {
+        error: err.message,
+        version: prev.version + 1,
+        name: input.name,
+        employeeNumber: input.employeeNumber,
+        email: input.email,
+        phone: input.phone,
+        beaconName: input.beaconName,
+      };
     }
     throw err;
   }
+  for (const c of open) await sendRevoke(db, c.id);
+  // Relay machines: beacon lists follow the operator's beacon and active status.
+  await syncAccessLists(db, new Date(), auth.organizationId);
   redirect("/operators");
 }
 

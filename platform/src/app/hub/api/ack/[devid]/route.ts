@@ -2,6 +2,7 @@ import { getDb } from "@/lib/db";
 import { CommandError, recordAnswer } from "@/lib/commands";
 import { afterUpdateAnswer } from "@/lib/firmware";
 import { confirmMode } from "@/lib/modes";
+import { confirmRelayAnswer } from "@/lib/relay";
 import { isValidDeviceId } from "@/lib/telemetry/ingest";
 import { deviceReply } from "@/lib/freematics/reply";
 
@@ -21,6 +22,7 @@ export async function GET(request: Request, ctx: RouteContext<"/hub/api/ack/[dev
     await afterUpdateAnswer(getDb(), command);
     // A relay machine confirming the mode it now enforces.
     await confirmMode(getDb(), devid, command.command, command.status === "done");
+    await confirmRelayAnswer(getDb(), devid, command.command, command.status === "done");
     return deviceReply("OK");
   } catch (err) {
     if (err instanceof CommandError) return deviceReply(err.message, err.message === "Bad signature" ? 403 : 404);

@@ -7,7 +7,8 @@ import { getDb } from "@/lib/db";
 import { endCheckin, setMachineOperators } from "@/lib/operators";
 import { assertCheckinInScope, assertMachineInScope } from "@/lib/divisions";
 import { zonedTime } from "@/lib/telemetry/engine";
-import { durationEnd, ModeError, setMode, setOfflineFallback } from "@/lib/modes";
+import { durationEnd, ModeError, setMode, setOfflineFallback, syncRelayMode } from "@/lib/modes";
+import { sendRevoke, syncAccessList } from "@/lib/relay";
 import { recordEvent } from "@/lib/notifications";
 import { afterEvents } from "@/lib/alert-jobs";
 import { clearLockout, setMachineTemplate } from "@/lib/checklists";
@@ -22,6 +23,8 @@ export async function setAllowedOperators(formData: FormData) {
   const input = AllowedOperators.parse({ id: formData.get("id"), operatorIds: formData.getAll("operator") });
   await assertMachineInScope(getDb(), auth, input.id);
   const { added, removed } = await setMachineOperators(getDb(), auth.organizationId, input.id, input.operatorIds);
+  // Relay machines: the approved beacons change with the approvals.
+  await syncAccessList(getDb(), input.id);
   const event = (type: "operator_assigned" | "operator_revoked", operatorId: number) =>
     recordEvent(getDb(), { organizationId: auth.organizationId, machineId: input.id, type, operatorId, detail: `Changed by ${auth.email}` });
   afterEvents(
@@ -35,6 +38,7 @@ export async function endCheckinAction(formData: FormData) {
   const checkinId = z.coerce.number().int().positive().parse(formData.get("checkinId"));
   await assertCheckinInScope(getDb(), auth, checkinId);
   await endCheckin(getDb(), auth.organizationId, checkinId);
+  await sendRevoke(getDb(), checkinId);
   refresh();
 }
 
@@ -99,5 +103,6 @@ export async function clearLockoutAction(formData: FormData) {
   const id = z.coerce.number().int().positive().parse(formData.get("id"));
   await assertMachineInScope(getDb(), auth, id);
   await clearLockout(getDb(), auth.organizationId, id);
+  await syncRelayMode(getDb(), id, auth.email);
   refresh();
 }

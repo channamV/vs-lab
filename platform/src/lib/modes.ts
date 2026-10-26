@@ -160,15 +160,22 @@ async function sendModeToDevice(db: Db, m: Machine, createdBy: string, now: Date
     .update(deviceCommands)
     .set({ status: "cancelled" })
     .where(and(eq(deviceCommands.deviceId, pairing.deviceId), inArray(deviceCommands.status, ["pending", "sent"]), like(deviceCommands.command, "MODE=%")));
-  const mode = currentModeOf(m);
+  // A repair lockout (checklist) counts as Locked: the device keeps the starter blocked until it's cleared.
+  const mode: Mode = m.lockedOutAt ? "locked" : currentModeOf(m);
   await db.insert(deviceCommands).values({
     deviceId: pairing.deviceId,
     command: `MODE=${mode}\t${m.offlineMode ?? "keep"}\t${m.offlineAfterHours}`,
-    label: `Set mode: ${MODES[mode].label}${m.offlineMode ? ` (offline after ${m.offlineAfterHours} h: ${MODES[m.offlineMode as Mode]?.label ?? m.offlineMode})` : ""}`,
+    label: `Set mode: ${MODES[mode].label}${m.lockedOutAt ? " (locked out for repair)" : ""}${m.offlineMode ? ` (offline after ${m.offlineAfterHours} h: ${MODES[m.offlineMode as Mode]?.label ?? m.offlineMode})` : ""}`,
     createdBy,
     createdAt: now,
     expiresAt: new Date(now.getTime() + 7 * 86_400_000),
   });
+}
+
+/** Sends a relay machine's mode again (after a repair lockout starts or is cleared). */
+export async function syncRelayMode(db: Db, machineId: number, changedBy: string, now = new Date()) {
+  const [m] = await db.select().from(machines).where(eq(machines.id, machineId));
+  if (m) await sendModeToDevice(db, m, changedBy, now);
 }
 
 /** The device answered a MODE command: it's now enforcing that mode. */

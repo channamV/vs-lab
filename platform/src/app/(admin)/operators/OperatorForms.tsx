@@ -35,7 +35,7 @@ export function AddOperatorForm() {
 export function EditOperatorForm({
   operator,
 }: {
-  operator: { id: number; name: string; active: boolean; employeeNumber: string | null; email: string | null; phone: string | null };
+  operator: { id: number; name: string; active: boolean; employeeNumber: string | null; email: string | null; phone: string | null; beaconName: string | null };
 }) {
   const [state, action, pending] = useActionState(updateOperatorAction, { error: null, version: 0 } as OperatorFormState);
   return (
@@ -53,6 +53,13 @@ export function EditOperatorForm({
           defaultValue={state.employeeNumber ?? operator.employeeNumber ?? ""}
           className={field}
         />
+      </label>
+      <label className="block text-sm">
+        <span className="text-slate-600 dark:text-slate-400">
+          Bluetooth beacon (optional): its name, e.g. VS-BEACON-20. On Safety &amp; Access Control machines it lets them start without a
+          phone or signal.
+        </span>
+        <input name="beaconName" maxLength={31} defaultValue={state.beaconName ?? operator.beaconName ?? ""} placeholder="VS-BEACON-20" className={field} />
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block text-sm">

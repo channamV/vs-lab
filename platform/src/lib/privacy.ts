@@ -298,6 +298,7 @@ export async function exportOperator(db: Db, organizationId: number, operatorId:
       id: op.id,
       name: op.name,
       employeeNumber: op.employeeNumber,
+      beaconName: op.beaconName,
       email: op.email,
       phone: op.phone,
       active: op.active,
@@ -453,6 +454,7 @@ export async function eraseOperator(db: Db, organizationId: number, operatorId: 
       .set({
         name: placeholder,
         employeeNumber: null,
+        beaconName: null,
         email: null,
         phone: null,
         active: false,

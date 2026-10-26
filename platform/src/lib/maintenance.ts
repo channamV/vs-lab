@@ -31,6 +31,7 @@ import {
   type Section,
   type Status,
 } from "@/lib/maintenance-types";
+import { syncRelayMode } from "@/lib/modes";
 import { recordEvent } from "@/lib/notifications";
 import { orgTimeZone } from "@/lib/org-time";
 import { localDateKey } from "@/lib/telemetry/engine";
@@ -370,7 +371,10 @@ export async function resolveIssue(db: Db, organizationId: number, issueId: numb
         .set({ lockedOutAt: null, lockedOutReason: null, lockedOutCheckinId: null })
         .where(and(eq(machines.id, issue.machineId), isNotNull(machines.lockedOutAt)))
         .returning({ id: machines.id });
-      if (cleared.length) notes.push("Repair lockout cleared: operators can check in again");
+      if (cleared.length) {
+        notes.push("Repair lockout cleared: operators can check in again");
+        await syncRelayMode(db, issue.machineId, "VS-lab (maintenance item resolved)", now);
+      }
     }
   }
   await log(db, issue.id, userId, "resolved", ["Resolved", ...notes].join(". "), now);

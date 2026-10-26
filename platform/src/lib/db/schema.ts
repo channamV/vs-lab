@@ -290,6 +290,8 @@ export const machines = pgTable(
     /** The vehicle's own odometer (OBD PID A6 or J1939), when the device reads it, and when it was read. */
     odometerKm: doublePrecision("odometer_km"),
     odometerKmAt: timestamp("odometer_km_at", { withTimezone: true }),
+    /** Relay machines (src/lib/relay.ts): the version of the approved-beacon list last sent to the device. */
+    accessListHash: text("access_list_hash"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Latest state, from whichever device is paired. Null until a device has reported for this machine.
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
@@ -512,10 +514,16 @@ export const operators = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** Set when the operator's personal data was erased (src/lib/privacy.ts). The row stays so machine records keep a placeholder. */
     erasedAt: timestamp("erased_at", { withTimezone: true }),
+    /**
+     * The operator's Bluetooth beacon (its advertised name, e.g. VS-BEACON-20). Safety & Access Control machines get
+     * the list of approved operators' beacons and let them start without signal (src/lib/relay.ts).
+     */
+    beaconName: text("beacon_name"),
   },
   (t) => [
     uniqueIndex("operators_org_pin_idx").on(t.organizationId, t.pinHash),
     uniqueIndex("operators_org_employee_idx").on(t.organizationId, t.employeeNumber).where(sql`${t.employeeNumber} is not null`),
+    uniqueIndex("operators_org_beacon_idx").on(t.organizationId, t.beaconName).where(sql`${t.beaconName} is not null`),
   ],
 );
 
@@ -675,6 +683,8 @@ export const checkins = pgTable(
     /** The hour meter (hours) or odometer (km) reading the operator gave with the checklist. */
     meterKind: text("meter_kind"),
     meterReading: doublePrecision("meter_reading"),
+    /** Relay machines: when the device confirmed it let this check-in start the machine (ALLOW command). */
+    relayAllowedAt: timestamp("relay_allowed_at", { withTimezone: true }),
     /**
      * The engine-on period this check-in covers. The operator has a few minutes after checking in to
      * start the engine; the check-in then ends automatically when the engine stops.

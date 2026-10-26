@@ -33,7 +33,8 @@ github.com/stanleyhuangyc/Freematics.
 - Our fork only: notify `FW=<version>` (→ `devices.firmware_version`), `GET /hub/api/firmware/<release>?d=&s=` (download),
   login notify `RST=<reason>&BOOT=<n>` (restart reason → login event detail + tamper wording, `src/lib/restart-reasons.ts`),
   and `POST /hub/api/diag/<DEVID>` (restart report: `BOOT=;RST=` line + last log lines → `device_diagnostics`,
-  `src/lib/diagnostics.ts`, staff device page; `docs/device-diagnostics.md`)
+  `src/lib/diagnostics.ts`, staff device page; `docs/device-diagnostics.md`), and relay devices' beacon starts
+  `GET /hub/api/access/<DEVID>?op=&b=&t=&sig=` (→ beacon check-in, `src/lib/relay.ts`; `docs/starter-relay.md`)
 - Device only checks for HTTP 200. Parser: `platform/src/lib/freematics/protocol.ts`. Text replies go through
   `deviceReply` (`src/lib/freematics/reply.ts`): it sets Content-Length; Telelogger waits ~5 s on chunked replies.
 - Device commands (`src/lib/commands.ts`, tested; `docs/device-commands.md`): replies to post/notify/push are
@@ -303,5 +304,13 @@ says it's compliant. Update that doc when items are done.
   reporting and that's older than `staleMinutes`.
 - Schema changes: edit `schema.ts`, run `db:generate`, commit the generated SQL. Never edit applied migrations.
 - Add a test for every parser/ingest change (`*.test.ts`, Vitest, in-memory PGlite).
+- Starter relay (`src/lib/relay.ts`, tested; `docs/starter-relay.md`; Craig 2026-10-26, copied from Veristart firmware 4.2.11:
+  GPIO26 HIGH = start allowed): control-tier paired machines get `MODE=` (repair lockout counts as Locked: `syncRelayMode`),
+  `ALLOW=<checkin>\t<start min>\t<break min>` after an approved QR check-in (`sendAllow` in `afterCheckin`; ack →
+  `checkins.relay_allowed_at`), `REVOKE=<checkin>` (manager ends it, operator deactivated), `ACCESS=<version>\t<beacon>:<op>,…`
+  (`syncAccessList`: active operators with `operators.beacon_name`, approved/scheduled/certified, required training; watchdog
+  + approval/operator changes; ack → `machines.access_list_hash`). Beacon starts → `beaconCheckIn` (method ble, no
+  checklist; not a checklist result). Firmware side: hardware-bringup to-do 9.
 - Product language: tiers are "GPS & Telematics", "Safety & Access Monitoring",
-  "Safety & Access Control" (`gps` / `monitor` / `control`). Control (starter relay) is out of scope for now.
+  "Safety & Access Control" (`gps` / `monitor` / `control`). Control (starter relay): VS-lab side built 2026-10-26,
+  firmware in progress.

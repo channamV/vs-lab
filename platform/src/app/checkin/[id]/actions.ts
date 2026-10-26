@@ -28,6 +28,7 @@ export type CheckinFormState =
       distanceM: number | null;
       engineRunning: boolean;
       startWindowMinutes: number;
+      relay: "wait" | "blocked" | null;
     };
 
 const MESSAGES: Record<CheckinFailure, string> = {
@@ -115,6 +116,7 @@ export async function checkInAction(prev: CheckinFormState, formData: FormData):
     distanceM: result.distanceM,
     engineRunning: result.engineRunning,
     startWindowMinutes: CHECKIN_RULES.engineStartWindowMinutes,
+    relay: result.relay,
   };
 }
 

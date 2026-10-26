@@ -1,4 +1,5 @@
 import { checkSchedules, runMaintenanceChecks } from "@/lib/maintenance";
+import { sendAllow, syncAccessLists } from "@/lib/relay";
 import "server-only";
 import { after } from "next/server";
 import { getDb } from "@/lib/db";
@@ -12,7 +13,7 @@ import { notifyIncidents, watchdog } from "@/lib/tamper";
 import { checkDwell } from "@/lib/worksites";
 import { checkFuelTheft, checkFuelWhileRunning } from "@/lib/fuel";
 import { checkFatigue, checkRestrictedAreas } from "@/lib/safety";
-import { applyModeTimers, checkLockedUse } from "@/lib/modes";
+import { applyModeTimers, checkLockedUse, syncRelayMode } from "@/lib/modes";
 import { runSchedules } from "@/lib/schedules";
 import { sendTrainingReminders } from "@/lib/training";
 import { syncOperatorAlert } from "@/lib/operator-alerts";
@@ -63,6 +64,9 @@ export function afterCheckin(checkinId: number) {
       if (c) await syncOperatorAlert(db, c.machineId);
       // The checklist's hour meter / odometer reading can bring a service due.
       if (c?.meterReading !== null && c?.meterReading !== undefined) await checkSchedules(db, new Date(), c.organizationId);
+      // Relay machines: let the operator start, or keep the starter blocked while it's locked out for repair.
+      if (c?.lockoutRequested) await syncRelayMode(db, c.machineId, "VS-lab (locked out for repair)");
+      else if (c) await sendAllow(db, c.id);
       if (c?.lockoutRequested) {
         const id = await recordEvent(db, {
           organizationId: c.organizationId,
@@ -110,9 +114,11 @@ export async function runWatchdog(now = new Date()) {
   const trainingReminders = (await sendTrainingReminders(db, now)).length;
   // Maintenance: services that came due, devices offline 72 h (and back again).
   const maintenance = await runMaintenanceChecks(db, now);
+  // Relay machines: the approved operators' beacons (approvals, training and schedules change over time).
+  const beaconLists = await syncAccessLists(db, now);
   // Connectivity and worksite notifications for every machine with something pending.
   await processEvents(db, {}, now);
-  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges, trainingReminders, maintenance };
+  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges, trainingReminders, maintenance, beaconLists };
 }
 
 /** Schedules, every minute (Vercel Cron → /api/jobs/schedules): apply changes, then deliver their notifications. */
