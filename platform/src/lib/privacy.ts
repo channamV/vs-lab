@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { deleteOldDiagnostics } from "@/lib/diagnostics";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import {
@@ -230,6 +231,8 @@ export async function applyRetention(db: Db, now = new Date()): Promise<Retentio
   const unpaired = daysBefore(now, UNPAIRED_TELEMETRY_DAYS);
   r.telemetryDeleted += await deleteInBatches(db, telemetry, and(isNull(telemetry.machineId), lt(telemetry.receivedAt, unpaired)));
   r.deviceEventsDeleted += await deleteInBatches(db, deviceEvents, and(isNull(deviceEvents.machineId), lt(deviceEvents.at, unpaired)));
+  // Restart reports (device log lines; src/lib/diagnostics.ts): counted with the device events.
+  r.deviceEventsDeleted += await deleteOldDiagnostics(db, now);
 
   // Sign-in housekeeping.
   const yesterday = daysBefore(now, 1);

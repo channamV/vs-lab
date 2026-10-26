@@ -66,3 +66,10 @@ On your own computer: `npm run watchdog` (in `platform/`) runs it once.
 
 All thresholds are `TAMPER_RULES` in `platform/src/lib/tamper.ts`. Once the real hardware is in, we'll check
 its actual check-in timing and the typical signal and battery at your sites, and adjust.
+
+## Restart reasons (2026-10-26)
+
+With our firmware, a restart without signing off comes with the device's own restart reason
+([device-diagnostics.md](device-diagnostics.md)): a power cut or reset stays "power interrupted" (medium), low supply
+voltage says so (medium), and a crash or the device restarting itself is a low-concern "device restart" (no alert).
+Stock firmware sends no reason: treated as a power cut, as before.

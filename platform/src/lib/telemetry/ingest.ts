@@ -10,6 +10,7 @@ import { updateEngineData } from "@/lib/faults";
 import { checkSpeedAndIdle } from "@/lib/safety";
 import { detectEngine, ENGINE_THRESHOLDS, type EngineReading } from "./engine";
 import { SAMPLE_TIME_RULES, sampleTimes } from "./sample-time";
+import { restartLabel } from "@/lib/restart-reasons";
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 
@@ -345,7 +346,7 @@ async function alreadyStored(db: Db, deviceId: string, samples: SampleFields[], 
 export async function recordEvent(
   db: Db,
   deviceId: string,
-  event: { type: string; rssi?: number | null; vin?: string | null },
+  event: { type: string; rssi?: number | null; vin?: string | null; restart?: { reason: string | null; boot: number | null } | null },
   opts: { autoRegister?: boolean; now?: Date } = {},
 ) {
   const now = opts.now ?? new Date();
@@ -354,7 +355,9 @@ export async function recordEvent(
   const machineId = await pairedMachineId(db, deviceId);
   // Before the event is stored, so "the previous event" is the one before this.
   if (machineId) {
-    await tamperChecks(() => noteContact(db, { deviceId, machineId, before, eventType: event.type, vin: event.vin, now }));
+    await tamperChecks(() =>
+      noteContact(db, { deviceId, machineId, before, eventType: event.type, vin: event.vin, restartReason: event.restart?.reason ?? null, now }),
+    );
   }
   await db.insert(deviceEvents).values({
     deviceId,
@@ -362,7 +365,10 @@ export async function recordEvent(
     at: now,
     type: event.type,
     rssi: event.rssi ?? null,
-    detail: event.vin ? `VIN ${event.vin}` : null,
+    detail:
+      [event.vin && `VIN ${event.vin}`, event.restart?.reason && `Restarted: ${restartLabel(event.restart.reason)}${event.restart.boot !== null ? ` (start-up #${event.restart.boot})` : ""}`]
+        .filter(Boolean)
+        .join(" · ") || null,
   });
   await db
     .update(devices)

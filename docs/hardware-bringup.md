@@ -142,6 +142,11 @@ sign-off (logout) ends the engine-on period. In order:
    - ⏳ car: an `ALERT` from VS-lab while the engine runs (machine Access-Controlled, nobody checked in);
    - ⏳ before real machines: turn signing on (`DEVICE_KEY_SECRET` in Vercel, then build each device with its key).
 
+7. **Log on the memory card + restart reports** (Craig, 2026-10-26): copy diagnostic messages to `/LOG/<n>.TXT` on
+   the card (one file per start-up, timed, size-capped), record the restart reason (`esp_reset_reason()`), add
+   `&RST=<reason>&BOOT=<n>` to the login notification, and post the previous start-up's last log lines to
+   `/hub/api/diag/<DEVID>`. Spec: [device-diagnostics.md](device-diagnostics.md). VS-lab side is done.
+
 Rules as before: mark changes `// VSLAB:`, keep Bluetooth on in deployment builds, build/flash on Craig's PC, update this
 file after each step.
 

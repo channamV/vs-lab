@@ -4,12 +4,13 @@ import { EVENT_NAMES } from "@/lib/freematics/protocol";
 import { noteFirmwareVersion } from "@/lib/firmware";
 import { isValidDeviceId, recordEvent, UnknownDeviceError } from "@/lib/telemetry/ingest";
 import { deviceReply } from "@/lib/freematics/reply";
+import { restartReason } from "@/lib/restart-reasons";
 import { afterDeviceReport } from "@/lib/alert-jobs";
 
 /**
  * Connection events from the Freematics Telelogger (login, logout, ping...).
  * The device sends: GET /hub/api/notify/<DEVICE_ID>?EV=<code>&SSI=<rssi>&VIN=<vin>
- * Our firmware fork adds &FW=<version> (docs/firmware-updates.md).
+ * Our firmware fork adds &FW=<version> (docs/firmware-updates.md) and, after a restart, &RST=<reason>&BOOT=<n>.
  */
 export async function GET(request: Request, ctx: RouteContext<"/hub/api/notify/[devid]">) {
   const { devid } = await ctx.params;
@@ -23,6 +24,10 @@ export async function GET(request: Request, ctx: RouteContext<"/hub/api/notify/[
       type: EVENT_NAMES[ev] ?? `event_${q.get("EV") ?? "unknown"}`,
       rssi: q.has("SSI") && Number.isFinite(rssi) && rssi !== 0 ? rssi : null,
       vin: q.get("VIN") || null,
+      // Our firmware, on login after a restart: why it restarted and its start-up counter (docs/device-diagnostics.md).
+      restart: q.has("RST")
+        ? { reason: restartReason(q.get("RST")) ?? q.get("RST")!.slice(0, 40), boot: /^\d{1,9}$/.test(q.get("BOOT") ?? "") ? Number(q.get("BOOT")) : null }
+        : null,
     });
     if (q.has("FW")) await noteFirmwareVersion(getDb(), devid, q.get("FW"));
     // A sign-off can end the engine-on period: automatic check-out and the "stopped" notification follow.

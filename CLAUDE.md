@@ -30,7 +30,10 @@ github.com/stanleyhuangyc/Freematics.
 - `POST /hub/api/post/<DEVID>` — body `PID:val[;val],...*CHECKSUM` (hex PIDs, PID 0 starts a sample)
 - `GET  /hub/api/notify/<DEVID>?EV=&SSI=&VIN=` — connection events (1 login, 2 logout, 7 ping...)
 - `GET  /hub/api/push?id=&lat=&lon=&speed=<knots>...` — "HTTPS GET" mode (GPS only)
-- Our fork only: notify `FW=<version>` (→ `devices.firmware_version`), and `GET /hub/api/firmware/<release>?d=&s=` (download)
+- Our fork only: notify `FW=<version>` (→ `devices.firmware_version`), `GET /hub/api/firmware/<release>?d=&s=` (download),
+  login notify `RST=<reason>&BOOT=<n>` (restart reason → login event detail + tamper wording, `src/lib/restart-reasons.ts`),
+  and `POST /hub/api/diag/<DEVID>` (restart report: `BOOT=;RST=` line + last log lines → `device_diagnostics`,
+  `src/lib/diagnostics.ts`, staff device page; `docs/device-diagnostics.md`)
 - Device only checks for HTTP 200. Parser: `platform/src/lib/freematics/protocol.ts`. Text replies go through
   `deviceReply` (`src/lib/freematics/reply.ts`): it sets Content-Length; Telelogger waits ~5 s on chunked replies.
 - Device commands (`src/lib/commands.ts`, tested; `docs/device-commands.md`): replies to post/notify/push are

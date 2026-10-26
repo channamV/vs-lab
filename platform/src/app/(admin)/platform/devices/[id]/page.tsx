@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { companyTimeZone, getDeviceForStaff, requestTime } from "@/lib/data";
 import { clockTime, fmt, machineLabel, timeAgo } from "@/lib/format";
+import { restartLabel } from "@/lib/restart-reasons";
 import { Commands } from "./Commands";
 
 /** Veristart staff only: one tracking device's health and the machines it has been on. */
@@ -96,6 +97,31 @@ async function DeviceDetail({ params }: Pick<PageProps<"/platform/devices/[id]">
           </pre>
         ) : (
           <p className="text-sm text-slate-500">No data yet.</p>
+        )}
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="font-semibold">Restart reports</h2>
+        <p className="text-sm text-slate-500">
+          Sent by our firmware after a restart: why it restarted and its last log lines from the memory card (the latest 10).
+        </p>
+        {device.diagnostics.length === 0 ? (
+          <p className="text-sm text-slate-500">None yet (needs our firmware with restart reports).</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white text-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+            {device.diagnostics.map((d) => (
+              <li key={d.id} className="px-4 py-2">
+                <details>
+                  <summary className="cursor-pointer">
+                    <span className="text-slate-500">{clockTime(d.receivedAt, tz, now)}</span> · {restartLabel(d.restartReason)}
+                    {d.bootNumber !== null && <span className="text-slate-500"> · start-up #{d.bootNumber}</span>}
+                    <span className="text-slate-500"> · {d.lines.length} log lines</span>
+                  </summary>
+                  <pre className="mt-2 max-h-96 overflow-auto rounded bg-slate-50 p-2 text-xs whitespace-pre-wrap dark:bg-slate-800">{d.lines.join("\n")}</pre>
+                </details>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

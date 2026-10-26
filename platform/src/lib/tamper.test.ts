@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { alerts, deviceIncidents, devices, notificationEvents, organizations } from "@/lib/db/schema";
+import { alerts, deviceEvents, deviceIncidents, devices, notificationEvents, organizations } from "@/lib/db/schema";
 import { createMachine, pairDevice } from "@/lib/machines";
 import { ingestSamples, recordEvent } from "@/lib/telemetry/ingest";
 import { notifyIncidents, scoreSilence, watchdog, type SilenceInput } from "./tamper";
@@ -167,5 +167,20 @@ describe("when the device comes back", () => {
     const [incident] = await incidents();
     expect(incident).toMatchObject({ kind: "power-interrupted", concern: "medium" });
     expect(incident.reasons[0]).toContain("Restarted at 10:34 AM without signing off, after 4 min without contact");
+  });
+
+  it("uses our firmware's restart reason: a crash is low concern (no alert), low voltage stays medium", async () => {
+    await recordEvent(db, "DEV1", { type: "login" }, { now: at(-1) });
+    await ingestSamples(db, "DEV1", [running], { now: at(0) });
+    await recordEvent(db, "DEV1", { type: "login", restart: { reason: "panic", boot: 41 } }, { now: at(4) });
+    await ingestSamples(db, "DEV1", [running], { now: at(10) });
+    await recordEvent(db, "DEV1", { type: "login", restart: { reason: "brownout", boot: 42 } }, { now: at(14) });
+    const [crash, brownout] = await incidents();
+    expect(crash).toMatchObject({ kind: "device-restart", concern: "low" });
+    expect(crash.reasons[0]).toContain("crashed (software fault). Not a power cut");
+    expect(brownout).toMatchObject({ kind: "power-interrupted", concern: "medium" });
+    expect(brownout.reasons[0]).toContain("supply voltage dropped too low");
+    const [, event] = await db.select().from(deviceEvents).where(eq(deviceEvents.type, "login")).orderBy(deviceEvents.at);
+    expect(event.detail).toBe("Restarted: Crashed (software fault) (start-up #41)");
   });
 });

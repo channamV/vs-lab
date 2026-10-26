@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { RESTART_REASONS, restartReason } from "@/lib/restart-reasons";
 import { orgTimeZone, orgTimeZones } from "@/lib/org-time";
 import type { Db } from "@/lib/db";
 import {
@@ -243,7 +244,16 @@ type Before = { lastSeenAt: Date; vin: string | null };
  */
 export async function noteContact(
   db: Db,
-  input: { deviceId: string; machineId: number; before: Before | null; eventType?: string; vin?: string | null; now: Date },
+  input: {
+    deviceId: string;
+    machineId: number;
+    before: Before | null;
+    eventType?: string;
+    vin?: string | null;
+    /** Our firmware's restart reason on login (src/lib/restart-reasons.ts); null = not reported (stock firmware). */
+    restartReason?: string | null;
+    now: Date;
+  },
 ) {
   const { deviceId, machineId, before, now } = input;
   const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
@@ -289,9 +299,17 @@ export async function noteContact(
       .orderBy(desc(deviceEvents.at))
       .limit(1);
     if (gapMin >= TAMPER_RULES.powerGapMinutes && previous && previous.type !== "logout") {
-      await oneOff("power-interrupted", "medium", [
-        `Restarted at ${clockTime(now, await orgTimeZone(db, machine.organizationId), now.getTime())} without signing off, after ${Math.round(gapMin)} min without contact: its power was interrupted (unplugged, or the battery was disconnected).`,
-      ]);
+      const at = `Restarted at ${clockTime(now, await orgTimeZone(db, machine.organizationId), now.getTime())} without signing off, after ${Math.round(gapMin)} min without contact`;
+      // Our firmware says why; the device restarting by itself (a crash) is a fault to fix, not tampering.
+      const reason = restartReason(input.restartReason);
+      const kind = reason ? RESTART_REASONS[reason].kind : "power";
+      if (kind === "fault" || kind === "normal") {
+        await oneOff("device-restart", "low", [`${at}. The device reports: ${RESTART_REASONS[reason!].label.toLowerCase()}. Not a power cut: see its restart report on the staff device page.`]);
+      } else if (kind === "brownout") {
+        await oneOff("power-interrupted", "medium", [`${at}: its supply voltage dropped too low (a weak or disconnected battery, or loose wiring).`]);
+      } else {
+        await oneOff("power-interrupted", "medium", [`${at}: its power was interrupted (unplugged, or the battery was disconnected).`]);
+      }
     }
   }
 }

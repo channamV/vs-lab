@@ -12,6 +12,7 @@ import {
   checklistIssues,
   checklistTemplates,
   deviceAssignments,
+  deviceDiagnostics,
   deviceEvents,
   deviceIncidents,
   devices,
@@ -948,7 +949,7 @@ export async function getDeviceForStaff(id: string) {
     .leftJoin(organizations, eq(organizations.id, devices.organizationId))
     .where(eq(devices.id, id));
   if (!row) return null;
-  const [pairings, events, [latest]] = await Promise.all([
+  const [pairings, events, [latest], diagnostics] = await Promise.all([
     db
       .select({
         machineId: machines.id,
@@ -965,8 +966,9 @@ export async function getDeviceForStaff(id: string) {
       .orderBy(desc(deviceAssignments.startedAt)),
     db.select().from(deviceEvents).where(eq(deviceEvents.deviceId, id)).orderBy(desc(deviceEvents.at)).limit(20),
     db.select().from(telemetry).where(eq(telemetry.deviceId, id)).orderBy(desc(telemetry.recordedAt), desc(telemetry.id)).limit(1),
+    db.select().from(deviceDiagnostics).where(eq(deviceDiagnostics.deviceId, id)).orderBy(desc(deviceDiagnostics.receivedAt)).limit(10),
   ]);
-  return { ...row.device, stockOrganization: row.stockOrganization, pairings, events, latest: latest ?? null };
+  return { ...row.device, stockOrganization: row.stockOrganization, pairings, events, latest: latest ?? null, diagnostics };
 }
 
 /** Staff: the privacy breach register. */

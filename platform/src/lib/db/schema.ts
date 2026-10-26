@@ -403,6 +403,27 @@ export const telemetry = pgTable(
   ],
 );
 
+/**
+ * What a device reported after restarting (our firmware; docs/device-diagnostics.md): why it restarted and its last
+ * log lines (saved on its memory card), for staff diagnosis. The last DIAGNOSTIC_RULES.keepPerDevice are kept.
+ */
+export const deviceDiagnostics = pgTable(
+  "device_diagnostics",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The device's start-up counter (each restart adds one), if sent. */
+    bootNumber: integer("boot_number"),
+    /** src/lib/restart-reasons.ts key, or what the device sent if unknown. */
+    restartReason: text("restart_reason"),
+    lines: jsonb("lines").$type<string[]>().notNull(),
+  },
+  (t) => [index("device_diagnostics_device_time_idx").on(t.deviceId, t.receivedAt)],
+);
+
 /** Connection events: login, logout, ping, etc. */
 export const deviceEvents = pgTable(
   "device_events",
