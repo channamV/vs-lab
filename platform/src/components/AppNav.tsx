@@ -202,7 +202,7 @@ export function AppNav({
   return (
     <>
       {/* Phones and tablets: top bar + slide-in menu. */}
-      <header className="sticky top-0 z-[1100] flex items-center gap-3 bg-slate-900 px-4 py-3 text-white lg:hidden">
+      <header className="sticky top-0 z-[1100] flex items-center gap-3 bg-slate-900 px-4 py-3 text-white lg:hidden print:hidden">
         <button onClick={() => setOpen(true)} aria-label="Open menu" aria-expanded={open} className="rounded p-1 hover:bg-slate-800">
           <Menu className="h-5 w-5" />
         </button>
@@ -231,7 +231,7 @@ export function AppNav({
 
       {/* Desktop: sidebar, collapsible to icons. */}
       <aside
-        className={`sticky top-0 hidden h-screen shrink-0 flex-col bg-slate-900 transition-[width] lg:flex ${collapsed ? "w-16" : "w-60"}`}
+        className={`sticky top-0 hidden h-screen shrink-0 flex-col bg-slate-900 transition-[width] lg:flex print:hidden ${collapsed ? "w-16" : "w-60"}`}
       >
         <div className={`flex items-center px-4 py-4 ${collapsed ? "justify-center px-0" : ""}`}>
           {collapsed ? (

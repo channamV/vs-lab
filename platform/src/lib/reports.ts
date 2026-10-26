@@ -59,7 +59,12 @@ const addDays = (key: string, n: number) => {
 const startOfDate = (key: string, tz: string) => midnightInZone(...parseDate(key), tz);
 
 /** The range for a preset (default last 7 days) or custom from/to dates, in the time zone. */
-export function reportRange(params: { range?: string; from?: string; to?: string }, now: number, tz: string): ReportRange {
+export function reportRange(
+  params: { range?: string; from?: string; to?: string },
+  now: number,
+  tz: string,
+  maxDays: number = REPORT_RULES.maxDays,
+): ReportRange {
   const today = localDateKey(now, tz);
   let preset: RangePreset = params.range && (params.range in RANGE_PRESETS || params.range === "custom") ? (params.range as RangePreset) : "7d";
   let fromDate: string;
@@ -93,7 +98,7 @@ export function reportRange(params: { range?: string; from?: string; to?: string
         toDate = params.from! <= params.to! ? params.to! : params.from!;
         if (toDate > today) toDate = today;
         if (fromDate > toDate) fromDate = toDate;
-        if (addDays(fromDate, REPORT_RULES.maxDays - 1) < toDate) fromDate = addDays(toDate, -(REPORT_RULES.maxDays - 1));
+        if (addDays(fromDate, maxDays - 1) < toDate) fromDate = addDays(toDate, -(maxDays - 1));
       }
       break;
     }

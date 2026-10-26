@@ -140,3 +140,7 @@ Each checklist has a **How often** setting (Checklists → Edit):
   Only check-ins where the checklist was actually done count as covering others.
 - The ready-made NL trip inspection uses **once a day per machine** (the rules ask for an inspection at least every
   24 hours, and a later driver may rely on a valid one; a calendar day is a little stricter).
+
+## Seeing completed checklists
+
+Safety → **Checklist results**: filter, open, print or download every completed checklist. See `docs/checklist-results.md`.

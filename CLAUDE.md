@@ -133,6 +133,8 @@ says it's compliant. Update that doc when items are done.
   How often (`checklist_templates.frequency`, labels in browser-safe `src/lib/checklist-frequency.ts`): every_checkin /
   operator_daily / machine_daily (company day); `checkIn({ skipChecklist })` → `coveringChecklist` or `checklist-needed`;
   covered check-ins store `checklist_from_checkin_id`, no answers/confirmation.
+  Results (`src/lib/checklist-results.ts`, tested; `docs/checklist-results.md`; `/checklists/results` for all roles): filters
+  (dates ≤366 days, machine, division, operator, result, covered), detail + print, CSV one row per answer, bulk print.
   Question kinds also include `textOnly` (written answer, e.g. odometer; the text is the answer). Ready-made checklists
   (`src/lib/checklist-library.ts`, tested; Checklists → Ready-made → Add): NL trip inspection Schedule A (NLR 27/12).
 - Operator alerts (`src/lib/operator-alerts.ts`, tested; `docs/operator-alerts.md`; Craig 2026-10-25): `desiredAlert` (pure)

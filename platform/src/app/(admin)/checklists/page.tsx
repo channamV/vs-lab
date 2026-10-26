@@ -18,7 +18,10 @@ export default function ChecklistsPage() {
         <h1 className="text-2xl font-semibold">Checklists</h1>
         <p className="text-sm text-slate-500">
           The pre-start checklists operators complete when they check in. Each machine uses the default checklist unless you
-          choose another on the machine&apos;s page.
+          choose another on the machine&apos;s page.{" "}
+          <Link href="/checklists/results" className={link}>
+            See completed checklists →
+          </Link>
         </p>
       </div>
       <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>

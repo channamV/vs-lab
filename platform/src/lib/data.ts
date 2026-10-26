@@ -1,4 +1,5 @@
 import "server-only";
+import { checklistResultById, parseResultFilters, queryChecklistResults } from "@/lib/checklist-results";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { connection } from "next/server";
 import { cache } from "react";
@@ -555,6 +556,60 @@ export async function reportData(params: { range?: string; from?: string; to?: s
   const now = Date.now();
   const report = await buildReport(db, auth, reportRange(params, now, tz), tz, { divisionId, now });
   return { report, divisions: divisionChoices, divisionId, timeZone: tz, now };
+}
+
+// ---------- Checklist results ----------
+
+/** Filter choices for checklist results: divisions and machines the user can see, and the organization's operators. */
+async function resultChoices(auth: AuthContext) {
+  const db = getDb();
+  const [divisionChoices, machineChoices, operatorChoices] = await Promise.all([
+    db
+      .select({ id: divisions.id, name: divisions.name })
+      .from(divisions)
+      .where(and(eq(divisions.organizationId, auth.organizationId), auth.divisionIds ? inArray(divisions.id, auth.divisionIds) : undefined))
+      .orderBy(asc(divisions.name)),
+    db
+      .select({ id: machines.id, name: machines.name, unitNumber: machines.unitNumber })
+      .from(machines)
+      .where(and(eq(machines.organizationId, auth.organizationId), machineScope(auth)))
+      .orderBy(asc(machines.name)),
+    db.select({ id: operators.id, name: operators.name }).from(operators).where(eq(operators.organizationId, auth.organizationId)).orderBy(asc(operators.name)),
+  ]);
+  return { divisions: divisionChoices, machines: machineChoices, operators: operatorChoices };
+}
+
+/** Pre-start checklist results (src/lib/checklist-results.ts): one page, the filters and their choices. */
+export async function checklistResults(params: Record<string, string | undefined>) {
+  const auth = await requireSession();
+  const now = Date.now();
+  const filters = parseResultFilters(params, now, auth.timeZone);
+  const [page, choices] = await Promise.all([queryChecklistResults(getDb(), auth.organizationId, auth, filters), resultChoices(auth)]);
+  return { ...page, filters, choices, timeZone: auth.timeZone, now };
+}
+
+/** One checklist result, or null if it isn't this user's to see. */
+export async function checklistResult(id: number) {
+  const auth = await requireSession();
+  const result = await checklistResultById(getDb(), auth.organizationId, auth, id);
+  return result ? { result, timeZone: auth.timeZone, now: Date.now() } : null;
+}
+
+/** All matching results (up to `limit`) for the CSV and the printable report, with the times of covering checklists. */
+export async function checklistResultsForExport(params: Record<string, string | undefined>, limit: number) {
+  const auth = await requireSession();
+  const now = Date.now();
+  const filters = parseResultFilters(params, now, auth.timeZone);
+  const db = getDb();
+  const { rows, total } = await queryChecklistResults(db, auth.organizationId, auth, filters, { limit, offset: 0 });
+  const coveringIds = [...new Set(rows.map((r) => r.checklistFromCheckinId).filter((v): v is number => v !== null))];
+  const covering = coveringIds.length
+    ? await db
+        .select({ id: checkins.id, startedAt: checkins.startedAt })
+        .from(checkins)
+        .where(and(inArray(checkins.id, coveringIds), eq(checkins.organizationId, auth.organizationId)))
+    : [];
+  return { rows, total, filters, timeZone: auth.timeZone, now, coveringTimes: new Map(covering.map((c) => [c.id, c.startedAt])) };
 }
 
 // ---------- Worksites ----------
