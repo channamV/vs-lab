@@ -4,7 +4,17 @@
 ("[NET] Logout", "[OBD] ECU OFF", errors) only went out the USB cable and were lost unless a laptop was attached;
 the memory card only held the readings (`/DATA/<n>.CSV`).
 
-## Firmware (to do, desktop session)
+## Firmware (done 2026-10-27, `feat/cell-beam`; details in `firmware/README.md`)
+
+Built as below, with these differences: the start-up counter is kept in the device's settings memory (NVS), not on
+the card, so it keeps counting with a card swapped or missing; the log is written every 3 s (also straight before
+any restart the firmware makes itself), not straight away for errors; a log file over 8 MB becomes `<n>.OLD` (an
+always-awake device keeps its latest lines); the restart reason isn't written as a separate first line (the
+`[BOOT] start-up #n, firmware …, restart reason: …` line is). Reasons are sent with the names VS-lab already
+accepts (`power_on`, `software`, `crash`, `watchdog`, `brownout`, `external`, `unknown`). Desk test 2026-10-27:
+reports of 3–16 KB delivered and answered 200.
+
+The plan as written:
 
 1. **Log file on the card.** Copy every diagnostic message (what goes to `Serial`) to `/LOG/<start-up number>.TXT`, one
    file per start-up, each line starting with the time (GPS time once known, else uptime in seconds). Write it to the

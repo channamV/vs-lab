@@ -22,7 +22,9 @@ The working record for the device phase: what's proven, what's decided, what's o
 | Store-and-forward / location history replay | ⏳ On hold. **Core requirement** (see below) |
 
 **Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`), no sleep while moving and restart/sleep reasons (`4d495a4`), battery voltage while parked (`6150144`), field-test-2 fixes (`0b87e07`: unsent readings kept on the SD card through
-sleep, SIM7670 upload fixes, faster modem recovery, failure logging), no sleep while the engine idles (`e4b6402`). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
+sleep, SIM7670 upload fixes, faster modem recovery, failure logging), no sleep while the engine idles (`e4b6402`), frozen engine readings = engine off (`cfe7645`), and
+**vs-0.2.5** (`35d3d31`): version on sign-in, log file on the SD card, restart reports, updates over the air (two
+firmware slots: the partition table changed), fuel level and odometer, 10 s upload result wait. **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
 
 ---
 
@@ -143,12 +145,12 @@ sign-off (logout) ends the engine-on period. In order:
    - ⏳ car: an `ALERT` from VS-lab while the engine runs (machine Access-Controlled, nobody checked in);
    - ⏳ before real machines: turn signing on (`DEVICE_KEY_SECRET` in Vercel, then build each device with its key).
 
-7. **Log on the memory card + restart reports** (Craig, 2026-10-26): copy diagnostic messages to `/LOG/<n>.TXT` on
+7. ✅ (done 2026-10-27, see "Firmware updates, log file, restart reports" below) **Log on the memory card + restart reports** (Craig, 2026-10-26): copy diagnostic messages to `/LOG/<n>.TXT` on
    the card (one file per start-up, timed, size-capped), record the restart reason (`esp_reset_reason()`), add
    `&RST=<reason>&BOOT=<n>` to the login notification, and post the previous start-up's last log lines to
    `/hub/api/diag/<DEVID>`. Spec: [device-diagnostics.md](device-diagnostics.md). VS-lab side is done.
 
-8. **Odometer for maintenance and checklists** (Craig, 2026-10-26; low priority): every checklist now asks for the hour
+8. ✅ in code, ⏳ to check in the car (2026-10-27, with OBD fuel level 0x2F) **Odometer for maintenance and checklists** (Craig, 2026-10-26; low priority): every checklist now asks for the hour
    meter (or the odometer on on-road vehicles), filled in from the vehicle when the device reads it. Hours already
    come from J1939 (0x301). Add the odometer: OBD-II PID `0xA6` (only on newer vehicles: check the supported-PIDs
    bitmap, don't poll it otherwise) sent as `0x1A6` in **km** (the PID gives 0.1 km), and J1939 SPN 917 (or 245) as
@@ -348,6 +350,31 @@ ends about a minute late. Optional server-side guard: treat a run of identical n
 recovered, backlog up to ~150 readings; the readings still waiting at the end were saved to the SD card at sleep and
 delivered after the restart above. The laptop log stopped at 10:33 because the laptop went to sleep (keep-awake must be
 renewed for each recording).
+
+## Firmware updates, log file, restart reports (2026-10-27, desk; desktop session)
+
+Built on `feat/cell-beam` (`e0e0299`, `35d3d31`; details in `firmware/README.md`), on the device as **vs-0.2.5**:
+
+- **Version on sign-in** (`&FW=`): VS-lab's device page shows which firmware each device runs.
+- **Log file on the SD card** (`/LOG/<start-up>.TXT`, timed lines) and **restart reports**: after each start-up the
+  previous start-up's last lines go to VS-lab (Platform → device → Restart reports). Desk: 3–16 KB reports delivered.
+  A 12.8 KB report first failed (modem `ERROR`): bodies are now sent to the modem in 1 KB parts.
+- **Updates over the air**, tested through VS-lab (releases vs-0.2.1, vs-0.2.3, vs-0.2.4-rollback-test):
+  - vs-0.2.1 (raw pieces) **failed**: the SIM7670's `AT+HTTPREAD` drops some binary data (one 1 KB block, starting
+    with zero bytes, came back empty every time) and counts what's been read, so a part can't be re-read. VS-lab now
+    serves pieces as Base64 on request (`&e=b64`, `main` `a561724`, deployed), as Veristart's production firmware
+    does. vs-0.2.1 can't be installed (its own download code is the old one): **retire it** on its release page.
+  - vs-0.2.2 → **vs-0.2.3**: downloaded in 406 s (1.79 MB, no failed piece), installed (engine off), kept itself
+    once it reached VS-lab and answered "running vs-0.2.3". Readings made during the download waited in memory
+    and were all sent before the restart.
+  - **Rollback**: vs-0.2.4-rollback-test never confirms itself; 2 minutes after starting it went back to vs-0.2.3
+    by itself. It had already answered "running" (VS-lab shows that update as Updated): fixed in vs-0.2.5, the
+    answer now waits until the new version has kept itself.
+- **Fuel level (0x2F) and odometer (0xA6 → `0x1A6` km, once a minute when listed)**: ⏳ check in the CX-9.
+- **Upload result wait 10 s** (was 20 s): ⏳ watch on the next drive.
+
+**Open (firmware):** commands, including updates, aren't run during the 15-minute parked check-ins (only when
+awake); updates over Wi-Fi.
 
 ## Open items (in order)
 

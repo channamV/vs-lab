@@ -1,8 +1,12 @@
 # Firmware updates (over the air)
 
 The platform side is built: staff can upload firmware builds and send them to devices in stages. The device side
-(download, check, install, roll back) will be part of our own firmware. Until a device runs it, updates do
-nothing. The stock Telelogger ignores the command, so sending one is harmless.
+(download, check, install, roll back) is in our own firmware since vs-0.2.2 (2026-10-27, `feat/cell-beam`), tested
+on the desk through VS-lab. The stock Telelogger ignores the command, so sending one is harmless.
+
+**Limits for now:** a device takes an update only while it's awake (engine running, or within 3 minutes of
+stopping); a parked device gets it at its next wake, not at its 15-minute check-ins. Updates go over cellular only,
+not Wi-Fi. A download takes about 7 minutes (1.8 MB as Base64, about 2.4 MB of cellular data).
 
 ## Uploading a release (Veristart staff)
 
@@ -46,7 +50,7 @@ An update waits up to **7 days** for a device that's switched off.
 - **Undoing an update:** send the devices an older version. This is the same as any other update.
 - **New choice wins:** a device waiting for one version that is then sent a different one gets the newer choice.
 
-## Safety of an update (what our firmware will do)
+## Safety of an update (what our firmware does)
 
 - **Download in pieces, always.**
   - Cellular modems' built-in web commands (SIM7600, SIM7670) often fail on a ~1.5 MB file in one go. The production
@@ -62,14 +66,14 @@ An update waits up to **7 days** for a device that's switched off.
   mismatch means the update isn't installed and is reported as Failed.
 - **Two slots.** The ESP32 keeps the running firmware and installs the new one into the spare slot. If the new
   version doesn't start and reach the server, it falls back to the old one by itself (rollback).
-- **Don't update mid-shift.** The firmware will wait until the engine is off before installing, so a machine never
+- **Don't update mid-shift.** The firmware waits until the engine is off before installing, so a machine never
   restarts its tracker while working.
 
 ## The firmware version on each device
 
 - The device page (**Platform → device**) shows its firmware.
 - Devices on the stock Telelogger don't report a version: they show "Not reported".
-- Our firmware will add `FW=<version>` when it signs in, and the platform records it.
+- Our firmware adds `FW=<version>` when it signs in (e.g. `vs-0.2.5`), and the platform records it.
 
 ## For the firmware (technical)
 
@@ -81,6 +85,9 @@ An update waits up to **7 days** for a device that's switched off.
   - The response is the binary. **Download it in pieces:** send `Range: bytes=<start>-<end>`, or, if the modem's
     HTTP commands can't set headers, add `&o=<offset>&n=<length>` to the path. Either way the answer is
     `206` with that part and `Content-Range`. A range past the end of the file gets `416`.
+  - Add `&e=b64` to get the part as Base64 text instead of raw bytes (still `206`, `Content-Range` in bytes of the
+    file). Our firmware does: the SIM7670's HTTP commands don't pass all binary data through (a 1 KB block that
+    started with zero bytes came back empty, desk test 2026-10-27). Costs a third more cellular data.
   - Suggested piece size: 16 KB, halved after 3 failed tries (down to 4 KB). Keep pieces in flash as they arrive
     (`Update.write`), so a long download doesn't need the whole file in memory.
   - When every piece is in, compare the whole file's SHA-256 with the command's before finishing the install.
