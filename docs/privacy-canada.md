@@ -51,7 +51,7 @@
 | Access log (staff opening a customer's data) | Done |
 | Operator privacy notice on the check-in page, incl. safety monitoring + link to Veristart's policy and Privacy Officer | Done (2026-10-22) |
 | Breach register (every breach, kept 24+ months, never auto-deleted; to-do list per record) | Done (2026-10-22) |
-| Remove the shared `ADMIN_PASSWORD` fallback | **To do** before outside users |
+| Remove the shared `ADMIN_PASSWORD` fallback | Done (2026-10-27) |
 | Set `DEVICE_KEY_SECRET` (signed device commands and firmware downloads) | **To do** before real devices run our firmware |
 | Canadian hosting (Vercel `yul1` Montréal, Neon/Blob/Resend equivalents) | **To do** (item 1) |
 | Link to the exact privacy policy page | The notice links to veristart.ca; replace with the policy's own address when it's online |

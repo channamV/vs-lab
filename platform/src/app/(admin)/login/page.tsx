@@ -1,7 +1,5 @@
-import { connection } from "next/server";
 import { Suspense } from "react";
-import { passwordSignInAvailable } from "@/lib/auth";
-import { EmailLinkForm, PasswordForm } from "./LoginForm";
+import { EmailLinkForm } from "./LoginForm";
 
 export default function LoginPage() {
   return (
@@ -11,23 +9,6 @@ export default function LoginPage() {
       <Suspense>
         <EmailLinkForm />
       </Suspense>
-      <Suspense>
-        <PasswordOption />
-      </Suspense>
     </div>
-  );
-}
-
-/** Transition only. Decided when the page is opened (not when the site is built), from the settings. */
-async function PasswordOption() {
-  await connection();
-  if (!passwordSignInAvailable()) return null;
-  return (
-    <details className="border-t border-slate-200 pt-3 text-sm dark:border-slate-800">
-      <summary className="cursor-pointer text-slate-500">Use the admin password instead</summary>
-      <div className="mt-3">
-        <PasswordForm />
-      </div>
-    </details>
   );
 }

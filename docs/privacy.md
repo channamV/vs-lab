@@ -85,6 +85,5 @@ Sharing the phone's location is already optional: the operator's phone asks, and
   Frankfurt, a Blob store in Frankfurt, Resend's EU region), so EU customers' data stays in the EU. Staff would still
   manage both from one place: see the multi-region plan in the conversation of 2026-10-20 (summary: pick North America
   or EU when creating an organization; the org switcher then opens the right site).
-- **Remove the `ADMIN_PASSWORD` fallback** before outside or EU users (a shared password isn't individual access).
 - **Paperwork:** a DPA template, a sub-processor list, a short privacy policy, a record of processing, and a
   plan for reporting a data breach within 72 hours. Use a template from a privacy lawyer; the system's side is above.

@@ -108,27 +108,6 @@ export async function redeemSignInLink(db: Db, token: string, now = new Date()) 
   return startSession(db, user.id, now);
 }
 
-/**
- * Transition only: the old shared ADMIN_PASSWORD signs in as the first platform admin, so nobody is
- * locked out while email sign-in is being set up. Remove once email links are confirmed working.
- */
-export async function passwordSignIn(db: Db, password: string, now = new Date()) {
-  const expected = process.env.ADMIN_PASSWORD ?? "";
-  const [adminEmail] = platformAdminEmails();
-  if (!expected || !adminEmail) return null;
-  const a = hashToken(`pw:${password}`);
-  const b = hashToken(`pw:${expected}`);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  if (diff !== 0) return null;
-  const user = await ensurePlatformAdminUser(db, adminEmail);
-  return startSession(db, user.id, now);
-}
-
-export function passwordSignInAvailable(): boolean {
-  return Boolean(process.env.ADMIN_PASSWORD) && platformAdminEmails().length > 0;
-}
-
 export type AuthContext = {
   sessionId: number;
   userId: number;

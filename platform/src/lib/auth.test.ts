@@ -7,7 +7,6 @@ import {
   authFromToken,
   endSession,
   hasRole,
-  passwordSignIn,
   redeemSignInLink,
   requestSignInLink,
   viewOrganization,
@@ -106,14 +105,5 @@ describe("platform admins", () => {
 
     const jane = (await authFromToken(db, await signIn("jane@abc.com"), at(1)))!;
     await expect(viewOrganization(db, jane, orgB)).rejects.toThrow();
-  });
-
-  it("can use the admin password during the transition", async () => {
-    vi.stubEnv("ADMIN_PASSWORD", "correct horse");
-    expect(await passwordSignIn(db, "wrong", t0)).toBeNull();
-    const session = await passwordSignIn(db, "correct horse", t0);
-    expect(await authFromToken(db, session!.token, at(1))).toMatchObject({ email: "craig@veristart.ca", isPlatformAdmin: true });
-    vi.stubEnv("ADMIN_PASSWORD", "");
-    expect(await passwordSignIn(db, "", t0)).toBeNull();
   });
 });

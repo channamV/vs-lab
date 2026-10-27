@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { useSearchParams } from "next/navigation";
-import { passwordAction, requestLinkAction, verifyLinkAction, type LoginState } from "./actions";
+import { requestLinkAction, verifyLinkAction, type LoginState } from "./actions";
 
 const empty: LoginState = { message: null };
 const input = "w-full rounded border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700";
@@ -37,21 +37,6 @@ export function VerifyForm() {
       <input type="hidden" name="next" value={params.get("next") ?? "/"} />
       <button disabled={pending} className={button}>
         {pending ? "Signing in…" : "Sign in to VS Lab"}
-      </button>
-      <Message state={state} />
-    </form>
-  );
-}
-
-export function PasswordForm() {
-  const [state, action, pending] = useActionState(passwordAction, empty);
-  const next = useSearchParams().get("next") ?? "/";
-  return (
-    <form action={action} className="space-y-3">
-      <input type="hidden" name="next" value={next} />
-      <input type="password" name="password" required placeholder="Admin password" className={input} />
-      <button disabled={pending} className={button}>
-        {pending ? "Signing in…" : "Sign in with password"}
       </button>
       <Message state={state} />
     </form>

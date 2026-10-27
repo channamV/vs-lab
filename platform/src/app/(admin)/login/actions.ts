@@ -3,7 +3,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { AUTH_RULES, endSession, passwordSignIn, redeemSignInLink, requestSignInLink, SESSION_COOKIE } from "@/lib/auth";
+import { AUTH_RULES, endSession, redeemSignInLink, requestSignInLink, SESSION_COOKIE } from "@/lib/auth";
 import { appUrl, senderSettings, sendEmail, signInEmail } from "@/lib/notify";
 import { safeNext, setSessionCookie } from "@/lib/session";
 
@@ -39,14 +39,6 @@ export async function requestLinkAction(_prev: LoginState, formData: FormData): 
 export async function verifyLinkAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const session = await redeemSignInLink(getDb(), String(formData.get("token") ?? ""));
   if (!session) return { error: true, message: "This sign-in link has expired or was already used. Ask for a new one." };
-  await setSessionCookie(session.token, session.expiresAt);
-  redirect(safeNext(formData.get("next")));
-}
-
-/** Transition only: the shared admin password, until email sign-in is confirmed working. */
-export async function passwordAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
-  const session = await passwordSignIn(getDb(), String(formData.get("password") ?? ""));
-  if (!session) return { error: true, message: "Incorrect password." };
   await setSessionCookie(session.token, session.expiresAt);
   redirect(safeNext(formData.get("next")));
 }

@@ -12,9 +12,8 @@ People sign in with their **email address**. They get a one-time link by email, 
 - A browser stays signed in for 30 days. **Sign out** is in the top bar.
 - Turning someone's access off (Users page → untick *Active*) signs them out everywhere.
 
-**Transition:** until email sign-in has been confirmed working, the old admin password still works
-under *Use the admin password instead* on the sign-in page. It signs in as the platform admin. Once
-you're happy with email links, delete `ADMIN_PASSWORD` in Vercel and that option disappears.
+The old shared admin password was removed on 2026-10-27, before testers were added: everyone signs in with
+their own email link, so every sign-in is a named person.
 
 ## Roles
 

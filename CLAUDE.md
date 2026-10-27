@@ -70,8 +70,7 @@ github.com/stanleyhuangyc/Freematics.
   link opens `/login/verify`, where a button (POST) signs in, because email scanners pre-open links.
   Sessions are DB rows; the cookie holds a random token. Roles: owner / manager / viewer.
   Platform admins = `PLATFORM_ADMIN_EMAILS` (env); they can switch the organization they view.
-  `ADMIN_PASSWORD` is a transition fallback that signs in as the first platform admin. Craig wants it kept
-  for now (2026-10-19): **remind him to remove it when vs-lab gets outside users.**
+  The old `ADMIN_PASSWORD` fallback was removed (Craig, 2026-10-27): email links are the only way in.
 - `src/proxy.ts` only checks a session cookie is present; `src/lib/session.ts` validates it against the
   database. Every admin server action must call `requireAuth("manager" | "owner")` (or
   `requirePlatformAdmin()`) itself: server actions can be posted to any route, including public ones.
@@ -105,9 +104,7 @@ No `DATABASE_URL` → embedded PGlite in `platform/.data/`. With `DATABASE_URL` 
   `npm run build` for config or build changes) before pushing.
 - Bigger or riskier changes (schema migrations, auth, device protocol) can still go on a branch with a
   pull request if Craig asks.
-- Once vs-lab has outside users, switch back to branches + pull requests reviewed before merging, and remind
-  Craig to remove the `ADMIN_PASSWORD` fallback (Vercel setting + code in `src/lib/auth.ts`). It must go before any
-  EU customer goes live (GDPR, `docs/privacy.md`).
+- Once vs-lab has outside users, switch back to branches + pull requests reviewed before merging.
 
 ## Privacy compliance reminder (Craig's request, 2026-10-22)
 
