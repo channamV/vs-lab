@@ -109,6 +109,10 @@ char bootInfo[24] = "";
 char logoutInfo[32] = "";
 uint32_t timeoutsOBD = 0;
 uint32_t timeoutsNet = 0;
+// VSLAB: set by the network task once it has handled going to sleep (unsent readings saved), see standby()
+volatile bool netParked = false;
+// VSLAB: the SD card is mounted (it stays mounted while the device sleeps; STATE_STORAGE_READY doesn't)
+bool sdMounted = false;
 uint32_t lastStatsTime = 0;
 
 int32_t syncInterval = SERVER_SYNC_INTERVAL * 1000;
@@ -597,6 +601,7 @@ void initialize()
     // init storage
     if (logger.init()) {
       state.set(STATE_STORAGE_READY);
+      sdMounted = true; // VSLAB
     }
   }
   if (state.check(STATE_STORAGE_READY)) {
@@ -1094,11 +1099,12 @@ void runCommands()
   }
 }
 
-int sendBatch(CStorageRAM& store)
+// put up to VSLAB_BATCH_MAX of the oldest readings into store as one upload; returns how many went in (taken from
+// bufman: free them once sent, unlock them to keep them)
+int packBatch(CStorageRAM& store, CBuffer** batch)
 {
-  CBuffer* batch[VSLAB_BATCH_MAX];
   int n = bufman.takeOldest(batch, VSLAB_BATCH_MAX);
-  if (!n) return BATCH_NONE;
+  if (!n) return 0;
 #if SERVER_PROTOCOL == PROTOCOL_UDP
   store.header(devid);
 #endif
@@ -1110,13 +1116,26 @@ int sendBatch(CStorageRAM& store)
   }
   for (int i = used; i < n; i++) bufman.unlock(batch[i]);
   store.tailer();
+  return used;
+}
+
+#ifndef VSLAB_TEST_OUTAGE_END
+#define VSLAB_TEST_OUTAGE_END 120
+#endif
+
+int sendBatch(CStorageRAM& store)
+{
+  CBuffer* batch[VSLAB_BATCH_MAX];
+  int used = packBatch(store, batch);
+  if (!used) return BATCH_NONE;
   Serial.print("[DAT] ");
   Serial.println(store.buffer());
 
 #ifdef VSLAB_TEST_OUTAGE
-  // VSLAB test build: a pretend dead zone from 40 to 120 s after start-up (no upload is attempted)
-  bool sent = (millis() > 40000 && millis() < 120000) ? false : teleClient.transmit(store.buffer(), store.length());
-  if (!sent && millis() < 120000) Serial.println("[TEST] pretend dead zone");
+  // VSLAB test build: a pretend dead zone from 40 s to VSLAB_TEST_OUTAGE_END s after start-up (no upload is attempted)
+  bool dead = millis() > 40000 && millis() < VSLAB_TEST_OUTAGE_END * 1000UL;
+  bool sent = dead ? false : teleClient.transmit(store.buffer(), store.length());
+  if (dead) Serial.println("[TEST] pretend dead zone");
 #else
   bool sent = teleClient.transmit(store.buffer(), store.length());
 #endif
@@ -1141,6 +1160,131 @@ int sendBatch(CStorageRAM& store)
   return result;
 }
 
+/*
+  VSLAB: unsent readings survive sleep on the SD card. Waking from sleep restarts the device (RESET_AFTER_WAKEUP),
+  which clears memory: field test 2026-10-27 lost 763 readings that way. Before sleeping, saveBacklog writes what's
+  still waiting to VSLAB_QUEUE_PATH, one upload per line; after the restart sendSaved sends those lines first (they
+  are the oldest), oldest first, and remembers in NVS (VSLAB_QOFS) how far it got. Resent lines are harmless: VS-lab
+  skips readings it already has.
+*/
+#if STORAGE == STORAGE_SD && SERVER_PROTOCOL != PROTOCOL_UDP
+#define VSLAB_SAVE_BACKLOG 1
+#define VSLAB_QUEUE_PATH "/VSLABQ.TXT"
+#define VSLAB_QUEUE_MAX (4UL << 20) /* 4 MB, about 15 hours of readings */
+uint32_t queueOffset = 0; // bytes of the file already sent
+int8_t queueState = -1; // -1 not checked yet, 0 nothing saved, 1 saved uploads to send
+
+bool savedWaiting()
+{
+  if (queueState < 0 && sdMounted) {
+    queueState = SD.exists(VSLAB_QUEUE_PATH) ? 1 : 0;
+    if (queueState) {
+      nvs_get_u32(nvs, "VSLAB_QOFS", &queueOffset);
+      Serial.println("[NET] Readings saved before the last sleep: sending them first");
+    }
+  }
+  return queueState == 1;
+}
+
+void saveBacklog(CStorageRAM& store)
+{
+  if (!sdMounted || !bufman.filled(0)) return;
+  // the file's size, counted here: File::size() is garbage for a file that append mode has just created
+  uint32_t size = 0;
+  if (SD.exists(VSLAB_QUEUE_PATH)) {
+    File r = SD.open(VSLAB_QUEUE_PATH, FILE_READ);
+    if (r) {
+      size = r.size();
+      r.close();
+    }
+  }
+  File f = SD.open(VSLAB_QUEUE_PATH, FILE_APPEND);
+  if (!f) {
+    Serial.println("[NET] Can't save unsent readings to the SD card");
+    return;
+  }
+  CBuffer* batch[VSLAB_BATCH_MAX];
+  int saved = 0;
+  int used;
+  while (size < VSLAB_QUEUE_MAX && (used = packBatch(store, batch)) > 0) {
+    f.write((const uint8_t*)store.buffer(), store.length());
+    f.write('\n');
+    size += store.length() + 1;
+    store.purge();
+    for (int i = 0; i < used; i++) bufman.free(batch[i]);
+    saved += used;
+  }
+  f.close();
+  if (saved) queueState = 1;
+  Serial.print("[NET] Saved ");
+  Serial.print(saved);
+  Serial.print(" unsent readings to the SD card");
+  if (bufman.filled(0)) {
+    Serial.print(", file full: ");
+    Serial.print(bufman.filled(0));
+    Serial.print(" dropped");
+  }
+  Serial.println();
+}
+
+int sendSaved(CStorageRAM& store)
+{
+  if (!savedWaiting()) return BATCH_NONE;
+  int len = 0;
+  File f = SD.open(VSLAB_QUEUE_PATH, FILE_READ);
+  if (f) {
+    if (queueOffset < f.size() && f.seek(queueOffset)) {
+      len = f.readBytesUntil('\n', store.buffer(), SERIALIZE_BUFFER_SIZE - 1);
+    }
+    f.close();
+  }
+  if (len <= 0) {
+    // all sent (or the file can't be read): start afresh
+    SD.remove(VSLAB_QUEUE_PATH);
+    queueOffset = 0;
+    queueState = 0;
+    nvs_set_u32(nvs, "VSLAB_QOFS", 0);
+    nvs_commit(nvs);
+    Serial.println("[NET] All saved readings sent");
+    return BATCH_NONE;
+  }
+  store.buffer()[len] = 0;
+  store.setLength(len);
+  Serial.print("[DAT saved] ");
+  Serial.println(store.buffer());
+  bool sent = teleClient.transmit(store.buffer(), len);
+  store.purge();
+  int code = teleClient.lastCode;
+  int result = !sent ? BATCH_FAILED : code == 200 ? BATCH_SENT : (code >= 400 && code < 500) ? BATCH_REJECTED : BATCH_FAILED;
+  if (result != BATCH_FAILED) {
+    queueOffset += len + 1;
+    nvs_set_u32(nvs, "VSLAB_QOFS", queueOffset);
+    nvs_commit(nvs);
+  }
+  Serial.print("[NET] Saved upload ");
+  Serial.println(result == BATCH_SENT ? "sent" : result == BATCH_REJECTED ? "refused by the server, dropped" : "kept to send again");
+  return result;
+}
+#endif
+
+// VSLAB: after a failed upload, log the modem's view of the network (serving cell, band, signal), to tell a cell
+// change or poor coverage from a modem fault
+void logCellState()
+{
+  if (!state.check(STATE_CELL_CONNECTED)) return;
+  if (!teleClient.cell.command("AT+CPSI?\r", 1000)) {
+    Serial.println("[CELL] Network state: no answer");
+    return;
+  }
+  char *p = strstr(teleClient.cell.getBuffer(), "+CPSI:");
+  if (p) {
+    char *q = strchr(p, '\r');
+    if (q) *q = 0;
+    Serial.print("[CELL] Network state: ");
+    Serial.println(p + 7);
+  }
+}
+
 /*******************************************************************************
   Initializing network, maintaining connection and doing transmissions
 *******************************************************************************/
@@ -1148,6 +1292,7 @@ void telemetry(void* inst)
 {
   uint32_t lastRssiTime = 0;
   uint8_t connErrors = 0;
+  uint8_t cellFailures = 0; // VSLAB: failed modem starts in a row
   uint32_t retryAt = 0; // VSLAB: no upload attempt before this time (after a failed one)
   CStorageRAM store;
   store.init(
@@ -1175,9 +1320,13 @@ void telemetry(void* inst)
         ip = "";
         rssi = 0;
       }
+#if VSLAB_SAVE_BACKLOG
+      saveBacklog(store);
+#endif
       state.clear(STATE_NET_READY | STATE_CELL_CONNECTED | STATE_WIFI_CONNECTED);
       teleClient.reset();
       bufman.purge();
+      netParked = true; // VSLAB
 
       uint32_t t = millis();
       do {
@@ -1218,6 +1367,7 @@ void telemetry(void* inst)
       }
       continue;
     }
+    netParked = false; // VSLAB
 
 #if ENABLE_WIFI
     if (wifiSSID[0] && !state.check(STATE_WIFI_CONNECTED)) {
@@ -1260,10 +1410,19 @@ void telemetry(void* inst)
           teleClient.cell.end();
           state.clear(STATE_NET_READY | STATE_CELL_CONNECTED);
           Serial.println("[CELL] Deactivated");
-          // avoid turning on/off cellular module too frequently to avoid operator banning
-          delay(60000 * 3);
+          // VSLAB: wait 15 s, 30 s, 1 min, then 3 min before trying again, after each failure in a row (upstream
+          // always waited 3 min, "to avoid operator banning"; field test 2026-10-27: the modem came back on the next
+          // try, so the wait only lost data). Stop waiting when the device goes to sleep.
+          static const uint8_t waitSeconds[] = {15, 30, 60, 180};
+          uint32_t wait = waitSeconds[cellFailures < 3 ? cellFailures : 3] * 1000UL;
+          if (cellFailures < 255) cellFailures++;
+          Serial.print("[CELL] Trying again in ");
+          Serial.print(wait / 1000);
+          Serial.println(" s");
+          for (uint32_t t = millis(); millis() - t < wait && state.check(STATE_WORKING); ) delay(500);
           break;
         }
+        cellFailures = 0; // VSLAB
         Serial.println("[CELL] In service");
         state.set(STATE_NET_READY);
         if (teleClient.login) teleClient.notifyExtra = 0; // VSLAB: the restart reason goes with the first sign-in only
@@ -1299,7 +1458,12 @@ void telemetry(void* inst)
       // VSLAB: send in batches, oldest first, once the oldest reading has waited long enough (see sendBatch)
       uint32_t oldest;
       int waiting = bufman.filled(&oldest);
-      if (!waiting || (waiting < VSLAB_BATCH_MAX && millis() - oldest < VSLAB_BATCH_SECONDS * 1000UL && !forceReport) || millis() < retryAt) {
+#if VSLAB_SAVE_BACKLOG
+      bool saved = savedWaiting(); // readings saved before the last sleep go first, without waiting
+#else
+      bool saved = false;
+#endif
+      if ((!saved && (!waiting || (waiting < VSLAB_BATCH_MAX && millis() - oldest < VSLAB_BATCH_SECONDS * 1000UL && !forceReport))) || millis() < retryAt) {
         delay(50);
         continue;
       }
@@ -1310,7 +1474,11 @@ void telemetry(void* inst)
 #endif
 
       forceReport = false;
-      int result = sendBatch(store);
+      int result = BATCH_NONE;
+#if VSLAB_SAVE_BACKLOG
+      if (saved) result = sendSaved(store);
+#endif
+      if (result == BATCH_NONE) result = sendBatch(store);
       runCommands(); // VSLAB: device commands from the reply
       if (result == BATCH_SENT) {
         connErrors = 0;
@@ -1320,6 +1488,7 @@ void telemetry(void* inst)
         timeoutsNet++;
         connErrors++;
         printTimeoutStats();
+        logCellState(); // VSLAB
         if (connErrors < MAX_CONN_ERRORS_RECONNECT) {
           // quick reconnect
           teleClient.connect(true);
@@ -1333,6 +1502,9 @@ void telemetry(void* inst)
 
       if (state.check(STATE_CELL_CONNECTED) && !teleClient.cell.check(1000)) {
         Serial.println("[CELL] Not in service");
+        // VSLAB: switch the modem fully off before starting it again. One that has stopped answering ignores the
+        // short power-key pulse that starts it (field test 2026-10-27: no answer for 70 s, fine after a power-off).
+        teleClient.cell.end();
         state.clear(STATE_NET_READY | STATE_CELL_CONNECTED);
         break;
       }
@@ -1417,6 +1589,9 @@ void standby()
   Serial.println("WAKEUP");
   sys.resetLink();
 #if RESET_AFTER_WAKEUP
+  // VSLAB: the restart clears memory, so let the network task save unsent readings first (saveBacklog); it may be
+  // busy starting the modem, so wait up to 3 minutes
+  for (int i = 0; i < 1800 && !netParked; i++) delay(100);
 #if ENABLE_MEMS
   if (mems) mems->end();  
 #endif

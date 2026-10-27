@@ -44,6 +44,7 @@ public:
     void purge() { m_cacheBytes = 0; m_samples = 0; }
     unsigned int length() { return m_cacheBytes; }
     char* buffer() { return m_cache; }
+    void setLength(unsigned int n) { m_cacheBytes = n; } // VSLAB: after filling buffer() directly
     void dispatch(const char* buf, byte len);
     void header(const char* devid);
     void tailer();

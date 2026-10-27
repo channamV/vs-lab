@@ -21,6 +21,8 @@
 
 #define XBEE_BAUDRATE 115200
 #define HTTP_CONN_TIMEOUT 5000
+// VSLAB: how long the SIM7670 may take for one HTTP request (send, server, reply)
+#define VSLAB_HTTP_ACTION_TIMEOUT 20000
 
 #define RECV_BUF_SIZE 512
 
@@ -124,6 +126,7 @@ public:
     virtual String queryIP(const char* host);
     virtual bool getLocation(GPS_DATA** pgd);
     bool check(unsigned int timeout = 0);
+    bool command(const char* cmd, unsigned int timeout = 1000); // VSLAB
     char* getBuffer();
     const char* deviceName() { return m_model; }
     char IMEI[16] = {0};

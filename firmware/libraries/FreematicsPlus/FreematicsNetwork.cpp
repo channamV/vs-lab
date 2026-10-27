@@ -294,6 +294,20 @@ void CellSIMCOM::end()
   }
 }
 
+// VSLAB: one log line with the modem's reply to a step that failed (line breaks shown as |), so a failed upload in
+// the field shows what the modem said
+static void cellLogReply(const char* step, const char* reply)
+{
+  Serial.print("[CELL] ");
+  Serial.print(step);
+  Serial.print(" failed, modem said: ");
+  for (const char* p = reply; *p; p++) {
+    if (*p == '\r') continue;
+    Serial.print(*p == '\n' ? '|' : *p);
+  }
+  Serial.println();
+}
+
 #ifdef VSLAB_CELL_DEBUG
 // VSLAB test build: one line per modem reply during the network search
 static void cellDebugLine(const char* what, int ret, uint32_t elapsed, const char* buf)
@@ -580,6 +594,12 @@ String CellSIMCOM::getOperatorName()
       }
   }
   return "";
+}
+
+// VSLAB: send any command and keep the reply in the buffer (getBuffer), for logging the network state
+bool CellSIMCOM::command(const char* cmd, unsigned int timeout)
+{
+  return sendCommand(cmd, timeout);
 }
 
 bool CellSIMCOM::check(unsigned int timeout)
@@ -1014,15 +1034,42 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
 #ifdef VSLAB_CELL_DEBUG
     if (s_sniShow) cellDebugReply("URL", urlSet, m_buffer);
 #endif
-    if (urlSet) {
-      if (payload) {
-        sprintf(m_buffer, "AT+HTTPDATA=%u,1000\r", payloadSize);
-        sendCommand(m_buffer, 1000, "DOWNLOAD\r");
-        m_device->xbWrite(payload, payloadSize);
-        sendCommand("AT+HTTPACTION=1\r");
-      } else {
-        sendCommand("AT+HTTPACTION=0\r");
+    if (!urlSet) {
+      cellLogReply("AT+HTTPPARA URL", m_buffer); // VSLAB
+      m_state = HTTP_ERROR;
+      return false;
+    }
+    if (payload) {
+      sprintf(m_buffer, "AT+HTTPDATA=%u,1000\r", payloadSize);
+      // VSLAB: send the body only once the modem asks for it. Upstream sent it regardless: a body the modem
+      // isn't waiting for is read as AT commands (field test 2026-10-27: uploads failed, then the modem stopped
+      // answering).
+      if (!sendCommand(m_buffer, 3000, "DOWNLOAD")) {
+        cellLogReply("AT+HTTPDATA", m_buffer);
+        m_state = HTTP_ERROR;
+        return false;
       }
+      m_device->xbWrite(payload, payloadSize);
+      if (!sendCommand(0, 3000)) {
+        cellLogReply("HTTP body", m_buffer);
+        m_state = HTTP_ERROR;
+        return false;
+      }
+      sendCommand("AT+HTTPACTION=1\r");
+    } else {
+      sendCommand("AT+HTTPACTION=0\r");
+    }
+    // VSLAB: wait for the request's result (+HTTPACTION: <method>,<status>,<length>) before reading the reply.
+    // Upstream asked for the reply headers straight away, with 5 s for the whole round trip. A status above 599
+    // is the modem's own error (e.g. 706 network error, 713 timeout): there's no reply to read then.
+    if (!strstr(m_buffer, "+HTTPACTION:")) sendCommand(0, VSLAB_HTTP_ACTION_TIMEOUT, "+HTTPACTION:");
+    char *r = strstr(m_buffer, "+HTTPACTION:");
+    char *c = r ? strchr(r, ',') : 0;
+    int status = c ? atoi(c + 1) : 0;
+    if (status < 100 || status > 599) {
+      cellLogReply(r ? "HTTP request" : "HTTP request (no result in time)", m_buffer);
+      m_state = HTTP_ERROR;
+      return false;
     }
     return true;
   } else {
