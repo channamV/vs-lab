@@ -1583,10 +1583,11 @@ void checkFirmwareDeadline()
   }
 }
 
-// after the restart: tell VS-lab how the update went
+// after the restart: tell VS-lab how the update went, once the new version has kept itself (a version that goes
+// back to the previous one is reported by that one: "rolled back")
 void reportUpdate()
 {
-  if (!updateCommandId || updateInstall) return;
+  if (!updateCommandId || updateInstall || firmwarePending()) return;
   lastCommandOk = !strcmp(updateVersion, VSLAB_FW_VERSION);
   snprintf(lastCommandResult, sizeof(lastCommandResult), lastCommandOk ? "running %s" : "rolled back: still %s", VSLAB_FW_VERSION);
   if (answerCommand(updateCommandId, lastCommandOk, lastCommandResult)) {
@@ -1888,19 +1889,6 @@ void telemetry(void* inst)
           reportUpdate();
           sendRestartReport();
         }
-#ifdef VSLAB_TEST_UPDATE
-        // VSLAB test build: download (not install) release 1, vs-0.2.1, as if VS-lab had sent it
-        static bool testUpdateDone = false;
-        if (teleClient.login && !testUpdateDone) {
-          testUpdateDone = true;
-          bool ok;
-          char result[48] = "";
-          bool ready = downloadUpdate("vs-0.2.1	1790192	94e2d151ce54830636d160a9e5bb7cb84fa5b912dba071f73821bd8065322564	/hub/api/firmware/1?d=Y5725A32&s=-", &ok, result, sizeof(result));
-          if (ready) updateInstall = false; // not this time
-          Serial.print("[TEST] update download: ");
-          Serial.println(ready ? "ready" : result);
-        }
-#endif
       }
 
       if (millis() - lastRssiTime > SIGNAL_CHECK_INTERVAL * 1000) {
