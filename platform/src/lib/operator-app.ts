@@ -14,10 +14,11 @@ import {
   type Machine,
 } from "@/lib/db/schema";
 import { checklistForMachine, coveringChecklist } from "@/lib/checklists";
-import { deviceKey, unlockSignature } from "@/lib/commands";
+import { deviceKey, sessionKey, unlockSignature } from "@/lib/commands";
 import { clockTime, machineLabel } from "@/lib/format";
 import { machineReadings, meterKindFor } from "@/lib/meters";
 import { effectiveMode } from "@/lib/modes";
+import { syncCheckins } from "@/lib/operators";
 import { orgTimeZone } from "@/lib/org-time";
 import { photoStorageAvailable } from "@/lib/photos";
 import { placeName } from "@/lib/places";
@@ -41,6 +42,8 @@ export const APP_RULES = {
   unlockMinutes: 10,
   /** Offline passes: let the operator start without signal, after doing the checklist in the app. */
   offlinePassHours: 12,
+  /** Session hold: the phone's session key for a check-in works for at most this long after checking in (a long shift). */
+  sessionHours: 16,
 };
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -272,6 +275,20 @@ export function unlockPass(deviceId: string, operatorId: number, checkinId: numb
   return `U1|${operatorId}|${checkinId}|${f}|${u}|${key ? unlockSignature(key, deviceId, operatorId, checkinId, f, u) : "-"}`;
 }
 
+/**
+ * Session hold (docs/operator-app.md): what the phone keeps for a held check-in so it can resume it after a break.
+ * The device works the key out itself from its own key and the other fields; the phone never sends the key, only
+ * a proof for the device's random challenge (`resumeProof`). Key "-" = signing is off.
+ */
+export type AppSession = { checkinId: number; operatorId: number; until: number; holdMinutes: number; key: string };
+
+export function appSession(deviceId: string, c: { id: number; operatorId: number; startedAt: Date; holdMinutes: number | null }): AppSession | null {
+  if (!c.holdMinutes) return null;
+  const until = Math.floor(c.startedAt.getTime() / 1000) + APP_RULES.sessionHours * 3600;
+  const key = deviceKey(deviceId);
+  return { checkinId: c.id, operatorId: c.operatorId, until, holdMinutes: c.holdMinutes, key: key ? sessionKey(key, deviceId, c.operatorId, c.id, until, c.holdMinutes) : "-" };
+}
+
 /** After a check-in in the app: the pass to hand the machine now (relay machines, approved, Access-Controlled). */
 export async function passForCheckin(db: Db, checkinId: number, now = new Date()) {
   const [row] = await db
@@ -287,7 +304,31 @@ export async function passForCheckin(db: Db, checkinId: number, now = new Date()
     deviceId: row.deviceId,
     bluetoothName: bluetoothName(row.deviceId),
     pass: unlockPass(row.deviceId, c.operatorId, c.id, now, new Date(now.getTime() + APP_RULES.unlockMinutes * 60_000)),
+    session: appSession(row.deviceId, c),
   };
+}
+
+/**
+ * The operator's held check-ins that are still current (so the app can resume them after a break), with the session
+ * key; the app forgets sessions that aren't listed. At most one per machine.
+ */
+export async function appSessions(db: Db, auth: AppAuth, now = new Date()) {
+  const open = await db
+    .select({ checkin: checkins, code: machines.code, deviceId: deviceAssignments.deviceId })
+    .from(checkins)
+    .innerJoin(machines, eq(machines.id, checkins.machineId))
+    .innerJoin(deviceAssignments, and(eq(deviceAssignments.machineId, machines.id), isNull(deviceAssignments.endedAt)))
+    .where(and(eq(checkins.operatorId, auth.operatorId), eq(checkins.organizationId, auth.organizationId), isNull(checkins.endedAt), sql`${checkins.holdMinutes} > 0`));
+  const out = [];
+  for (const { checkin, code, deviceId } of open) {
+    // Ended by the rules since (the hold ran out, never started)?
+    await syncCheckins(db, checkin.machineId, now);
+    const [c] = await db.select().from(checkins).where(eq(checkins.id, checkin.id));
+    if (!c || c.endedAt) continue;
+    const session = appSession(deviceId, c);
+    if (session && session.until * 1000 > now.getTime()) out.push({ machineCode: code, deviceId, bluetoothName: bluetoothName(deviceId), session });
+  }
+  return out;
 }
 
 /**

@@ -8,7 +8,7 @@ import { unlockMachine } from "@/lib/ble";
 import { canSkip, emptyForm, formFields, hasMajor, lockingOut, missing, photoFields, severityOf, type FormState } from "@/lib/checklist-form";
 import { phonePosition, takePhoto } from "@/lib/device";
 import { offline } from "@/lib/offline";
-import type { Checklist, CheckinResult } from "@/lib/types";
+import type { Checklist, CheckinResult, Unlock } from "@/lib/types";
 
 const MAX_PHOTOS = 3;
 
@@ -23,7 +23,7 @@ type Done =
  */
 export default function ChecklistScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
-  const { account, me, refresh } = useApp();
+  const { account, me, refresh, addHold } = useApp();
   const op = account!.operatorId;
   const machine = me?.machines.find((m) => m.code === code) ?? null;
   const [data, setData] = useState<Checklist | null>(null);
@@ -65,9 +65,12 @@ export default function ChecklistScreen() {
   const set = (patch: Partial<FormState>) => setForm({ ...form, ...patch });
   const todo = missing(c, form);
 
-  async function doUnlock(bluetoothName: string, pass: string) {
+  async function doUnlock(bluetoothName: string, pass: string, unlock?: Unlock) {
     setUnlock({ busy: true });
+    // Session hold: keep the key for this check-in, so the phone can restart the machine after a break.
+    if (unlock?.session) await addHold({ machineCode: code, deviceId: unlock.deviceId, bluetoothName, bleId: null, session: unlock.session });
     const r = await unlockMachine(bluetoothName, pass);
+    if (unlock?.session && r.bleId) await addHold({ machineCode: code, deviceId: unlock.deviceId, bluetoothName, bleId: r.bleId, session: unlock.session });
     setUnlock({ busy: false, ok: r.ok, message: r.message });
   }
 
@@ -91,7 +94,7 @@ export default function ChecklistScreen() {
       if (result.lockedOut) setDone({ kind: "locked-out", items: result.failedItems });
       else {
         setDone({ kind: "sent", result });
-        if (result.unlock) doUnlock(result.unlock.bluetoothName, result.unlock.pass);
+        if (result.unlock) doUnlock(result.unlock.bluetoothName, result.unlock.pass, result.unlock);
       }
       refresh().catch(() => {});
     } catch (e) {
@@ -277,8 +280,10 @@ function Result({ done, unlock, onBack }: { done: Done; unlock: { busy: boolean;
           {done.result.relay === "blocked" && <Notice tone="danger" text="This machine won't start for you: you're not approved to operate it." />}
           {done.result.failedItems.length > 0 && <Notice tone="warn" text={`Defects reported (your supervisor has been told): ${done.result.failedItems.join("; ")}`} />}
           <Text style={s.body}>
-            {done.result.engineRunning ? "The engine is running: you're now the operator." : `Start the engine within ${done.result.startWindowMinutes} minutes.`} You&apos;ll be checked out automatically when the engine
-            stops.
+            {done.result.engineRunning ? "The engine is running: you're now the operator." : `Start the engine within ${done.result.startWindowMinutes} minutes.`}{" "}
+            {done.result.unlock?.session
+              ? `On a break (lunch)? The machine holds your check-in for ${done.result.unlock.session.holdMinutes} minutes after you switch off. Keep your phone with you with Bluetooth on: it lets you restart when you're back in the cab. Nobody else can start it meanwhile without checking in.`
+              : "You'll be checked out automatically when the engine stops."}
           </Text>
         </>
       )}

@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import type { Account, Checklist, CheckinResult, Me, OfflinePass } from "./types";
+import type { Account, Checklist, CheckinResult, HeldSession, Me, OfflinePass } from "./types";
 
 /** Talking to vs-lab (docs/operator-app.md). Errors carry the message to show the operator. */
 
@@ -38,7 +38,7 @@ export const api = {
   signOut: (token: string) => call<{ ok: true }>("/api/app/logout", { method: "POST", token }),
   me: (token: string) => call<Me>("/api/app/me", { token }),
   checklist: (token: string, code: string) => call<Checklist>(`/api/app/machines/${encodeURIComponent(code)}/checklist`, { token }),
-  passes: (token: string) => call<{ passes: OfflinePass[] }>("/api/app/passes", { token }),
+  passes: (token: string) => call<{ passes: OfflinePass[]; sessions?: Omit<HeldSession, "bleId">[] }>("/api/app/passes", { token }),
   place: (token: string, lat: number, lng: number) => call<{ place: string | null }>("/api/app/place", { method: "POST", token, body: JSON.stringify({ lat, lng }) }),
   checkIn: (token: string, code: string, form: FormData) =>
     call<CheckinResult>(`/api/app/machines/${encodeURIComponent(code)}/checkin`, { method: "POST", token, body: form }),

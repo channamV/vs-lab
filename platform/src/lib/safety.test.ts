@@ -38,12 +38,12 @@ beforeEach(async () => {
 
 describe("settings", () => {
   it("saves limits, blank = off, and rejects nonsense", async () => {
-    await updateSafetySettings(db, org, { speedLimitKph: "40", idleAlertMinutes: "", fatigueDailyHours: "12", fatigueContinuousHours: "4.5", postedLimitTolerancePct: "10" });
+    await updateSafetySettings(db, org, { speedLimitKph: "40", idleAlertMinutes: "", fatigueDailyHours: "12", fatigueContinuousHours: "4.5", postedLimitTolerancePct: "10", sessionHoldMinutes: "60" });
     const [o] = await db.select().from(organizations).where(eq(organizations.id, org));
-    expect(o).toMatchObject({ speedLimitKph: 40, idleAlertMinutes: null, fatigueDailyHours: 12, fatigueContinuousHours: 4.5, postedLimitTolerancePct: 10 });
-    await expect(updateSafetySettings(db, org, { speedLimitKph: "1", idleAlertMinutes: "", fatigueDailyHours: "", fatigueContinuousHours: "", postedLimitTolerancePct: "" })).rejects.toThrow(SafetyError);
-    await expect(updateSafetySettings(db, org, { speedLimitKph: "", idleAlertMinutes: "7.5", fatigueDailyHours: "", fatigueContinuousHours: "", postedLimitTolerancePct: "" })).rejects.toThrow(/whole minutes/);
-    await expect(updateSafetySettings(db, org, { speedLimitKph: "", idleAlertMinutes: "", fatigueDailyHours: "", fatigueContinuousHours: "", postedLimitTolerancePct: "60" })).rejects.toThrow(/0 and 50 \(whole percent\)/);
+    expect(o).toMatchObject({ speedLimitKph: 40, idleAlertMinutes: null, fatigueDailyHours: 12, fatigueContinuousHours: 4.5, postedLimitTolerancePct: 10, sessionHoldMinutes: 60 });
+    await expect(updateSafetySettings(db, org, { speedLimitKph: "1", idleAlertMinutes: "", fatigueDailyHours: "", fatigueContinuousHours: "", postedLimitTolerancePct: "", sessionHoldMinutes: "" })).rejects.toThrow(SafetyError);
+    await expect(updateSafetySettings(db, org, { speedLimitKph: "", idleAlertMinutes: "7.5", fatigueDailyHours: "", fatigueContinuousHours: "", postedLimitTolerancePct: "", sessionHoldMinutes: "" })).rejects.toThrow(/whole minutes/);
+    await expect(updateSafetySettings(db, org, { speedLimitKph: "", idleAlertMinutes: "", fatigueDailyHours: "", fatigueContinuousHours: "", postedLimitTolerancePct: "60", sessionHoldMinutes: "" })).rejects.toThrow(/0 and 50 \(whole percent\)/);
     expect(parseSiteSpeedLimit(" ")).toBeNull();
     expect(parseSiteSpeedLimit("15")).toBe(15);
     expect(() => parseSiteSpeedLimit("abc")).toThrow(SafetyError);

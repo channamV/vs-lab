@@ -279,6 +279,8 @@ async function MachineDetail({
                   <span className="text-slate-500">
                     {" "}
                     · on a break, engine off since {clockTime(current.engineOffSince, tz, now)}
+                    {current.holdMinutes &&
+                      ` (held for their phone until ${clockTime(new Date(current.engineOffSince.getTime() + current.holdMinutes * 60_000), tz, now)})`}
                   </span>
                 )}
                 <CheckinFlags checkin={current} />
@@ -328,7 +330,14 @@ async function MachineDetail({
                         )}
                       </td>
                       <td className={`py-1.5 ${where.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{where.text}</td>
-                      <td className={`py-1.5 ${timing.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{timing.text}</td>
+                      <td className={`py-1.5 ${timing.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>
+                        {timing.text}
+                        {c.resumeCount > 0 && (
+                          <span className="block text-xs text-slate-500">
+                            Resumed after {c.resumeCount === 1 ? "a break" : `${c.resumeCount} breaks`} (phone)
+                          </span>
+                        )}
+                      </td>
                       <td className="py-1.5">
                         {c.checklistFromCheckinId ? (
                           <span className="text-slate-600 dark:text-slate-400" title="The checklist's frequency allows once a day">

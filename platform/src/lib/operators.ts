@@ -2,15 +2,17 @@ import { scheduledAccess } from "@/lib/schedules";
 import { trainingAccess } from "@/lib/training";
 import { currentMode } from "@/lib/mode-types";
 import { createHash } from "node:crypto";
-import { and, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import {
   checkins,
+  deviceAssignments,
   engineSessions,
   machines,
   meterReadings,
   machineOperators,
   operators,
+  organizations,
   pinFailures,
   checkinPhotos,
   type ChecklistAnswer,
@@ -46,6 +48,8 @@ export const CHECKIN_RULES = {
    * How long a check-in survives the engine being off (a break, refuelling) before the operator is
    * checked out, by check-in method. A restart within this time stays with the same operator.
    * Beacon check-ins need no allowance: the device sees the beacon again when the operator returns.
+   * App check-ins on Safety & Access Control machines use the company's session hold instead (`checkins.hold_minutes`):
+   * only the operator's phone can restart the machine meanwhile (src/lib/relay.ts).
    */
   breakMinutes: { web: 30, app: 30, ble: 0 } as Record<string, number>,
 };
@@ -99,9 +103,9 @@ function isLive(s: SessionSpan, now: number): boolean {
   return !s.endedAt && s.startedAt.getTime() <= now && effectiveEnd(s, now) >= now;
 }
 
-type OpenCheckin = { startedAt: Date; endedAt: Date | null; engineSessionId: number | null; method?: string };
+type OpenCheckin = { startedAt: Date; endedAt: Date | null; engineSessionId: number | null; method?: string; holdMinutes?: number | null };
 
-const breakMs = (c: OpenCheckin) => (CHECKIN_RULES.breakMinutes[c.method ?? "web"] ?? 0) * 60_000;
+const breakMs = (c: OpenCheckin) => (c.holdMinutes ?? CHECKIN_RULES.breakMinutes[c.method ?? "web"] ?? 0) * 60_000;
 
 /** When the linked engine stopped, or null while it's still running. */
 export function engineStoppedAt(linked: SessionSpan, now = Date.now()): Date | null {
@@ -167,6 +171,39 @@ export async function syncCheckins(db: Db, machineId: number, now = new Date()) 
     const end = automaticEnd(c, linked ?? null, t);
     if (end) await db.update(checkins).set(end).where(eq(checkins.id, c.id));
   }
+}
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
+ * Ends open check-ins (another operator checked in, or this operator moved to another machine). One on a break ends
+ * when its engine stopped: nobody used the machine on it after that.
+ */
+export async function endOpenCheckins(db: Db | Tx, where: SQL | undefined, endReason: string, now: Date) {
+  const open = await db
+    .select({ id: checkins.id, startedAt: checkins.startedAt, engineSessionId: checkins.engineSessionId })
+    .from(checkins)
+    .where(and(where, isNull(checkins.endedAt)));
+  for (const c of open) {
+    const [linked] = c.engineSessionId ? await db.select().from(engineSessions).where(eq(engineSessions.id, c.engineSessionId)) : [];
+    const stopped = linked ? engineStoppedAt(linked, now.getTime()) : null;
+    const endedAt = stopped && stopped < now ? new Date(Math.max(stopped.getTime(), c.startedAt.getTime())) : now;
+    await db.update(checkins).set({ endedAt, endReason }).where(eq(checkins.id, c.id));
+  }
+}
+
+/**
+ * The session hold for a new check-in (minutes), or null: app check-ins on Safety & Access Control machines with a
+ * paired device, when the company has it on.
+ */
+async function holdMinutesFor(db: Db, m: { id: number; organizationId: number; tier: string }, method: string) {
+  if (method !== "app" || m.tier !== "control") return null;
+  const [row] = await db
+    .select({ hold: organizations.sessionHoldMinutes })
+    .from(organizations)
+    .innerJoin(deviceAssignments, and(eq(deviceAssignments.machineId, m.id), isNull(deviceAssignments.endedAt)))
+    .where(eq(organizations.id, m.organizationId));
+  return row?.hold || null;
 }
 
 /** What happened with the engine for one check-in, for the history table and flags. */
@@ -590,15 +627,11 @@ export async function checkIn(
     : [];
   const engineLink: EngineLink | null = live ? (previous?.engineSessionId === live.id ? "takeover" : "already-running") : null;
 
+  const holdMinutes = lockout ? null : await holdMinutesFor(db, machine, input.method ?? "web");
+
   const inserted = await db.transaction(async (tx) => {
-    await tx
-      .update(checkins)
-      .set({ endedAt: now, endReason: "replaced" })
-      .where(and(eq(checkins.machineId, machine.id), isNull(checkins.endedAt)));
-    await tx
-      .update(checkins)
-      .set({ endedAt: now, endReason: "moved" })
-      .where(and(eq(checkins.operatorId, operator.id), isNull(checkins.endedAt)));
+    await endOpenCheckins(tx, eq(checkins.machineId, machine.id), "replaced", now);
+    await endOpenCheckins(tx, eq(checkins.operatorId, operator.id), "moved", now);
     const [row] = await tx
       .insert(checkins)
       .values({
@@ -624,6 +657,7 @@ export async function checkIn(
         engineSessionId: live?.id ?? null,
         engineLink,
         method: input.method ?? "web",
+        holdMinutes,
         meterKind: meter !== null ? meterKind : null,
         meterReading: meter,
       })

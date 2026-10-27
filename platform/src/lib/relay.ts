@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull, like } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lte } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { checkins, deviceAssignments, deviceCommands, machineOperators, machines, operators, type Machine } from "@/lib/db/schema";
+import { checkins, deviceAssignments, deviceCommands, engineSessions, machineOperators, machines, operators, type Machine } from "@/lib/db/schema";
 import { effectiveMode } from "@/lib/modes";
-import { CHECKIN_RULES, syncCheckins } from "@/lib/operators";
+import { CHECKIN_RULES, endOpenCheckins, syncCheckins } from "@/lib/operators";
 import { scheduledAccess } from "@/lib/schedules";
 import { trainingAccess } from "@/lib/training";
 
@@ -12,9 +12,11 @@ import { trainingAccess } from "@/lib/training";
  * production firmware 4.2.11, which closes a relay on the Freematics external socket, GPIO26, for authorized
  * operators). The device decides on the spot; VS-lab tells it what it needs to know, as device commands:
  *  - MODE=<mode>…: Access-Controlled / Unlocked / Locked (src/lib/modes.ts; a repair lockout counts as Locked).
- *  - ALLOW=<check-in id>\t<start minutes>\t<break minutes>: an approved operator checked in with the QR code: close
- *    the relay until they start (or the start window passes), keep it closed while running and for the break
- *    allowance after it stops.
+ *  - ALLOW=<check-in id>\t<start minutes>\t<break minutes>\t<hold minutes>\t<operator id>: an approved operator checked
+ *    in (QR code or app): close the relay until they start (or the start window passes), keep it closed while running
+ *    and for the break allowance after it stops. Hold minutes (app check-ins, 0 = none): the session hold, during
+ *    which only that operator's phone can close the relay again (it proves itself over Bluetooth; the device reports
+ *    the resume at /hub/api/access/<device>?c=<check-in id>). App check-ins with a hold get no free break.
  *  - REVOKE=<check-in id>: that check-in ended (a manager ended it, the operator was deactivated): open the relay.
  *  - ACCESS=<version>\t<beacon>:<operator id>,…: the operators whose Bluetooth beacon may start this machine without
  *    signal. The device reports a beacon start at /hub/api/access/<device> (a beacon check-in, method "ble").
@@ -58,14 +60,15 @@ export function shouldAllow(m: Pick<Machine, "tier" | "mode" | "modeUntil" | "mo
 /** After a QR check-in: let the operator start (when they're approved and the machine is Access-Controlled). */
 export async function sendAllow(db: Db, checkinId: number, now = new Date()) {
   const [c] = await db.select().from(checkins).where(eq(checkins.id, checkinId));
-  if (!c || (c.method !== "web" && c.method !== "app")) return false;
+  // Already let in (a start the device reported itself, a resume): nothing to send.
+  if (!c || (c.method !== "web" && c.method !== "app") || c.relayAllowedAt) return false;
   const relay = await relayDevice(db, c.machineId);
   if (!relay || !shouldAllow(relay.machine, c, now.getTime())) return false;
   await replaceCommand(
     db,
     relay.deviceId,
     "ALLOW=",
-    `ALLOW=${c.id}\t${CHECKIN_RULES.engineStartWindowMinutes}\t${CHECKIN_RULES.breakMinutes[c.method] ?? 0}`,
+    `ALLOW=${c.id}\t${CHECKIN_RULES.engineStartWindowMinutes}\t${c.holdMinutes ? 0 : (CHECKIN_RULES.breakMinutes[c.method] ?? 0)}\t${c.holdMinutes ?? 0}\t${c.operatorId}`,
     `Let check-in #${c.id} start the machine`,
     RELAY_RULES.allowExpiryMinutes * 60_000,
     now,
@@ -199,14 +202,8 @@ export async function beaconCheckIn(db: Db, deviceId: string, input: { operatorI
     .where(and(eq(checkins.machineId, m.id), isNull(checkins.endedAt)));
   if (open?.operatorId === op.id) return open.id;
   return db.transaction(async (tx) => {
-    await tx
-      .update(checkins)
-      .set({ endedAt: at, endReason: "replaced" })
-      .where(and(eq(checkins.machineId, m.id), isNull(checkins.endedAt)));
-    await tx
-      .update(checkins)
-      .set({ endedAt: at, endReason: "moved" })
-      .where(and(eq(checkins.operatorId, op.id), isNull(checkins.endedAt)));
+    await endOpenCheckins(tx, eq(checkins.machineId, m.id), "replaced", at);
+    await endOpenCheckins(tx, eq(checkins.operatorId, op.id), "moved", at);
     const [row] = await tx
       .insert(checkins)
       .values({
@@ -225,6 +222,56 @@ export async function beaconCheckIn(db: Db, deviceId: string, input: { operatorI
       .returning({ id: checkins.id });
     return row.id;
   });
+}
+
+/**
+ * Session hold: the device says the operator's phone proved itself after a break and the relay closed again for
+ * check-in `checkinId` (docs/operator-app.md). The check-in carries on: counted as a resume, and reopened if VS-lab had
+ * already ended it (the report came late, after the hold ran out here). Anything that doesn't fit (another operator's
+ * check-in since, not a held check-in) is recorded as an app start instead, like an offline pass. Returns the
+ * check-in id.
+ */
+export async function resumeCheckIn(db: Db, deviceId: string, input: { operatorId: number; checkinId: number; at: Date }, now = new Date()) {
+  const machineId = await pairedMachineId(db, deviceId);
+  const at = new Date(Math.min(now.getTime(), Math.max(input.at.getTime(), now.getTime() - RELAY_RULES.maxReportDelayHours * 3_600_000)));
+  const [c] = machineId ? await db.select().from(checkins).where(and(eq(checkins.id, input.checkinId), eq(checkins.machineId, machineId))) : [];
+  const fallback = () => beaconCheckIn(db, deviceId, { operatorId: input.operatorId, beacon: "APP", at }, now);
+  if (!c || c.operatorId !== input.operatorId || !c.holdMinutes || at < c.startedAt) return fallback();
+  if (c.endedAt) {
+    // Ended by VS-lab while the device still held it: only "engine stopped", within the hold, nobody else since.
+    const [later] = await db
+      .select({ id: checkins.id })
+      .from(checkins)
+      .where(and(eq(checkins.machineId, c.machineId), gt(checkins.startedAt, c.startedAt)))
+      .limit(1);
+    if (c.endReason !== "engine stopped" || later || at.getTime() > c.endedAt.getTime() + c.holdMinutes * 60_000) return fallback();
+    // Link it to the engine run that followed, so it ends when that one does.
+    const [next] = await db
+      .select({ id: engineSessions.id })
+      .from(engineSessions)
+      .where(
+        and(
+          eq(engineSessions.machineId, c.machineId),
+          gte(engineSessions.startedAt, new Date(at.getTime() - 60_000)),
+          lte(engineSessions.startedAt, new Date(at.getTime() + CHECKIN_RULES.engineStartWindowMinutes * 60_000)),
+        ),
+      )
+      .orderBy(engineSessions.startedAt)
+      .limit(1);
+    await db
+      .update(checkins)
+      .set({ endedAt: null, endReason: null, ...(next && { engineSessionId: next.id }) })
+      .where(eq(checkins.id, c.id));
+  }
+  // The device resends a report it got no answer to: count each resume once.
+  if (c.lastResumedAt?.getTime() !== at.getTime()) {
+    await db
+      .update(checkins)
+      .set({ resumeCount: c.resumeCount + 1, lastResumedAt: at, relayAllowedAt: c.relayAllowedAt ?? at })
+      .where(eq(checkins.id, c.id));
+  }
+  await syncCheckins(db, c.machineId, now);
+  return c.id;
 }
 
 async function pairedMachineId(db: Db, deviceId: string) {

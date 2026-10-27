@@ -348,6 +348,8 @@ const checkinWithOperator = {
   engineSessionId: checkins.engineSessionId,
   engineLink: checkins.engineLink,
   method: checkins.method,
+  holdMinutes: checkins.holdMinutes,
+  resumeCount: checkins.resumeCount,
 };
 
 type CheckinRow = {
@@ -357,6 +359,7 @@ type CheckinRow = {
   engineSessionId: number | null;
   engineLink: string | null;
   method: string;
+  holdMinutes: number | null;
 };
 
 /**

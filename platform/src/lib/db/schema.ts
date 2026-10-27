@@ -62,6 +62,12 @@ export const organizations = pgTable("organizations", {
    * the road's posted limit (OpenStreetMap). Null = off.
    */
   postedLimitTolerancePct: integer("posted_limit_tolerance_pct"),
+  /**
+   * Session hold (src/lib/relay.ts; docs/operator-app.md): on Safety & Access Control machines, an operator who checked in
+   * with the app can restart within this many minutes of switching off (lunch) with their phone, on the same check-in.
+   * Nobody else can start it meanwhile without checking in. Null = off (the normal break allowance applies).
+   */
+  sessionHoldMinutes: integer("session_hold_minutes").default(90),
   workingDays: integer("working_days").array().notNull().default(sql`'{1,2,3,4,5}'`),
   /** Fleet timezone (IANA): the default for new schedules (src/lib/schedules.ts). */
   timezone: text("timezone").notNull().default("America/Toronto"),
@@ -724,6 +730,14 @@ export const checkins = pgTable(
     meterReading: doublePrecision("meter_reading"),
     /** Relay machines: when the device confirmed it let this check-in start the machine (ALLOW command). */
     relayAllowedAt: timestamp("relay_allowed_at", { withTimezone: true }),
+    /**
+     * Session hold (app check-ins on relay machines): how long after the engine stops the operator's phone can restart it
+     * on this check-in (the company's setting at check-in time). Null = the method's normal break allowance.
+     */
+    holdMinutes: integer("hold_minutes"),
+    /** Times the operator's phone resumed this check-in after a break (the device reported it), and the latest. */
+    resumeCount: integer("resume_count").notNull().default(0),
+    lastResumedAt: timestamp("last_resumed_at", { withTimezone: true }),
     /**
      * The engine-on period this check-in covers. The operator has a few minutes after checking in to
      * start the engine; the check-in then ends automatically when the engine stops.

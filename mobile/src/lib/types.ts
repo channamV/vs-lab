@@ -47,7 +47,12 @@ export type Checklist = {
   };
 };
 
-export type Unlock = { deviceId: string; bluetoothName: string; pass: string };
+/** Session hold (docs/operator-app.md): kept per held check-in so the phone can resume it after a break. */
+export type AppSession = { checkinId: number; operatorId: number; until: number; holdMinutes: number; key: string };
+/** A held check-in on one machine; bleId = the phone's Bluetooth id for the machine's device, once seen. */
+export type HeldSession = { machineCode: string; deviceId: string; bluetoothName: string; bleId: string | null; session: AppSession };
+
+export type Unlock = { deviceId: string; bluetoothName: string; pass: string; session: AppSession | null };
 
 export type CheckinResult =
   | {

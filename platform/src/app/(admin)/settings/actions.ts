@@ -10,7 +10,7 @@ import { requireAuth } from "@/lib/session";
 import { SafetyError, updateSafetySettings } from "@/lib/safety";
 import { isTimezone } from "@/lib/schedule-time";
 
-const SAFETY_FIELDS = ["speedLimitKph", "idleAlertMinutes", "fatigueDailyHours", "fatigueContinuousHours", "postedLimitTolerancePct"] as const;
+const SAFETY_FIELDS = ["speedLimitKph", "idleAlertMinutes", "fatigueDailyHours", "fatigueContinuousHours", "postedLimitTolerancePct", "sessionHoldMinutes"] as const;
 
 export type SettingsFormState = { error: string | null; saved: boolean; version: number; values?: Record<string, string> };
 

@@ -85,6 +85,19 @@ export const ackSignature = (key: string, deviceId: string, id: number, ok: bool
 export const unlockSignature = (key: string, deviceId: string, operatorId: number, checkinId: number, from: number, until: number) =>
   sign(key, `unlock\n${deviceId}\n${operatorId}\n${checkinId}\n${from}\n${until}`);
 
+/**
+ * Session hold (docs/operator-app.md): the secret the app keeps for one check-in, so the operator's phone can prove itself
+ * to the device after a break. The device works it out from its own key and the details the phone sends (operator,
+ * check-in, valid-until, hold minutes), so changing any of them breaks the proof. Full length: it's a key, not a tag.
+ */
+export const sessionKey = (key: string, deviceId: string, operatorId: number, checkinId: number, until: number, holdMinutes: number) =>
+  createHmac("sha256", key).update(`session\n${deviceId}\n${operatorId}\n${checkinId}\n${until}\n${holdMinutes}`).digest("hex");
+/** The phone's answer to the device's random challenge (nonce), proving it holds the session key. */
+export const resumeProof = (sessionKeyHex: string, nonce: string) => sign(sessionKeyHex, `resume\n${nonce}`);
+/** A relay device reporting that the operator's phone resumed a held check-in (/hub/api/access with c=). */
+export const resumeSignature = (key: string, deviceId: string, operatorId: number, checkinId: number, t: number) =>
+  sign(key, `resume\n${deviceId}\n${operatorId}\n${checkinId}\n${t}`);
+
 /** A relay device reporting a beacon start (src/lib/relay.ts, /hub/api/access). */
 export const accessSignature = (key: string, deviceId: string, operatorId: number, beacon: string, t: number) =>
   sign(key, `access\n${deviceId}\n${operatorId}\n${beacon}\n${t}`);

@@ -173,6 +173,18 @@ sign-off (logout) ends the engine-on period. In order:
      `7f3c0002-…0001` (write with response, then the app reads `OK` / `EXPIRED` / `BAD_SIG` / `LOCKED` / `NOT_YOURS`) takes an unlock pass
      `U1|<operator>|<check-in>|<from>|<until>|<sig>` ([operator-app.md](operator-app.md)); check the HMAC with the device
      key and the window with GPS time; act as ALLOW; check-in 0 = offline pass → report at `/hub/api/access?b=APP`.
+   - g. **Session hold (lunch breaks, Craig 2026-10-27; [operator-app.md](operator-app.md)):** remember the check-in that
+     last unlocked the machine (ALLOW id + operator, or the U1 pass's), its hold minutes (ALLOW 4th field) and the engine
+     stop time, in RTC memory/NVS; a newer ALLOW, pass, beacon start, REVOKE or Locked drops it. Nonce characteristic
+     `7f3c0003-…0001` (read → new random 16 hex each read, kept per connection). On `R1|op|checkin|until|hold|proof`:
+     `NOT_HELD` unless it's the remembered check-in and operator; `EXPIRED` if GPS time > until or > stop + hold;
+     derive key = HMAC-SHA256(device key, `session\n<device>\n<op>\n<checkin>\n<until>\n<hold>`) as hex, check proof =
+     HMAC-SHA256(that hex, `resume\n<nonce>`)[0:16] else `BAD_SIG`; `LOCKED` in Locked; otherwise `OK` and treat the
+     connection as the operator: close the relay while that phone stays connected **and near** (RSSI ≥ about −70 dBm,
+     measure in a cab; `TOO_FAR` while it isn't), so a phone in the site trailer doesn't enable the machine. While the
+     engine runs on it, keep the relay closed as for ALLOW. Report each resume once (first `OK` after a stop) at
+     `/hub/api/access?op=&c=&t=&sig=`, queued without signal. Allow 3 connections at once and a fixed (public)
+     Bluetooth address, so phones can reconnect by themselves.
    - Install on a test machine only with the starter-only wiring (starter-relay.md → Safety rules).
 
 Rules as before: mark changes `// VSLAB:`, keep Bluetooth on in deployment builds, build/flash on Craig's PC, update this

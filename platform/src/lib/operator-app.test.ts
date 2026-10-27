@@ -1,17 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { checkins, devices, machines, organizations } from "@/lib/db/schema";
+import { checkins, deviceCommands, devices, engineSessions, machines, organizations } from "@/lib/db/schema";
 import { coveringChecklist, DEFAULT_SECTIONS, ensureChecklistDefaults } from "@/lib/checklists";
-import { deviceKey, unlockSignature } from "@/lib/commands";
+import { deviceKey, resumeProof, sessionKey, unlockSignature } from "@/lib/commands";
 import { createMachine, pairDevice } from "@/lib/machines";
-import { checkIn, createOperator, setMachineOperators, updateOperator } from "@/lib/operators";
-import { beaconCheckIn } from "@/lib/relay";
+import { checkIn, createOperator, setMachineOperators, syncCheckins, updateOperator } from "@/lib/operators";
+import { beaconCheckIn, resumeCheckIn, sendAllow } from "@/lib/relay";
 import {
   APP_RULES,
   appAuth,
   appChecklist,
   appMachines,
+  appSessions,
   offlinePasses,
   passForCheckin,
   replaceAppStart,
@@ -140,5 +141,88 @@ describe("operator app", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ method: "app", startedAt: at(0) });
     expect(rows[0].answers.length).toBeGreaterThan(0);
+  });
+
+  describe("session hold (lunch break)", () => {
+    const startEngine = async (min: number) => (await db.insert(engineSessions).values({ machineId: loader, startedAt: at(min), lastSeenAt: at(min) }).returning())[0];
+    const stopEngine = (id: number, min: number) => db.update(engineSessions).set({ endedAt: at(min), lastSeenAt: at(min) }).where(eq(engineSessions.id, id));
+    const row = async (id: number) => (await db.select().from(checkins).where(eq(checkins.id, id)))[0];
+
+    async function checkInWithApp(min: number) {
+      const result = await checkIn(db, { machineCode: "LDR1", pin: "", operatorId: jane, method: "app", answers: allOk, confirmed: true }, at(min));
+      if (!result.ok) throw new Error(result.reason);
+      return result.checkinId;
+    }
+
+    it("hands the phone a session key the device can work out, and tells the device about the hold", async () => {
+      const id = await checkInWithApp(0);
+      expect(await row(id)).toMatchObject({ holdMinutes: 90 });
+      const { session } = (await passForCheckin(db, id, at(0)))!;
+      expect(session).toMatchObject({ checkinId: id, operatorId: jane, holdMinutes: 90, until: T0 / 1000 + APP_RULES.sessionHours * 3600 });
+      expect(session!.key).toBe(sessionKey(deviceKey("DEV1")!, "DEV1", jane, id, session!.until, 90));
+      expect(resumeProof(session!.key, "a1b2c3d4e5f60718")).toMatch(/^[0-9a-f]{16}$/);
+      await sendAllow(db, id, at(0));
+      const [allow] = await db.select().from(deviceCommands);
+      expect(allow.command).toBe(`ALLOW=${id}\t5\t0\t90\t${jane}`); // no free break: only her phone restarts it
+      // Off for the company, or a QR check-in: the normal break.
+      await db.update(organizations).set({ sessionHoldMinutes: null }).where(eq(organizations.id, org));
+      expect(await row(await checkInWithApp(1))).toMatchObject({ holdMinutes: null });
+    });
+
+    it("keeps the check-in through lunch and carries on when her phone restarts the machine", async () => {
+      const id = await checkInWithApp(0);
+      const morning = await startEngine(2);
+      await syncCheckins(db, loader, at(3));
+      await stopEngine(morning.id, 180); // 12:00, lunch
+      await syncCheckins(db, loader, at(220));
+      expect(await row(id)).toMatchObject({ endedAt: null, engineSessionId: morning.id });
+      const auth = await signIn();
+      expect((await appSessions(db, auth, at(225))).map((s) => s.session.checkinId)).toEqual([id]);
+      // 12:50: the device checked her phone and closed the relay; she starts it.
+      expect(await resumeCheckIn(db, "DEV1", { operatorId: jane, checkinId: id, at: at(230) }, at(230))).toBe(id);
+      expect(await resumeCheckIn(db, "DEV1", { operatorId: jane, checkinId: id, at: at(230) }, at(231))).toBe(id); // resent
+      const afternoon = await startEngine(231);
+      await syncCheckins(db, loader, at(232));
+      expect(await row(id)).toMatchObject({ endedAt: null, engineSessionId: afternoon.id, resumeCount: 1, lastResumedAt: at(230) });
+      expect(await db.select().from(checkins)).toHaveLength(1);
+    });
+
+    it("ends the check-in when the engine stopped if she doesn't come back in time", async () => {
+      const id = await checkInWithApp(0);
+      const s = await startEngine(2);
+      await syncCheckins(db, loader, at(3));
+      await stopEngine(s.id, 180);
+      await syncCheckins(db, loader, at(180 + 91));
+      expect(await row(id)).toMatchObject({ endedAt: at(180), endReason: "engine stopped" });
+      expect(await appSessions(db, await signIn(), at(272))).toEqual([]);
+    });
+
+    it("ends a held check-in at the engine stop when someone else checks in", async () => {
+      const id = await checkInWithApp(0);
+      const s = await startEngine(2);
+      await syncCheckins(db, loader, at(3));
+      await stopEngine(s.id, 180);
+      await checkIn(db, { machineCode: "LDR1", pin: "2222", answers: allOk, confirmed: true }, at(200));
+      expect(await row(id)).toMatchObject({ endedAt: at(180), endReason: "replaced" });
+    });
+
+    it("reopens it for a resume reported late, and records anything else as an app start", async () => {
+      const id = await checkInWithApp(0);
+      const s = await startEngine(2);
+      await syncCheckins(db, loader, at(3));
+      await stopEngine(s.id, 180);
+      // No signal at the machine: VS-lab ended it, but the device resumed it at 12:50 and ran until 15:00.
+      await syncCheckins(db, loader, at(300));
+      const later = await startEngine(231);
+      await stopEngine(later.id, 360);
+      await resumeCheckIn(db, "DEV1", { operatorId: jane, checkinId: id, at: at(230) }, at(361));
+      expect(await row(id)).toMatchObject({ endedAt: null, engineSessionId: later.id, resumeCount: 1 });
+      await syncCheckins(db, loader, at(361 + 91));
+      expect(await row(id)).toMatchObject({ endedAt: at(360), endReason: "engine stopped" });
+      // Too late for the hold (or not hers): an app start instead.
+      const other = await resumeCheckIn(db, "DEV1", { operatorId: bob, checkinId: id, at: at(500) }, at(500));
+      expect(other).not.toBe(id);
+      expect(await row(other)).toMatchObject({ operatorId: bob, method: "app", answers: [] });
+    });
   });
 });

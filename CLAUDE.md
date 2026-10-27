@@ -35,7 +35,7 @@ github.com/stanleyhuangyc/Freematics.
   login notify `RST=<reason>&BOOT=<n>` (restart reason → login event detail + tamper wording, `src/lib/restart-reasons.ts`),
   and `POST /hub/api/diag/<DEVID>` (restart report: `BOOT=;RST=` line + last log lines → `device_diagnostics`,
   `src/lib/diagnostics.ts`, staff device page; `docs/device-diagnostics.md`), and relay devices' beacon starts
-  `GET /hub/api/access/<DEVID>?op=&b=&t=&sig=` (→ beacon check-in, `src/lib/relay.ts`; `docs/starter-relay.md`)
+  `GET /hub/api/access/<DEVID>?op=&b=&t=&sig=` (→ beacon check-in; with `c=<check-in>` instead of `b=`: a session-hold resume; `src/lib/relay.ts`; `docs/starter-relay.md`)
 - Device only checks for HTTP 200. Parser: `platform/src/lib/freematics/protocol.ts`. Text replies go through
   `deviceReply` (`src/lib/freematics/reply.ts`): it sets Content-Length; Telelogger waits ~5 s on chunked replies.
 - Device commands (`src/lib/commands.ts`, tested; `docs/device-commands.md`): replies to post/notify/push are
@@ -320,6 +320,12 @@ says it's compliant. Update that doc when items are done.
   `U1|op|checkin|from|until|sig` (`unlockSignature` in commands.ts) after check-in (`passForCheckin`) and 12 h offline
   passes (`offlinePasses`); device reports offline app starts via `/hub/api/access?b=APP` (→ check-in method app),
   replaced when the app uploads its checklist (`replaceAppStart`). Problems → maintenance source `operator`.
+  Session hold (Craig 2026-10-27, lunch breaks): org `session_hold_minutes` (default 90, null = off; Settings → Safety
+  rules) → app check-ins on relay machines get `checkins.hold_minutes` (= break allowance; ALLOW gets break 0 + hold +
+  operator). The app gets a per-check-in session key (`appSession`, `sessionKey` in commands.ts; also in `/api/app/passes`
+  `sessions`) and answers the device's Bluetooth nonce (`mobile/src/lib/hold-rules.ts`, `hmac.ts`, background reconnect
+  in `ble.ts`); the device reports resumes at `/hub/api/access?op=&c=` → `resumeCheckIn` (relay.ts). `endOpenCheckins`
+  ends a replaced check-in that was on a break at its engine stop.
 - Product language: tiers are "GPS & Telematics", "Safety & Access Monitoring",
   "Safety & Access Control" (`gps` / `monitor` / `control`). Control (starter relay): VS-lab side built 2026-10-26,
   firmware in progress.

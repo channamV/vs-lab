@@ -9,6 +9,7 @@ type Current = {
   fatigueDailyHours: number | null;
   fatigueContinuousHours: number | null;
   postedLimitTolerancePct: number | null;
+  sessionHoldMinutes: number | null;
 };
 
 const FIELDS = [
@@ -22,6 +23,12 @@ const FIELDS = [
   { name: "idleAlertMinutes", label: "Excessive idling after (minutes)", help: "Engine running at low RPM and not moving for this long. Only machines whose device reads engine RPM.", step: "1" },
   { name: "fatigueDailyHours", label: "Operator hours per day", help: "An operator running machines for more than this in a day (from check-ins and engine time).", step: "0.5" },
   { name: "fatigueContinuousHours", label: "Operator hours without a break", help: "Running machines this long without a 15-minute break.", step: "0.5" },
+  {
+    name: "sessionHoldMinutes",
+    label: "Break hold for app check-ins (minutes)",
+    help: "Safety & Access Control machines: after switching off (e.g. lunch), the operator who checked in with the app can restart within this time with their phone, on the same check-in. Nobody else can start it meanwhile without checking in.",
+    step: "1",
+  },
 ] as const;
 
 /** Speeding, idling and operator fatigue limits. Blank = off. */

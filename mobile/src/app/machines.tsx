@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Badge, Button, Card, Notice, colors, s } from "@/components/ui";
 import { useApp } from "@/lib/app-state";
-import { unlockMachine } from "@/lib/ble";
+import { resumeMachine, unlockMachine } from "@/lib/ble";
+import { HOLD_OVER } from "@/lib/hold-rules";
 import { offline } from "@/lib/offline";
 import type { Machine } from "@/lib/types";
 
@@ -71,6 +72,8 @@ export default function Machines() {
 }
 
 function MachineCard({ m, operatorId }: { m: Machine; operatorId: number }) {
+  const { held, addHold, dropHold } = useApp();
+  const hold = held.find((h) => h.machineCode === m.code) ?? null;
   const [unlocking, setUnlocking] = useState(false);
   const [unlockMessage, setUnlockMessage] = useState<{ ok: boolean; message: string } | null>(null);
   const blocked = m.mode === "locked" || m.lockedOut || m.trainingMissing.length > 0;
@@ -80,6 +83,17 @@ function MachineCard({ m, operatorId }: { m: Machine; operatorId: number }) {
     setUnlocking(true);
     const pass = await offline.pass(operatorId, m.code);
     setUnlockMessage(pass ? await unlockMachine(pass.bluetoothName, pass.pass) : { ok: false, message: "No pass saved. Check in again." });
+    setUnlocking(false);
+  }
+
+  /** Back from a break: the phone proves itself to the machine holding the check-in. */
+  async function resume() {
+    if (!hold) return;
+    setUnlocking(true);
+    const r = await resumeMachine(hold);
+    if (r.answer && HOLD_OVER.includes(r.answer)) await dropHold(hold.session.checkinId);
+    else if (r.bleId && r.bleId !== hold.bleId) await addHold({ ...hold, bleId: r.bleId });
+    setUnlockMessage(r);
     setUnlocking(false);
   }
 
@@ -101,7 +115,11 @@ function MachineCard({ m, operatorId }: { m: Machine; operatorId: number }) {
         onPress={() => router.push({ pathname: "/machine/[code]/checklist", params: { code: m.code } })}
         disabled={blocked}
       />
-      {mine && m.relay && <Button title="Unlock again" kind="secondary" onPress={unlockAgain} busy={unlocking} />}
+      {hold ? (
+        <Button title="I'm back: restart after my break" kind="secondary" onPress={resume} busy={unlocking} />
+      ) : (
+        mine && m.relay && <Button title="Unlock again" kind="secondary" onPress={unlockAgain} busy={unlocking} />
+      )}
       <Button title="Report a problem" kind="secondary" onPress={() => router.push({ pathname: "/machine/[code]/problem", params: { code: m.code } })} />
     </Card>
   );

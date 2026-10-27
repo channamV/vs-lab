@@ -33,7 +33,7 @@ Control tier with a paired device (`platform/src/lib/relay.ts`, tested):
 | Command | When | The device |
 |---|---|---|
 | `MODE=<mode>\t<offline mode\|keep>\t<hours>` | A manager, schedule or timer changes the mode; a repair lockout starts or is cleared (it counts as Locked) | **Unlocked**: relay closed. **Locked**: relay open, nothing opens it. **Access-Controlled**: relay open unless one of the below allows it |
-| `ALLOW=<check-in id>\t<start min>\t<break min>` | An approved operator checked in with the QR code (expires after 15 min if not picked up) | Close the relay. Open it again if the engine hasn't started within `<start min>` (5); while it runs keep it closed; after it stops keep it closed `<break min>` (30) for a restart, then open. A newer ALLOW replaces it |
+| `ALLOW=<check-in id>\t<start min>\t<break min>\t<hold min>\t<operator id>` | An approved operator checked in with the QR code or the app (expires after 15 min if not picked up) | Close the relay. Open it again if the engine hasn't started within `<start min>` (5); while it runs keep it closed; after it stops keep it closed `<break min>` (QR: 30) for a restart, then open. `<hold min>` > 0 (app check-ins, session hold, [operator-app.md](operator-app.md)): break is 0; after the stop, hold the check-in that long for that operator's phone. A newer ALLOW replaces it |
 | `REVOKE=<check-in id>` | A manager ended that check-in, or the operator was deactivated | If that's the current ALLOW: open the relay (a running engine carries on) |
 | `ACCESS=<version>\t<beacon>:<operator id>,…` | The machine's approved beacons changed (checked every 5 min and when approvals or operators change) | Keep the list (in flash/SD, survives restarts). An approved beacon within range closes the relay, with no signal needed. Answer with the version |
 
@@ -46,6 +46,11 @@ signature = first 16 hex of HMAC-SHA256(device key, `access\n<device>\n<op>\n<be
 happens, or later if there was no signal (VS-lab accepts up to 24 h late, dated when it happened). VS-lab records a
 **beacon check-in** (no checklist, so the "checklist due" beeps play until the operator does one with the QR code).
 It always answers 200.
+
+**Resumes after a break are reported** (session hold): `GET /hub/api/access/<device>?op=<operator id>&c=<check-in id>&t=<unix time>&sig=<sig>`,
+signature = first 16 hex of HMAC-SHA256(device key, `resume\n<device>\n<op>\n<check-in>\n<t>`). VS-lab carries the
+check-in on (reopening it if it had already ended it at the engine stop and the resume was within the hold); anything
+that doesn't fit is recorded as an app start.
 
 ## What operators and managers see
 

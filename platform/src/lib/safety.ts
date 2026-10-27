@@ -55,12 +55,14 @@ export const SAFETY_RULES = {
     continuousHours: [1, 12],
     /** % over a road's posted limit before it counts (src/lib/posted-speed.ts). */
     postedTolerancePct: [0, 50],
+    /** Session hold for app check-ins on relay machines (src/lib/relay.ts). */
+    sessionHoldMinutes: [5, 480],
   },
 };
 
 export class SafetyError extends Error {}
 
-export type SafetySettings = Pick<Organization, "speedLimitKph" | "idleAlertMinutes" | "fatigueDailyHours" | "fatigueContinuousHours" | "postedLimitTolerancePct">;
+export type SafetySettings = Pick<Organization, "speedLimitKph" | "idleAlertMinutes" | "fatigueDailyHours" | "fatigueContinuousHours" | "postedLimitTolerancePct" | "sessionHoldMinutes">;
 
 /** Checks and saves the company's safety rules (owner-only Settings). Blank = off. */
 export async function updateSafetySettings(db: Db, organizationId: number, input: Record<keyof SafetySettings, string>) {
@@ -80,6 +82,7 @@ export async function updateSafetySettings(db: Db, organizationId: number, input
     fatigueDailyHours: read(input.fatigueDailyHours, L.dailyHours, "Hours in a day"),
     fatigueContinuousHours: read(input.fatigueContinuousHours, L.continuousHours, "Hours without a break"),
     postedLimitTolerancePct: read(input.postedLimitTolerancePct, L.postedTolerancePct, "The posted limit tolerance", "percent"),
+    sessionHoldMinutes: read(input.sessionHoldMinutes, L.sessionHoldMinutes, "The break hold", "minutes"),
   };
   await db.update(organizations).set(values).where(eq(organizations.id, organizationId));
   return values;
