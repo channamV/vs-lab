@@ -22,7 +22,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 | Store-and-forward / location history replay | ⏳ On hold. **Core requirement** (see below) |
 
 **Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`), no sleep while moving and restart/sleep reasons (`4d495a4`), battery voltage while parked (`6150144`), field-test-2 fixes (`0b87e07`: unsent readings kept on the SD card through
-sleep, SIM7670 upload fixes, faster modem recovery, failure logging). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
+sleep, SIM7670 upload fixes, faster modem recovery, failure logging), no sleep while the engine idles (`e4b6402`). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
 
 ---
 
@@ -283,11 +283,14 @@ without movement **even with the engine running**, and VS-lab ends the engine se
   on the 15 s retry.
 - d. ✅ **Logging for the next drive** (always on): a failed upload logs the modem's reply to the failing step and the
   network state (`AT+CPSI?`, e.g. `LTE,Online,302-720,…,EUTRAN-BAND66,…`).
-- e. ⏳ Engine idling at standby: waiting for Craig's answer (did the engine idle after parking?). If yes: in OBD builds,
-  no standby while the engine computer reports RPM > 0.
+- e. ✅ **No sleep while the engine idles** (`e4b6402`): Craig confirmed the engine was left idling after parking (he
+  thought about a minute; the log shows the engine computer answering until standby at 08:31:32 and 714 RPM at 08:33,
+  so likely longer). OBD builds now skip the 3-minute stationary sleep while RPM ≥ 300; ignition off (engine computer
+  quiet) still sends the device to sleep. Not testable on the desk (no engine computer): check on the next drive.
 
 **Next drive:** same set-up (laptop recording). Check that uploads keep getting `OK` on the move; if not, the new log
-lines say why. Also park for 3+ minutes before switching off, to see the backlog saved and sent after the wake.
+lines say why. Also idle 3+ minutes after parking (the log should say `staying awake`), then switch off: the device should sign off
+with `ecu_off` and any backlog should be saved and sent after the wake.
 
 ## Open items (in order)
 
