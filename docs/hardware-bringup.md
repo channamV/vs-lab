@@ -23,7 +23,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 
 **Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`), no sleep while moving and restart/sleep reasons (`4d495a4`), battery voltage while parked (`6150144`), field-test-2 fixes (`0b87e07`: unsent readings kept on the SD card through
 sleep, SIM7670 upload fixes, faster modem recovery, failure logging), no sleep while the engine idles (`e4b6402`), frozen engine readings = engine off (`cfe7645`), and
-**vs-0.2.5** (`35d3d31`): version on sign-in, log file on the SD card, restart reports, updates over the air (two
+**vs-0.2.6** (vs-0.2.5 `35d3d31` plus the offered-readings log line): version on sign-in, log file on the SD card, restart reports, updates over the air (two
 firmware slots: the partition table changed), fuel level and odometer, 10 s upload result wait. **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
 
 ---
@@ -380,12 +380,17 @@ local), then switched off.
 - Uploads: 37 `OK`, 1 failure (the modem refused the URL step with `ERROR`; next try 5 s later `OK`). No 10 s waits.
 - Engine off: `Engine readings frozen (876 RPM, unchanged): engine off` → sign-off → sleep about 40 s after
   stopping. The restart report of the previous start-up was delivered at the start.
-- ❌ **No fuel level and no odometer from the CX-9.** Coolant (0x105) and intake (0x10F) came in about a quarter
-  of the readings each; fuel level (0x12F) and odometer (0x1A6) never, and the device never asked for the odometer
-  (no "No odometer reading" line). So the CX-9's engine computer doesn't list PID 0x2F or 0xA6 as supported (the
-  firmware only asks for listed PIDs). Not unusual: many cars don't offer fuel level or the odometer over
-  standard OBD-II. Heavy equipment gets both over J1939 (planned). To confirm, a later build can log which
-  of these the engine computer lists at connect.
+- ❌ No fuel level and no odometer arrived. **Cause found the same day (not the car):** the CX-9's engine and
+  transmission units both answer the "which readings do you offer" question, and upstream Telelogger kept only the
+  last answer. With the transmission's list, fuel level and the odometer looked unsupported, so they weren't asked
+  for (Craig: Veristart's production firmware reads the CX-9's fuel level). Ignition-on checks: vs-0.2.6 logged
+  `Offers fuel level: no, odometer: yes` on one connection and `no, no` on the next; the odometer read
+  **81,033.2 km**. A second upstream bug (`idx[-1] = 0` in `processOBD`) zeroed the odometer's timer, so it went
+  with every reading. Both fixed in **vs-0.2.7** (`421cde1`: lists combined; not yet on the device).
+- ⏳ **vs-0.2.7 goes to the CX-9 over the air** (the laptop was disconnected): upload `vs-0.2.7.bin` at Platform →
+  Firmware, send to Y5725A32; the device takes it the next time it's awake (engine running), installs it after
+  the engine stops. Then check: log line `Offers fuel level: yes, odometer: yes`, `0x12F` and `0x1A6` (about once a
+  minute) in the uploads. The device runs vs-0.2.6 now.
 
 ## Open items (in order)
 
