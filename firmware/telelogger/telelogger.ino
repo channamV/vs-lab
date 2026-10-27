@@ -302,6 +302,14 @@ int handlerLiveData(UrlHandlerParam* param)
   Reading and processing OBD data
 *******************************************************************************/
 #if ENABLE_OBD
+// VSLAB: identical RPM readings in a row. A running engine's RPM always varies a little; after switch-off the CX-9's
+// engine computer kept answering with frozen values (exactly 699 RPM, same load and throttle, field test 2026-10-27),
+// so the device stayed awake and VS-lab showed the engine running. 12 identical readings (about a minute when
+// parked) count as "engine off".
+#define VSLAB_FROZEN_RPM_READINGS 12
+uint8_t rpmRepeats = 0;
+int lastRpm = -1;
+
 void processOBD(CBuffer* buffer)
 {
   static int idx[2] = {0, 0};
@@ -325,6 +333,10 @@ void processOBD(CBuffer* buffer)
     if (!obd.isValidPID(pid)) continue;
     int value;
     if (obd.readPID(pid, value)) {
+        if (pid == PID_RPM) { // VSLAB
+          rpmRepeats = (value > 0 && value == lastRpm) ? (rpmRepeats < 255 ? rpmRepeats + 1 : 255) : 0;
+          lastRpm = value;
+        }
         obdData[i].ts = millis();
         obdData[i].value = value;
         buffer->add((uint16_t)pid | 0x100, ELEMENT_INT32, &value, sizeof(value));
@@ -759,9 +771,19 @@ void process()
   // process OBD data if connected
   if (state.check(STATE_OBD_READY)) {
     processOBD(buffer);
-    if (obd.errors >= MAX_OBD_ERRORS) {
-      if (!obd.init()) {
-        if (millis() - lastMotionTime < 30000) {
+    // VSLAB: frozen engine readings while standing still mean the engine is off (see VSLAB_FROZEN_RPM_READINGS)
+    bool frozen = rpmRepeats + 1 >= VSLAB_FROZEN_RPM_READINGS && millis() - lastMotionTime >= 30000;
+    if (frozen) {
+      Serial.print("[OBD] Engine readings frozen (");
+      Serial.print(lastRpm);
+      Serial.println(" RPM, unchanged): engine off");
+      rpmRepeats = 0;
+      buffer->purge(); // drop this reading's frozen values: it becomes the "engine off" reading below
+      buffer->state = BUFFER_STATE_FILLING;
+    }
+    if (frozen || obd.errors >= MAX_OBD_ERRORS) {
+      if (frozen || !obd.init()) {
+        if (!frozen && millis() - lastMotionTime < 30000) {
           // VSLAB: the engine computer can drop out for a moment while driving (field test 2026-10-26: the device
           // went quiet mid-drive). Don't go to sleep while GPS or motion says it moved in the last 30 s: keep
           // tracking and keep trying OBD.
