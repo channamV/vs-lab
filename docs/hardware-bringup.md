@@ -315,6 +315,27 @@ still at 717 RPM), so the `ECU OFF` → sign-off (`WHY=ecu_off`) and the save of
 uploads stopping at about 12:15 UTC; no sign-off request was seen in the first minutes after (may be reporting delay).
 Next drive: keep recording for 1–2 minutes after switching off.
 
+## Frozen engine readings after switch-off (2026-10-27, CX-9; desktop session)
+
+**Problem (Craig, in the car):** engine clearly off, VS-lab still showing "Running". The serial log showed the CX-9's
+engine computer **still answering after switch-off, with frozen values**: exactly 699 RPM every reading, load 18 %,
+throttle 11 %, while the supply fell from 14.3–14.7 V (idling) to 12.5–12.8 V. While really idling, RPM varied every
+reading (695–717). So OBD never failed (no `ECU OFF`), "engine running" stayed true (no sleep) and VS-lab kept the
+engine on. The "714 RPM at 12.68 V" after the wake in field test 2 was the same thing: Craig had switched off.
+
+**Fix (`feat/cell-beam` `cfe7645`, on the device):** 12 identical non-zero RPM readings in a row while not moving
+(about a minute parked) = engine off: the reading becomes the RPM 0 "engine off" reading, then sign-off (`WHY=ecu_off`)
+and sleep. **Checked in the car, engine off:** after a restart it sent the readings saved on the SD card before its last
+sleep, then `[OBD] Engine readings frozen (696 RPM, unchanged): engine off` → `ECU OFF` → sign-off → sleep (~40 s after boot).
+
+**For VS-lab (cloud session):** the 11 frozen readings before the "engine off" reading still say ~700 RPM, so a session
+ends about a minute late. Optional server-side guard: treat a run of identical non-zero RPM values as not running.
+
+**Drive 4 (same trip, before the fix was checked):** uploads failed more often on this route (22 failures, 61 OK), all
+recovered, backlog up to ~150 readings; the readings still waiting at the end were saved to the SD card at sleep and
+delivered after the restart above. The laptop log stopped at 10:33 because the laptop went to sleep (keep-awake must be
+renewed for each recording).
+
 ## Open items (in order)
 
 1. ✅ **Merge `fix/engine-vibration`** (`be90819`), 2026-10-25 with Craig's go-ahead: merged as `f87ac2f`, checks passed (271 tests), deployed (`dpl_CZFYtQG2xtw8CFM5STwFbgJcUnAD`, READY). The deploy's migration step ran without errors ("Database is up to date"), and no new runtime errors since. `fix/battery-floor` merged next, also with Craig's go-ahead (see item 4).
