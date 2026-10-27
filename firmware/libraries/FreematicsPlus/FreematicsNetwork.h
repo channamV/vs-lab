@@ -21,8 +21,9 @@
 
 #define XBEE_BAUDRATE 115200
 #define HTTP_CONN_TIMEOUT 5000
-// VSLAB: how long the SIM7670 may take for one HTTP request (send, server, reply)
-#define VSLAB_HTTP_ACTION_TIMEOUT 20000
+// VSLAB: how long the SIM7670 may take for one HTTP request (send, server, reply). A normal round trip takes ~2 s;
+// on the road, requests that got no result within 20 s never got one (field tests 2026-10-27), so wait 10 s.
+#define VSLAB_HTTP_ACTION_TIMEOUT 10000
 
 #define RECV_BUF_SIZE 512
 
@@ -163,6 +164,11 @@ public:
     bool close();
     bool send(HTTP_METHOD method, const char* host, uint16_t port, const char* path, const char* payload = 0, int payloadSize = 0);
     char* receive(int* pbytes = 0, unsigned int timeout = HTTP_CONN_TIMEOUT);
+    // VSLAB (SIM7670): the last reply's body length, and part of the body, binary-safe (firmware downloads)
+    int length() { return m_length; }
+    int readBody(uint8_t* out, int offset, int size);
+protected:
+    int m_length = 0;
 };
 
 #endif

@@ -1,5 +1,12 @@
 #include "config.h"
 
+// VSLAB: our firmware's version, sent with every sign-in (&FW=) and compared with UPDATE commands
+// (docs/firmware-updates.md). Raise it for every build that goes to devices; test builds can set it with
+// -DVSLAB_FW_VERSION=\"...\".
+#ifndef VSLAB_FW_VERSION
+#define VSLAB_FW_VERSION "vs-0.2.2"
+#endif
+
 #define EVENT_LOGIN 1
 #define EVENT_LOGOUT 2
 #define EVENT_SYNC 3
@@ -89,7 +96,7 @@ public:
     const char* notifyExtra = 0; // VSLAB: extra query for the next notifications (&RST= on login, &WHY= on logout)
     // VSLAB: device commands ("CMD <id> <sig> <command>" lines) from the latest replies, run by telelogger.ino
     void collectCommands(const char* reply);
-    char commands[5][160];
+    char commands[5][224]; // an UPDATE command with a signed download link is ~170 characters
     uint8_t commandCount = 0;
 };
 
@@ -118,6 +125,8 @@ public:
     bool ping();
     void shutdown();
     bool ack(uint32_t id, bool ok, const char* result, const char* sig); // VSLAB: answer a device command
+    bool post(const char* path, const char* body, int bodySize); // VSLAB: e.g. the restart report; true on 200
+    int download(const char* path, uint32_t offset, uint32_t length, uint8_t* out); // VSLAB: firmware piece
 #if ENABLE_WIFI
     WifiHTTP wifi;
 #endif

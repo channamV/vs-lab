@@ -733,7 +733,9 @@ bool FreematicsESP32::xbBegin(unsigned long baudrate, int pinRx, int pinTx)
     //Set UART pins
     uart_set_pin(BEE_UART_NUM, pinTx, pinRx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     //Install UART driver
-    uart_driver_install(BEE_UART_NUM, UART_BUF_SIZE, 0, 0, NULL, 0);
+    // VSLAB: a larger receive buffer for the modem, so a firmware download read (1 KB at a time) can't overflow it
+    // while this task is busy for a moment (upstream: 256 bytes, about 20 ms at 115200 baud)
+    uart_driver_install(BEE_UART_NUM, 2048, 0, 0, NULL, 0);
 
 #ifdef PIN_BEE_PWR
 	pinMode(PIN_BEE_PWR, OUTPUT);

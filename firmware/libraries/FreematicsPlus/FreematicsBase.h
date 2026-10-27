@@ -9,6 +9,7 @@
 #define FREEMATICS_BASE
 
 #include <Arduino.h>
+#include "VslabLog.h" // VSLAB: Serial also goes to the log file on the memory card
 
 // non-OBD/custom PIDs (no mode number)
 #define PID_GPS_LATITUDE 0xA

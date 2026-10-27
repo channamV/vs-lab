@@ -1040,7 +1040,8 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
       return false;
     }
     if (payload) {
-      sprintf(m_buffer, "AT+HTTPDATA=%u,1000\r", payloadSize);
+      // VSLAB: time allowed to send the body: at 115200 baud a 16 KB restart report takes ~1.5 s
+      sprintf(m_buffer, "AT+HTTPDATA=%u,%u\r", payloadSize, 1000 + payloadSize / 8);
       // VSLAB: send the body only once the modem asks for it. Upstream sent it regardless: a body the modem
       // isn't waiting for is read as AT commands (field test 2026-10-27: uploads failed, then the modem stopped
       // answering).
@@ -1049,8 +1050,13 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
         m_state = HTTP_ERROR;
         return false;
       }
-      m_device->xbWrite(payload, payloadSize);
-      if (!sendCommand(0, 3000)) {
+      // VSLAB: in 1 KB parts with short pauses: the modem has no flow control and refused a 12.8 KB body sent in one
+      // go (ERROR); readings uploads are 1-4 KB
+      for (int sent = 0; sent < payloadSize; sent += 1024) {
+        m_device->xbWrite(payload + sent, payloadSize - sent < 1024 ? payloadSize - sent : 1024);
+        delay(20);
+      }
+      if (!sendCommand(0, 3000 + payloadSize / 8)) {
         cellLogReply("HTTP body", m_buffer);
         m_state = HTTP_ERROR;
         return false;
@@ -1066,6 +1072,9 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
     char *r = strstr(m_buffer, "+HTTPACTION:");
     char *c = r ? strchr(r, ',') : 0;
     int status = c ? atoi(c + 1) : 0;
+    c = c ? strchr(c + 1, ',') : 0;
+    m_length = c ? atoi(c + 1) : 0; // VSLAB: body length (firmware pieces)
+    m_code = status;
     if (status < 100 || status > 599) {
       cellLogReply(r ? "HTTP request" : "HTTP request (no result in time)", m_buffer);
       m_state = HTTP_ERROR;
@@ -1092,6 +1101,73 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
   Serial.println(m_buffer);
   m_state = HTTP_ERROR;
   return false;
+}
+
+/*
+  VSLAB (SIM7670): reads `size` bytes of the last reply's body from `offset`, binary-safe, for firmware downloads.
+  The modem answers AT+HTTPREAD=<offset>,<size> with OK, then one or more "+HTTPREAD: <n>" lines each followed by
+  n bytes, then "+HTTPREAD: 0". Returns the bytes read, or -1 (logged with the reply's text lines). A read normally
+  takes ~0.1 s per KB; 1.5 s without a byte in the middle of the data counts as failed.
+*/
+int CellHTTP::readBody(uint8_t* out, int offset, int size)
+{
+  if (m_type != CELL_SIM7670 || !m_device) return -1;
+  char cmd[40];
+  // drop anything left over from an earlier read that failed partway
+  while (m_device->xbRead(cmd, sizeof(cmd), 0) > 0);
+  sprintf(cmd, "AT+HTTPREAD=%d,%d\r", offset, size);
+  m_device->xbWrite(cmd);
+  int got = 0;
+  char line[32];
+  int len = 0;
+  char seen[96]; // VSLAB: the reply's text lines, logged when the read fails
+  int seenLen = 0;
+  const char* why = "no end in time";
+  uint32_t t = millis();
+  while (millis() - t < 10000) {
+    char c;
+    if (m_device->xbRead(&c, 1, 100) != 1) continue;
+    if (c != '\n') {
+      if (c != '\r' && len < (int)sizeof(line) - 1) line[len++] = c;
+      continue;
+    }
+    line[len] = 0;
+    len = 0;
+    if (line[0] && seenLen < (int)sizeof(seen) - 2) seenLen += snprintf(seen + seenLen, sizeof(seen) - seenLen, "%s|", line);
+    if (!strncmp(line, "ERROR", 5)) { why = "ERROR"; break; }
+    if (strncmp(line, "+HTTPREAD:", 10)) continue;
+    int n = atoi(line + 10);
+    if (n == 0) {
+      if (got == size) return got;
+      why = "ended early";
+      break;
+    }
+    if (got + n > size) { why = "too long"; break; }
+    int r = 0;
+    for (uint32_t last = millis(); r < n && millis() - last < 1500; ) {
+      int k = m_device->xbRead((char*)out + got + r, n - r, 100);
+      if (k > 0) {
+        r += k;
+        last = millis();
+      }
+    }
+    got += r;
+    if (r < n) { why = "data cut short"; break; }
+  }
+  seen[seenLen] = 0;
+  Serial.print("[CELL] Body read at ");
+  Serial.print(offset);
+  Serial.print(" failed (");
+  Serial.print(why);
+  Serial.print(", ");
+  Serial.print(got);
+  Serial.print(" of ");
+  Serial.print(size);
+  Serial.print(" bytes, ");
+  Serial.print(millis() - t);
+  Serial.print(" ms): ");
+  Serial.println(seen);
+  return -1;
 }
 
 char* CellHTTP::receive(int* pbytes, unsigned int timeout)

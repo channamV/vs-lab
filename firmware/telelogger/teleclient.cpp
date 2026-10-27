@@ -18,6 +18,7 @@
 #include <FreematicsPlus.h>
 #include "telestore.h"
 #include "teleclient.h"
+#include "mbedtls/base64.h" // VSLAB: firmware pieces
 #include "config.h"
 
 extern int16_t rssi;
@@ -562,8 +563,9 @@ void TeleClient::collectCommands(const char* reply)
 bool TeleClientHTTP::notify(byte event, const char* payload)
 {
   char path[256];
-  snprintf(path, sizeof(path), "%s/notify/%s?EV=%u&SSI=%d&VIN=%s%s", SERVER_PATH, devid,
-    (unsigned int)event, (int)rssi, vin, notifyExtra ? notifyExtra : "");
+  snprintf(path, sizeof(path), "%s/notify/%s?EV=%u&SSI=%d&VIN=%s%s%s", SERVER_PATH, devid,
+    (unsigned int)event, (int)rssi, vin, notifyExtra ? notifyExtra : "",
+    event == EVENT_LOGIN ? "&FW=" VSLAB_FW_VERSION : ""); // VSLAB: our firmware version with every sign-in
   if (event == EVENT_LOGOUT) login = false;
   // VSLAB: keep the reply's commands (e.g. an operator alert queued while the machine was parked)
   char* content = 0;
@@ -604,6 +606,65 @@ bool TeleClientHTTP::ack(uint32_t id, bool ok, const char* result, const char* s
   {
     return cell.send(METHOD_GET, SERVER_HOST, SERVER_PORT, path) && cell.receive() && cell.code() == 200;
   }
+}
+
+// VSLAB: posts a body to a path under SERVER_PATH (e.g. /diag/<device ID>); true when the server answers 200
+bool TeleClientHTTP::post(const char* path, const char* body, int bodySize)
+{
+  char url[96];
+  snprintf(url, sizeof(url), "%s%s", SERVER_PATH, path);
+#if ENABLE_WIFI
+  if (wifi.connected())
+  {
+    return wifi.send(METHOD_POST, url, body, bodySize) && wifi.receive(cell.getBuffer(), RECV_BUF_SIZE - 1) && wifi.code() == 200;
+  }
+  else
+#endif
+  {
+    return cell.send(METHOD_POST, SERVER_HOST, SERVER_PORT, url, body, bodySize) && cell.receive() && cell.code() == 200;
+  }
+}
+
+/*
+  VSLAB: one piece of a firmware file (docs/firmware-updates.md): GET <path>&o=<offset>&n=<length>&e=b64, answered 206
+  with those bytes as Base64 text. Raw bytes don't come through the SIM7670's HTTP commands reliably (desk test
+  2026-10-27: a 1 KB block starting with zero bytes came back empty). Cellular only for now. Returns the bytes
+  decoded into `out`, or -1.
+*/
+int TeleClientHTTP::download(const char* path, uint32_t offset, uint32_t length, uint8_t* out)
+{
+#if ENABLE_WIFI
+  if (wifi.connected()) return -1;
+#endif
+  char url[224];
+  snprintf(url, sizeof(url), "%s&o=%u&n=%u&e=b64", path, (unsigned int)offset, (unsigned int)length);
+  int textLength = (length + 2) / 3 * 4;
+  static char* text = 0;
+  static int textSize = 0;
+  if (textSize < textLength + 1) {
+    free(text);
+    text = (char*)heap_caps_malloc(textLength + 1, MALLOC_CAP_SPIRAM);
+    textSize = text ? textLength + 1 : 0;
+    if (!text) return -1;
+  }
+  if (!cell.send(METHOD_GET, SERVER_HOST, SERVER_PORT, url)) return -1;
+  if (cell.code() != 206 || cell.length() != textLength) {
+    Serial.print("[OTA] Piece refused: HTTP ");
+    Serial.print(cell.code());
+    Serial.print(", ");
+    Serial.print(cell.length());
+    Serial.println(" bytes");
+    return -1;
+  }
+  // the whole piece in one read: the modem keeps count of what's been read, so a part can't be read twice
+  if (cell.readBody((uint8_t*)text, 0, textLength) != textLength) return -1;
+  size_t got = 0;
+  if (mbedtls_base64_decode(out, length, &got, (const unsigned char*)text, textLength) || got != length) {
+    Serial.println("[OTA] Piece isn't valid Base64");
+    return -1;
+  }
+  rxBytes += textLength;
+  return got;
 }
 
 bool TeleClientHTTP::transmit(const char* packetBuffer, unsigned int packetSize)

@@ -16,6 +16,9 @@
 ******************************************************************************/
 
 #include "mbedtls/md.h" // VSLAB: HMAC for device commands
+#include "mbedtls/sha256.h" // VSLAB: firmware update fingerprint
+#include <Update.h> // VSLAB: firmware updates
+#include "esp_ota_ops.h" // VSLAB: firmware rollback
 #include <FreematicsPlus.h>
 #include <httpd.h>
 #include "config.h"
@@ -65,6 +68,7 @@ PID_POLLING_INFO obdData[]= {
   {PID_TIMING_ADVANCE, 2},
   {PID_COOLANT_TEMP, 3},
   {PID_INTAKE_TEMP, 3},
+  {PID_FUEL_LEVEL, 3}, // VSLAB: fuel level (%), for VS-lab's fuel theft and refuel checks
 };
 
 CBufferManager bufman;
@@ -105,12 +109,16 @@ char isoTime[32] = {0};
 uint32_t lastMotionTime = 0;
 // VSLAB: why the device last stopped working (sent with the logout as &WHY=) and why it last restarted (&RST= on login)
 const char* standbyReason = "";
-char bootInfo[24] = "";
+char bootInfo[48] = "";
 char logoutInfo[32] = "";
+const char* bootReason = "unknown"; // VSLAB
+uint32_t bootNumber = 0; // VSLAB: start-ups so far (NVS VSLAB_BOOT): &BOOT= on the first sign-in, the log file's number
 uint32_t timeoutsOBD = 0;
 uint32_t timeoutsNet = 0;
 // VSLAB: set by the network task once it has handled going to sleep (unsent readings saved), see standby()
 volatile bool netParked = false;
+// VSLAB: a firmware update is downloading: no sleep meanwhile (waking restarts the device, losing the download)
+volatile bool updateDownloading = false;
 // VSLAB: the SD card is mounted (it stays mounted while the device sleeps; STATE_STORAGE_READY doesn't)
 bool sdMounted = false;
 uint32_t lastStatsTime = 0;
@@ -347,6 +355,25 @@ void processOBD(CBuffer* buffer)
     }
     if (tier > 1) break;
   }
+  // VSLAB: odometer (PID A6, newer vehicles only) about once a minute, sent as 0x1A6 in km (the PID gives 0.1 km).
+  // Only when the engine computer lists it (and the supported-PID ranges leading to it); dropped after 3 failed reads.
+  static uint32_t lastOdometer = 0;
+  static uint8_t odometerFails = 0;
+  if (odometerFails < 3 && (!lastOdometer || millis() - lastOdometer >= 60000) && obd.isValidPID(0x20) &&
+      obd.isValidPID(0x40) && obd.isValidPID(0x60) && obd.isValidPID(0x80) && obd.isValidPID(0xA0) &&
+      obd.isValidPID(PID_ODOMETER)) {
+    lastOdometer = millis();
+    byte errors = obd.errors; // an unanswered odometer doesn't mean the engine computer went quiet
+    int value;
+    if (obd.readPID(PID_ODOMETER, value) && value > 0) {
+      float km = value / 10.0f;
+      buffer->add((uint16_t)PID_ODOMETER | 0x100, ELEMENT_FLOAT_D1, &km, sizeof(km));
+      odometerFails = 0;
+    } else {
+      obd.errors = errors;
+      if (++odometerFails == 3) Serial.println("[OBD] No odometer reading: stopped asking");
+    }
+  }
   int kph = obdData[0].value;
   if (kph >= 2) lastMotionTime = millis();
 }
@@ -399,6 +426,21 @@ bool processGPS(CBuffer* buffer)
     if (tenth) p += sprintf(p, ".%c00", '0' + tenth);
     *p = 'Z';
     *(p + 1) = 0;
+    // VSLAB: set the clock from GPS (UTC; times in the log file), then again every hour
+    static uint32_t clockSetAt = 0;
+    unsigned int year = gd->date % 100;
+    if ((!clockSetAt || millis() - clockSetAt > 3600000) && year >= 24 && year < 70) {
+      struct tm t = {0};
+      t.tm_year = year + 100;
+      t.tm_mon = (gd->date / 100) % 100 - 1;
+      t.tm_mday = gd->date / 10000;
+      t.tm_hour = gd->time / 1000000;
+      t.tm_min = (gd->time % 1000000) / 10000;
+      t.tm_sec = (gd->time % 10000) / 100;
+      struct timeval tv = { .tv_sec = mktime(&t), .tv_usec = 0 }; // no time zone set: mktime works in UTC
+      settimeofday(&tv, NULL);
+      clockSetAt = millis();
+    }
   }
   if (gd->lng == 0 && gd->lat == 0) {
     // coordinates not ready
@@ -898,6 +940,7 @@ void process()
     idleNoted = false;
   }
 #endif
+  if (updateDownloading) stationary = false; // VSLAB
   if (stationary) {
     // stationery timeout
     Serial.print("Stationary for ");
@@ -1024,6 +1067,12 @@ bool forceReport = false; // VSLAB: REPORT command: send now, without waiting fo
 uint32_t lastCommandId = 0;
 bool lastCommandOk = false;
 char lastCommandResult[48] = {0};
+// VSLAB: firmware update (see downloadUpdate): its command ID, waiting to install (engine off) or to be answered
+// after the restart, and the version it installs
+uint32_t updateCommandId = 0;
+bool updateInstall = false;
+char updateVersion[24] = {0};
+void reportUpdate();
 
 // first 16 hex characters of HMAC-SHA256(key, text)
 void hmac16(const char* key, const char* text, char* out)
@@ -1035,7 +1084,10 @@ void hmac16(const char* key, const char* text, char* out)
   out[16] = 0;
 }
 
-void answerCommand(uint32_t id, bool ok, const char* result)
+int downloadUpdate(const char* value, bool* ok, char* result, int resultSize);
+void flushLog();
+
+bool answerCommand(uint32_t id, bool ok, const char* result)
 {
   char sig[17] = "-";
   const char* key = VSLAB_DEVICE_KEY;
@@ -1050,6 +1102,7 @@ void answerCommand(uint32_t id, bool ok, const char* result)
   Serial.print(ok ? " done: " : " failed: ");
   Serial.print(result);
   Serial.println(sent ? " (answered)" : " (answer not delivered; VS-lab will resend)");
+  return sent;
 }
 
 void runCommand(const char* command, bool* ok, char* result, int resultSize)
@@ -1100,6 +1153,11 @@ void runCommands()
     if (!id || !*command) continue;
     if (id < lastCommandId) continue;
     if (id == lastCommandId) {
+      // VSLAB: an update is answered after the restart into the new version (reportUpdate), not before
+      if (id == updateCommandId) {
+        if (!updateInstall) reportUpdate();
+        continue;
+      }
       // already run: VS-lab didn't get the answer, so send it again
       answerCommand(id, lastCommandOk, lastCommandResult);
       continue;
@@ -1119,15 +1177,28 @@ void runCommands()
     Serial.print(id);
     Serial.print(" ");
     Serial.println(command);
-    runCommand(command, &lastCommandOk, lastCommandResult, sizeof(lastCommandResult));
+    bool later = false;
+    if (!strncmp(command, "UPDATE=", 7)) {
+      later = downloadUpdate(command + 7, &lastCommandOk, lastCommandResult, sizeof(lastCommandResult));
+    } else {
+      runCommand(command, &lastCommandOk, lastCommandResult, sizeof(lastCommandResult));
+    }
     lastCommandId = id;
     nvs_set_u32(nvs, "VSLAB_CMDID", id);
+    if (later) {
+      // downloaded and checked: answered after the restart, so its ID and version are kept until then
+      updateCommandId = id;
+      updateInstall = true;
+      nvs_set_u32(nvs, "VSLAB_UPID", id);
+      nvs_set_str(nvs, "VSLAB_UPVER", updateVersion);
+    }
     nvs_commit(nvs);
-    answerCommand(id, lastCommandOk, lastCommandResult);
+    if (!later) answerCommand(id, lastCommandOk, lastCommandResult);
     if (lastCommandOk && !strncmp(command, "RESET", 5)) restart = true;
   }
   teleClient.commandCount = 0;
   if (restart) {
+    flushLog(); // VSLAB
     delay(500);
     ESP.restart();
   }
@@ -1320,6 +1391,354 @@ void logCellState()
 }
 
 /*******************************************************************************
+  VSLAB: log file on the memory card and restart report (docs/device-diagnostics.md). Everything printed to Serial
+  is also kept in memory (VslabLog.h); every 3 s logTask appends it to /LOG/<start-up number>.TXT, so a power cut
+  loses at most the last few seconds. A file over 8 MB becomes <n>.OLD (replacing an older one); /LOG is kept under
+  200 MB by deleting the oldest start-ups' files. After the first sign-in, the previous start-up's last lines go to
+  VS-lab (POST /diag/<device ID>), retried at each sign-in until VS-lab has them.
+*******************************************************************************/
+#define VSLAB_LOG_DIR "/LOG"
+#define VSLAB_LOG_FILE_MAX (8UL << 20)
+#define VSLAB_LOG_TOTAL_MAX (200ULL << 20)
+#define VSLAB_REPORT_MAX (16 * 1024)
+#define VSLAB_REPORT_LINES 200
+SemaphoreHandle_t logLock = 0;
+
+// deletes the oldest start-ups' files (lowest numbers, never this start-up's) until /LOG is under the cap
+void trimLogs()
+{
+  for (;;) {
+    File dir = SD.open(VSLAB_LOG_DIR);
+    if (!dir) return;
+    uint64_t total = 0;
+    uint32_t oldest = 0xffffffff;
+    String oldestPath;
+    for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+      total += f.size();
+      uint32_t n = strtoul(f.name(), 0, 10);
+      if (n < oldest) {
+        oldest = n;
+        oldestPath = f.path();
+      }
+      f.close();
+    }
+    dir.close();
+    if (total <= VSLAB_LOG_TOTAL_MAX || oldest >= bootNumber) return;
+    SD.remove(oldestPath);
+  }
+}
+
+void flushLog()
+{
+  if (!sdMounted || !logLock) return;
+  xSemaphoreTake(logLock, portMAX_DELAY);
+  static char* chunk = (char*)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM);
+  static bool started = false;
+  static uint32_t fileSize = 0; // counted here: File::size() is garbage for a file append mode has just created
+  static uint32_t droppedNoted = 0;
+  char path[24];
+  snprintf(path, sizeof(path), VSLAB_LOG_DIR "/%u.TXT", (unsigned int)bootNumber);
+  if (!started) {
+    started = true;
+    SD.mkdir(VSLAB_LOG_DIR);
+    trimLogs();
+  }
+  if (Serial.dropped != droppedNoted) {
+    droppedNoted = Serial.dropped;
+    Serial.print("[LOG] Lines lost (log copy full), bytes so far: ");
+    Serial.println(droppedNoted);
+  }
+  size_t n = chunk ? Serial.take(chunk, 4096) : 0;
+  if (n) {
+    File f = SD.open(path, FILE_APPEND);
+    if (f) {
+      do {
+        f.write((const uint8_t*)chunk, n);
+        fileSize += n;
+      } while ((n = Serial.take(chunk, 4096)) > 0);
+      f.close();
+      if (fileSize > VSLAB_LOG_FILE_MAX) {
+        char old[24];
+        snprintf(old, sizeof(old), VSLAB_LOG_DIR "/%u.OLD", (unsigned int)bootNumber);
+        SD.remove(old);
+        SD.rename(path, old);
+        fileSize = 0;
+      }
+    }
+  }
+  xSemaphoreGive(logLock);
+}
+
+void logTask(void* inst)
+{
+  for (;;) {
+    delay(3000);
+    flushLog();
+  }
+}
+
+#if SERVER_PROTOCOL != PROTOCOL_UDP
+bool restartReported = false;
+
+void sendRestartReport()
+{
+  if (restartReported || !sdMounted) return;
+  restartReported = true;
+  char* body = (char*)heap_caps_malloc(VSLAB_REPORT_MAX + 1, MALLOC_CAP_SPIRAM);
+  if (!body) return;
+  int n = snprintf(body, VSLAB_REPORT_MAX, "BOOT=%u;RST=%s\n", (unsigned int)bootNumber, bootReason);
+  char path[24];
+  snprintf(path, sizeof(path), VSLAB_LOG_DIR "/%u.TXT", (unsigned int)bootNumber - 1);
+  File f = bootNumber > 1 && SD.exists(path) ? SD.open(path, FILE_READ) : File();
+  if (f) {
+    // the last lines: up to the size limit, starting at a whole line, at most VSLAB_REPORT_LINES of them
+    uint32_t size = f.size();
+    uint32_t room = VSLAB_REPORT_MAX - n;
+    uint32_t from = size > room ? size - room : 0;
+    int len = f.seek(from) ? f.read((uint8_t*)body + n, room) : 0;
+    f.close();
+    char* start = body + n;
+    if (len > 0 && from) {
+      char* nl = (char*)memchr(start, '\n', len);
+      len = nl ? len - (nl + 1 - start) : 0;
+      if (nl) memmove(start, nl + 1, len);
+    }
+    if (len > 0) {
+      int lines = 0;
+      int keep = len;
+      for (int i = len - 2; i >= 0; i--) {
+        if (start[i] == '\n' && ++lines == VSLAB_REPORT_LINES) {
+          keep = len - (i + 1);
+          break;
+        }
+      }
+      memmove(start, start + len - keep, keep);
+      n += keep;
+    }
+  }
+  char url[32];
+  snprintf(url, sizeof(url), "/diag/%s", devid);
+  restartReported = teleClient.post(url, body, n);
+  free(body);
+  Serial.print("[NET] Restart report (start-up #");
+  Serial.print(bootNumber);
+  Serial.print(", ");
+  Serial.print(n);
+  Serial.println(restartReported ? " bytes) sent" : " bytes) not delivered: trying again at the next sign-in");
+}
+#endif
+
+/*******************************************************************************
+  VSLAB: firmware updates over the air (docs/firmware-updates.md). UPDATE=<version>\t<bytes>\t<sha256>\t<path> is
+  downloaded in 16 KB pieces (smaller after failures) into the spare firmware slot while the device keeps working,
+  and the whole file's SHA-256 checked against the command's. It's installed when the engine is off: what's waiting
+  is sent or saved to the SD card, the device signs off (WHY=update) and restarts into the new version. The new
+  version keeps itself only once it reaches VS-lab; if it doesn't within 15 minutes, or restarts before that, the
+  device goes back to the previous version (rollback). The answer goes to VS-lab after the restart: "running
+  <version>" or "rolled back", so the command's ID and version are kept in NVS (VSLAB_UPID, VSLAB_UPVER).
+*******************************************************************************/
+#define VSLAB_UPDATE_PIECE 16384
+#define VSLAB_UPDATE_MIN_PIECE 4096
+#define VSLAB_UPDATE_TRIES 12
+#ifdef VSLAB_TEST_NO_CONFIRM
+// VSLAB test build: never keeps itself, and gives up after 2 minutes, to check the rollback
+#define VSLAB_UPDATE_CONFIRM_MINUTES 2
+#else
+#define VSLAB_UPDATE_CONFIRM_MINUTES 15
+#endif
+
+// the new version confirms itself (confirmFirmware) instead of Arduino doing it at start-up
+extern "C" bool verifyRollbackLater() { return true; }
+bool firmwareChecked = false;
+
+bool firmwarePending()
+{
+  esp_ota_img_states_t st;
+  return esp_ota_get_state_partition(esp_ota_get_running_partition(), &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY;
+}
+
+// VS-lab answered: a new version keeps itself
+void confirmFirmware()
+{
+#ifdef VSLAB_TEST_NO_CONFIRM
+  return;
+#endif
+  if (firmwareChecked) return;
+  firmwareChecked = true;
+  if (firmwarePending()) {
+    esp_ota_mark_app_valid_cancel_rollback();
+    Serial.println("[OTA] New version reached VS-lab: keeping it");
+  }
+}
+
+// a new version that hasn't reached VS-lab in time goes back to the previous one
+void checkFirmwareDeadline()
+{
+  if (firmwareChecked || millis() < VSLAB_UPDATE_CONFIRM_MINUTES * 60000UL) return;
+  firmwareChecked = true;
+  if (firmwarePending()) {
+    Serial.println("[OTA] New version didn't reach VS-lab: going back to the previous version");
+    flushLog();
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+  }
+}
+
+// after the restart: tell VS-lab how the update went
+void reportUpdate()
+{
+  if (!updateCommandId || updateInstall) return;
+  lastCommandOk = !strcmp(updateVersion, VSLAB_FW_VERSION);
+  snprintf(lastCommandResult, sizeof(lastCommandResult), lastCommandOk ? "running %s" : "rolled back: still %s", VSLAB_FW_VERSION);
+  if (answerCommand(updateCommandId, lastCommandOk, lastCommandResult)) {
+    updateCommandId = 0;
+    nvs_erase_key(nvs, "VSLAB_UPID");
+    nvs_erase_key(nvs, "VSLAB_UPVER");
+    nvs_commit(nvs);
+  }
+}
+
+// downloads and checks an update; true when it's ready to install (answered after the restart), false with
+// *ok and result for an answer now
+int downloadUpdate(const char* value, bool* ok, char* result, int resultSize)
+{
+  *ok = false;
+  // <version>\t<bytes>\t<sha256 hex>\t<path>
+  char version[sizeof(updateVersion)];
+  const char* tab = strchr(value, '\t');
+  char* p;
+  uint32_t total = tab ? strtoul(tab + 1, &p, 10) : 0;
+  if (!tab || tab - value >= (int)sizeof(version) || !total || *p != '\t' || strlen(p + 1) < 66 || p[65] != '\t') {
+    snprintf(result, resultSize, "bad update command");
+    return false;
+  }
+  memcpy(version, value, tab - value);
+  version[tab - value] = 0;
+  char sha[65];
+  memcpy(sha, p + 1, 64);
+  sha[64] = 0;
+  const char* path = p + 66;
+  if (!strcmp(version, VSLAB_FW_VERSION)) {
+    *ok = true;
+    snprintf(result, resultSize, "running %s", version);
+    return false;
+  }
+  if (updateInstall) {
+    // a newer choice replaces the one waiting to install
+    Serial.println("[OTA] Replacing the update waiting to install");
+    updateInstall = false;
+  }
+#if ENABLE_WIFI
+  if (state.check(STATE_WIFI_CONNECTED)) {
+    snprintf(result, resultSize, "updates over Wi-Fi not supported yet");
+    return false;
+  }
+#endif
+  Serial.print("[OTA] Downloading ");
+  Serial.print(version);
+  Serial.print(", ");
+  Serial.print(total);
+  Serial.println(" bytes");
+  if (!Update.begin(total)) {
+    snprintf(result, resultSize, "can't install: %s", Update.errorString());
+    return false;
+  }
+  uint8_t* piece = (uint8_t*)heap_caps_malloc(VSLAB_UPDATE_PIECE, MALLOC_CAP_SPIRAM);
+  if (!piece) {
+    Update.abort();
+    snprintf(result, resultSize, "out of memory");
+    return false;
+  }
+  mbedtls_sha256_context ctx;
+  mbedtls_sha256_init(&ctx);
+  mbedtls_sha256_starts_ret(&ctx, 0);
+  uint32_t done = 0;
+  uint32_t pieceSize = VSLAB_UPDATE_PIECE;
+  uint8_t failures = 0;
+  uint32_t started = millis();
+  uint8_t shownQuarter = 0;
+  updateDownloading = true;
+  while (done < total && failures < VSLAB_UPDATE_TRIES) {
+    uint32_t n = total - done < pieceSize ? total - done : pieceSize;
+    if (teleClient.download(path, done, n, piece) != (int)n) {
+      failures++;
+      Serial.print("[OTA] Piece at ");
+      Serial.print(done);
+      Serial.println(" failed: trying again");
+      if (failures % 3 == 0 && pieceSize > VSLAB_UPDATE_MIN_PIECE) pieceSize /= 2;
+      logCellState();
+      teleClient.connect(true); // restart the modem's HTTP service
+      delay(2000);
+      continue;
+    }
+    if (Update.write(piece, n) != n) break;
+    mbedtls_sha256_update_ret(&ctx, piece, n);
+    done += n;
+    if (done * 4 / total > shownQuarter) {
+      shownQuarter = done * 4 / total;
+      Serial.print("[OTA] ");
+      Serial.print(shownQuarter * 25);
+      Serial.println("% downloaded");
+    }
+  }
+  free(piece);
+  updateDownloading = false;
+  uint8_t digest[32];
+  mbedtls_sha256_finish_ret(&ctx, digest);
+  mbedtls_sha256_free(&ctx);
+  if (done < total) {
+    Update.abort();
+    snprintf(result, resultSize, failures >= VSLAB_UPDATE_TRIES ? "download failed at %u of %u bytes" : "flash write failed at %u of %u bytes",
+      (unsigned int)done, (unsigned int)total);
+    return false;
+  }
+  char hex[65];
+  for (int i = 0; i < 32; i++) sprintf(hex + i * 2, "%02x", digest[i]);
+  if (strcasecmp(hex, sha)) {
+    Update.abort();
+    snprintf(result, resultSize, "fingerprint mismatch: not installed");
+    return false;
+  }
+  if (!Update.end()) {
+    snprintf(result, resultSize, "can't install: %s", Update.errorString());
+    return false;
+  }
+  strcpy(updateVersion, version);
+  Serial.print("[OTA] ");
+  Serial.print(version);
+  Serial.print(" downloaded and checked in ");
+  Serial.print((millis() - started) / 1000);
+  Serial.println(" s: installing when the engine is off");
+  return true;
+}
+
+// the engine is off as far as the device can tell (installing restarts the device)
+bool engineOffForUpdate()
+{
+#if ENABLE_OBD
+  return !engineRunning();
+#else
+  return batteryVoltage < (batteryVoltage > 18 ? 26.4f : 13.2f); // below 8 V: not on machine power (bench)
+#endif
+}
+
+#if SERVER_PROTOCOL != PROTOCOL_UDP
+void installUpdate(CStorageRAM& store)
+{
+  Serial.println("[OTA] Engine off: restarting into the new version");
+  for (int i = 0; i < 80 && sendBatch(store) == BATCH_SENT; i++);
+#if VSLAB_SAVE_BACKLOG
+  saveBacklog(store);
+#endif
+  snprintf(logoutInfo, sizeof(logoutInfo), "&WHY=update");
+  teleClient.notifyExtra = logoutInfo;
+  teleClient.shutdown();
+  flushLog();
+  delay(500);
+  ESP.restart();
+}
+#endif
+
+/*******************************************************************************
   Initializing network, maintaining connection and doing transmissions
 *******************************************************************************/
 void telemetry(void* inst)
@@ -1454,6 +1873,7 @@ void telemetry(void* inst)
           Serial.print(wait / 1000);
           Serial.println(" s");
           for (uint32_t t = millis(); millis() - t < wait && state.check(STATE_WORKING); ) delay(500);
+          checkFirmwareDeadline(); // VSLAB
           break;
         }
         cellFailures = 0; // VSLAB
@@ -1462,6 +1882,25 @@ void telemetry(void* inst)
         if (teleClient.login) teleClient.notifyExtra = 0; // VSLAB: the restart reason goes with the first sign-in only
         // VSLAB: no routine "connected" beep: beeps are for operator alerts (docs/operator-alerts.md)
         runCommands();
+        if (teleClient.login) {
+          // VSLAB: VS-lab reached: keep a new firmware version, answer an update, send the restart report
+          confirmFirmware();
+          reportUpdate();
+          sendRestartReport();
+        }
+#ifdef VSLAB_TEST_UPDATE
+        // VSLAB test build: download (not install) release 1, vs-0.2.1, as if VS-lab had sent it
+        static bool testUpdateDone = false;
+        if (teleClient.login && !testUpdateDone) {
+          testUpdateDone = true;
+          bool ok;
+          char result[48] = "";
+          bool ready = downloadUpdate("vs-0.2.1	1790192	94e2d151ce54830636d160a9e5bb7cb84fa5b912dba071f73821bd8065322564	/hub/api/firmware/1?d=Y5725A32&s=-", &ok, result, sizeof(result));
+          if (ready) updateInstall = false; // not this time
+          Serial.print("[TEST] update download: ");
+          Serial.println(ready ? "ready" : result);
+        }
+#endif
       }
 
       if (millis() - lastRssiTime > SIGNAL_CHECK_INTERVAL * 1000) {
@@ -1488,6 +1927,10 @@ void telemetry(void* inst)
         }
 #endif
       }
+
+      // VSLAB: an update waiting for the engine to stop; a new version that hasn't reached VS-lab in time
+      if (updateInstall && engineOffForUpdate()) installUpdate(store);
+      checkFirmwareDeadline();
 
       // VSLAB: send in batches, oldest first, once the oldest reading has waited long enough (see sendBatch)
       uint32_t oldest;
@@ -1516,6 +1959,7 @@ void telemetry(void* inst)
       runCommands(); // VSLAB: device commands from the reply
       if (result == BATCH_SENT) {
         connErrors = 0;
+        confirmFirmware(); // VSLAB
         showStats();
       } else if (result == BATCH_FAILED) {
         retryAt = millis() + 5000; // VSLAB: pause before trying again
@@ -1626,6 +2070,7 @@ void standby()
   // VSLAB: the restart clears memory, so let the network task save unsent readings first (saveBacklog); it may be
   // busy starting the modem, so wait up to 3 minutes
   for (int i = 0; i < 1800 && !netParked; i++) delay(100);
+  flushLog(); // VSLAB
 #if ENABLE_MEMS
   if (mems) mems->end();  
 #endif
@@ -1744,6 +2189,7 @@ void processBLE(int timeout)
 #if STORAGE
     logger.end();
 #endif
+    flushLog(); // VSLAB
     ESP.restart();
     // never reach here
   } else if (!strcmp(cmd, "OFF")) {
@@ -1887,6 +2333,13 @@ void setup()
   err = nvs_open("storage", NVS_READWRITE, &nvs);
   if (err == ESP_OK) {
     loadConfig();
+    // VSLAB: count start-ups (&BOOT=, the log file's number); an update from before this restart, to answer
+    nvs_get_u32(nvs, "VSLAB_BOOT", &bootNumber);
+    nvs_set_u32(nvs, "VSLAB_BOOT", ++bootNumber);
+    nvs_commit(nvs);
+    nvs_get_u32(nvs, "VSLAB_UPID", &updateCommandId);
+    size_t len = sizeof(updateVersion);
+    nvs_get_str(nvs, "VSLAB_UPVER", updateVersion, &len);
   }
 
 #if ENABLE_OLED
@@ -1910,9 +2363,15 @@ void setup()
     case ESP_RST_EXT: why = "external"; break;
     default: why = "unknown"; break;
     }
-    snprintf(bootInfo, sizeof(bootInfo), "&RST=%s", why);
+    bootReason = why;
+    snprintf(bootInfo, sizeof(bootInfo), "&RST=%s&BOOT=%u", why, (unsigned int)bootNumber);
     teleClient.notifyExtra = bootInfo;
-    Serial.print("[BOOT] restart reason: ");
+    Serial.print("[BOOT] start-up #");
+    Serial.print(bootNumber);
+    Serial.print(", firmware ");
+    Serial.print(VSLAB_FW_VERSION);
+    if (firmwarePending()) Serial.print(" (new: kept once it reaches VS-lab)");
+    Serial.print(", restart reason: ");
     Serial.println(why);
   }
 
@@ -2030,6 +2489,10 @@ if (!state.check(STATE_MEMS_READY)) do {
 
   // initialize components
   initialize();
+
+  // VSLAB: the log file on the memory card (mounted by initialize())
+  logLock = xSemaphoreCreateMutex();
+  xTaskCreate(logTask, "log", 4096, 0, 1, 0);
 
   // initialize network and maintain connection
   subtask.create(telemetry, "telemetry", 2, 8192);
