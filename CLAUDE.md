@@ -12,6 +12,7 @@ first, then any steps for him); technical detail goes in the docs, e.g. `docs/ha
 |---|---|
 | `platform/` | Web app + device API. Next.js 16 (App Router, Cache Components), TypeScript, Drizzle ORM, PostgreSQL |
 | `firmware/` | Our build of Freematics Telelogger (`telelogger/`, `libraries/`; upstream copy in commit 51160f1) + notes |
+| `mobile/` | Operator app (Expo / React Native, Android + iPhone): `mobile/README.md`, `docs/operator-app.md`. Read `mobile/AGENTS.md` first (Expo docs per SDK version; `expo install` needs `EXPO_OFFLINE=1` in cloud sessions, docs via raw.githubusercontent.com/expo/expo/main/docs) |
 | `docs/` | Runbooks written for a non-engineer: setup, device, deploy, product tiers |
 
 ## Hardware
@@ -311,7 +312,8 @@ says it's compliant. Update that doc when items are done.
   (`syncAccessList`: active operators with `operators.beacon_name`, approved/scheduled/certified, required training; watchdog
   + approval/operator changes; ack → `machines.access_list_hash`). Beacon starts → `beaconCheckIn` (method ble, no
   checklist; not a checklist result). Firmware side: hardware-bringup to-do 9.
-- Operator app (`src/lib/operator-app.ts`, tested; `docs/operator-app.md`; Craig 2026-10-26; app code to come in `mobile/`):
+- Operator app (`src/lib/operator-app.ts`, tested; `docs/operator-app.md`; Craig 2026-10-26; app in `mobile/`, checks:
+  `npm run typecheck && npm test && npm run bundle` there):
   `/api/app/*` (excluded from `src/proxy.ts`; each route checks `Authorization: Bearer` via `withApp` in `src/lib/app-api.ts`).
   Email-code sign-in (`operator_login_codes`, hashed, 10 min, 5 tries, 5/hour) → `operator_app_sessions` (hashed token,
   90 days rolling). `checkIn({ operatorId, method: "app", startedAt })` skips the PIN. Relay machines: signed unlock pass

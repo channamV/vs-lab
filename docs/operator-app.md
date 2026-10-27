@@ -1,9 +1,10 @@
 # Operator app (Android and iPhone)
 
 An app for operators that replaces the production Veristart app's flow with vs-lab's check-ins and checklists
-(Craig, 2026-10-26). **Status:** the platform side (sign-in and the app's API) is built and tested; the app itself
-is next (`vs-lab/mobile`, Expo / React Native, one code base for Android and iPhone); the device side is part of
-firmware to-do 9 ([hardware-bringup.md](hardware-bringup.md)).
+(Craig, 2026-10-26). **Status:** the platform side (sign-in and the app's API) is built and tested; the app is
+in `vs-lab/mobile` (Expo / React Native, one code base for Android and iPhone; first version 2026-10-27, Android test
+builds through EAS, see [../mobile/README.md](../mobile/README.md)); the device side is part of firmware to-do 9
+([hardware-bringup.md](hardware-bringup.md)). Kept out of Veristart's Apple account for now (Craig, 2026-10-26).
 
 ## What it does
 
@@ -52,6 +53,9 @@ API (`platform/src/app/api/app/`, JSON; every route but sign-in needs `Authoriza
 
 Unlock pass: `U1|<operator>|<check-in or 0>|<from>|<until>|<sig>` (unix seconds), sig = first 16 hex of
 HMAC-SHA256(device key, `unlock\n<device>\n<operator>\n<check-in>\n<from>\n<until>`) (`-` when signing is off).
+Bluetooth (the app, `mobile/src/lib/ble.ts`): service `7f3c0001-6a2b-4b4e-9b1e-56a5c0de0001`, unlock characteristic
+`7f3c0002-6a2b-4b4e-9b1e-56a5c0de0001` (write with response, then read). The app writes the pass as ASCII; the device
+answers by setting the characteristic to `OK`, `EXPIRED`, `BAD_SIG`, `LOCKED` or `NOT_YOURS`.
 The device accepts it when the signature matches and its GPS time is inside the window, then acts as for
 `ALLOW=<check-in>` (start window 5 min, break 30 min); for check-in 0 (offline pass) it reports the start at
 `/hub/api/access/<device>?op=<operator>&b=APP&t=<unix time>&sig=` like a beacon start.

@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "VS Lab",
+    "slug": "vs-lab",
+    "version": "0.1.0",
+    "scheme": "vslab",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.vslab.operator",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.vslab.operator",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F172A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "neverForLocation": true,
+          "bluetoothAlwaysPermission": "VS Lab uses Bluetooth to unlock the machine you've checked in to."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "VS Lab uses your location at check-in to confirm you're at the machine and to fill in the town on inspection checklists."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "VS Lab uses the camera for checklist and problem photos.",
+          "photosPermission": false,
+          "microphonePermission": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiUrl": "https://vs-lab-platform-tpj9.vercel.app"
+    }
+  }
+}
