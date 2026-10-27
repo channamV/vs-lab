@@ -375,6 +375,18 @@ Built on `feat/cell-beam` (`e0e0299`, `35d3d31`; details in `firmware/README.md`
 **Open (firmware):** commands, including updates, aren't run during the 15-minute parked check-ins (only when
 awake); updates over Wi-Fi.
 
+**Drive 5 (2026-10-27, CX-9, vs-0.2.5, laptop recording; `drive5.log`):** about 9 minutes of driving (17:10–17:19
+local), then switched off.
+- Uploads: 37 `OK`, 1 failure (the modem refused the URL step with `ERROR`; next try 5 s later `OK`). No 10 s waits.
+- Engine off: `Engine readings frozen (876 RPM, unchanged): engine off` → sign-off → sleep about 40 s after
+  stopping. The restart report of the previous start-up was delivered at the start.
+- ❌ **No fuel level and no odometer from the CX-9.** Coolant (0x105) and intake (0x10F) came in about a quarter
+  of the readings each; fuel level (0x12F) and odometer (0x1A6) never, and the device never asked for the odometer
+  (no "No odometer reading" line). So the CX-9's engine computer doesn't list PID 0x2F or 0xA6 as supported (the
+  firmware only asks for listed PIDs). Not unusual: many cars don't offer fuel level or the odometer over
+  standard OBD-II. Heavy equipment gets both over J1939 (planned). To confirm, a later build can log which
+  of these the engine computer lists at connect.
+
 ## Open items (in order)
 
 1. ✅ **Merge `fix/engine-vibration`** (`be90819`), 2026-10-25 with Craig's go-ahead: merged as `f87ac2f`, checks passed (271 tests), deployed (`dpl_CZFYtQG2xtw8CFM5STwFbgJcUnAD`, READY). The deploy's migration step ran without errors ("Database is up to date"), and no new runtime errors since. `fix/battery-floor` merged next, also with Craig's go-ahead (see item 4).
