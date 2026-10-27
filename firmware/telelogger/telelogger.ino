@@ -864,6 +864,18 @@ void process()
 #ifdef VSLAB_CELL_DEBUG
   stationary = false; // VSLAB test build: never go to standby on the desk
 #endif
+#if ENABLE_OBD
+  // VSLAB: an idling machine is in use: no sleep while the engine computer reports the engine running (field test
+  // 2026-10-27: the device slept 3 minutes after parking with the engine idling, so VS-lab saw the engine stop)
+  static bool idleNoted = false;
+  if (stationary && engineRunning()) {
+    if (!idleNoted) Serial.println("[OBD] Not moving, engine running: staying awake");
+    idleNoted = true;
+    stationary = false;
+  } else if (!stationary) {
+    idleNoted = false;
+  }
+#endif
   if (stationary) {
     // stationery timeout
     Serial.print("Stationary for ");
