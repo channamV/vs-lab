@@ -72,6 +72,18 @@ export async function readFirmwareFile(key: string): Promise<Uint8Array | null> 
 }
 
 /**
+ * A piece as the device asked for it: raw bytes, or Base64 text with `&e=b64`. Our firmware asks for Base64:
+ * the SIM7670 modem's HTTP commands don't pass all binary data through (a 1 KB block starting with zero bytes
+ * came back empty, desk test 2026-10-27), and Base64 has no such bytes (a third more data). Null for an unknown
+ * encoding.
+ */
+export function encodePart(part: Uint8Array, encoding: string | null): Uint8Array | null {
+  if (encoding === null || encoding === "") return part;
+  if (encoding === "b64") return new Uint8Array(Buffer.from(Buffer.from(part).toString("base64"), "ascii"));
+  return null;
+}
+
+/**
  * Which part of the file a device asked for: a standard `Range: bytes=<start>-<end>` header, or, for modems
  * whose built-in HTTP can't set headers, `&o=<offset>&n=<length>` on the URL. Returns null for the whole
  * file, "invalid" when the range can't be served (HTTP 416).

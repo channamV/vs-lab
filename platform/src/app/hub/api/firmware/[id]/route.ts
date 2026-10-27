@@ -1,13 +1,14 @@
 import { getDb } from "@/lib/db";
-import { authorizeDownload, byteRange, readFirmwareFile } from "@/lib/firmware";
+import { authorizeDownload, byteRange, encodePart, readFirmwareFile } from "@/lib/firmware";
 import { isValidDeviceId } from "@/lib/telemetry/ingest";
 
 /**
  * Firmware download for a device that was sent an update (our firmware fork; docs/firmware-updates.md):
  * GET /hub/api/firmware/<release>?d=<DEVICE_ID>&s=<signature>. The path comes in the UPDATE command.
  * Devices download it in pieces (cellular modems fail on the whole file at once): a standard Range header,
- * or &o=<offset>&n=<length> → 206 with that part. The device checks the size and SHA-256 of the whole
- * file (also in the command) before installing.
+ * or &o=<offset>&n=<length> → 206 with that part (Content-Range in bytes of the file); &e=b64 sends the part as
+ * Base64 text, which our SIM7670 firmware needs. The device checks the size and SHA-256 of the whole file (also
+ * in the command) before installing.
  */
 export async function GET(request: Request, ctx: RouteContext<"/hub/api/firmware/[id]">) {
   const releaseId = Number((await ctx.params).id);
@@ -35,9 +36,15 @@ export async function GET(request: Request, ctx: RouteContext<"/hub/api/firmware
       headers: { ...headers, "Content-Length": String(file.length), "Content-Disposition": `attachment; filename="${release.version}.bin"` },
     });
   }
-  const part = file.subarray(range.start, range.end + 1);
+  const part = encodePart(file.subarray(range.start, range.end + 1), q.get("e"));
+  if (!part) return new Response("Unknown encoding", { status: 400 });
   return new Response(part as BodyInit, {
     status: 206,
-    headers: { ...headers, "Content-Length": String(part.length), "Content-Range": `bytes ${range.start}-${range.end}/${file.length}` },
+    headers: {
+      ...headers,
+      ...(q.get("e") ? { "Content-Type": "text/plain" } : {}),
+      "Content-Length": String(part.length),
+      "Content-Range": `bytes ${range.start}-${range.end}/${file.length}`,
+    },
   });
 }

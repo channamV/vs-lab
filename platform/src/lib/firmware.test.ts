@@ -12,6 +12,7 @@ import {
   authorizeDownload,
   byteRange,
   cancelUpdates,
+  encodePart,
   createRelease,
   downloadSignature,
   FirmwareError,
@@ -138,6 +139,14 @@ describe("downloading in pieces", () => {
     for (const bad of ["bytes=1000-", "bytes=5-2", "bytes=-", "items=0-5", "bytes=0-5,10-20"]) expect(byteRange(1000, bad, null, null)).toBe("invalid");
     expect(byteRange(1000, null, "-1", "5")).toBe("invalid");
     expect(byteRange(1000, null, "0", "0")).toBe("invalid");
+  });
+
+  it("sends a piece as raw bytes or, with e=b64, as Base64 text", () => {
+    const part = new Uint8Array([0, 0, 0, 255, 1, 2]);
+    expect(encodePart(part, null)).toBe(part);
+    expect(encodePart(part, "")).toBe(part);
+    expect(Buffer.from(encodePart(part, "b64")!).toString("ascii")).toBe("AAAA/wEC");
+    expect(encodePart(part, "hex")).toBeNull();
   });
 });
 
