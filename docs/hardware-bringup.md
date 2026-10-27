@@ -292,6 +292,29 @@ without movement **even with the engine running**, and VS-lab ends the engine se
 lines say why. Also idle 3+ minutes after parking (the log should say `staying awake`), then switch off: the device should sign off
 with `ecu_off` and any backlog should be saved and sent after the wake.
 
+## Field test 3 (2026-10-27, CX-9, laptop recording; desktop session)
+
+About 9 minutes of driving from home, then parked with the engine idling for 3+ minutes, then switched off
+(09:31–09:44 local). Build: `bench-beam-obd` `e4b6402`. Log: `%LOCALAPPDATA%\Temp\claude-vslab-build\drive3.log`.
+
+**Uploads on the move: fixed in practice.** 44 uploads got `OK`, 7 failed, and **every failure recovered on the next
+try** (5 s later), with the backlog (up to 47 readings) cleared within seconds. No `Not in service`, no modem restart,
+no 3-minute pause, no readings lost (field test 2: 2 uploads per 5 minutes and 763 readings lost).
+- Each failure was the same: the request went to the modem, then **no `+HTTPACTION` result within 20 s**, with an empty
+  modem reply. The retry stored 15 new readings each time (`OK 15`, not `OK 0`), so the failed requests never reached
+  VS-lab: they're lost between the modem and Soracom. All 50 requests Vercel saw were answered 200.
+- Network state at each failure (`AT+CPSI?`): LTE online, operator 302-720, RSRP −110 to −116 dBm, with the serving
+  band changing between failures (66 → 7 → 4): likely moments of cell change. Signal never dropped out.
+- Possible tweak (not done): a 10 s wait instead of 20 s would halve each stall; a normal round trip takes ~2 s.
+
+**Idling: fixed.** Parked ~09:40:18; at 09:43:18 (3 min) the log shows `[OBD] Not moving, engine running: staying
+awake`, and uploads continued every ~20 s at 698–717 RPM until the recording ended.
+
+**Not captured:** the switch-off itself. The recording was stopped about 30 s after the last log line (09:44:08, engine
+still at 717 RPM), so the `ECU OFF` → sign-off (`WHY=ecu_off`) and the save of any backlog weren't seen. Vercel shows the
+uploads stopping at about 12:15 UTC; no sign-off request was seen in the first minutes after (may be reporting delay).
+Next drive: keep recording for 1–2 minutes after switching off.
+
 ## Open items (in order)
 
 1. ✅ **Merge `fix/engine-vibration`** (`be90819`), 2026-10-25 with Craig's go-ahead: merged as `f87ac2f`, checks passed (271 tests), deployed (`dpl_CZFYtQG2xtw8CFM5STwFbgJcUnAD`, READY). The deploy's migration step ran without errors ("Database is up to date"), and no new runtime errors since. `fix/battery-floor` merged next, also with Craig's go-ahead (see item 4).
