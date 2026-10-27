@@ -21,7 +21,8 @@ The working record for the device phase: what's proven, what's decided, what's o
 | Engine on/off from supply voltage, no OBD | ✅ On the desk: `bench-beam` sends 0x24 from A0 in every upload, timing unchanged (`a742e40`). Values against a multimeter in a car still to check (car test 2) |
 | Store-and-forward / location history replay | ⏳ On hold. **Core requirement** (see below) |
 
-**Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`), no sleep while moving and restart/sleep reasons (`4d495a4`), battery voltage while parked (`6150144`). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
+**Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`), no sleep while moving and restart/sleep reasons (`4d495a4`), battery voltage while parked (`6150144`), field-test-2 fixes (`0b87e07`: unsent readings kept on the SD card through
+sleep, SIM7670 upload fixes, faster modem recovery, failure logging). **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
 
 ---
 
@@ -268,13 +269,25 @@ woke it at 08:32:40, and the restart on wake (`RESET_AFTER_WAKEUP`) cleared memo
 idle near 12.7 V). If the engine was idling when the device went to standby, stock Telelogger signs off after 3 minutes
 without movement **even with the engine running**, and VS-lab ends the engine session at the sign-off.
 
-**Proposed firmware fixes (`feat/cell-beam`, waiting for Craig's go-ahead):**
-- a. **Keep unsent readings through sleep:** write the backlog to the SD card before standby and send it after the restart.
-- b. **Faster recovery:** when the modem stops answering, power-cycle it straight away instead of the 3-minute pause, and
-  after a failed upload restart only the modem's HTTP session (`AT+HTTPTERM` / `AT+HTTPINIT`) before a full reconnect.
-- c. **Find the cause:** next drive with `VSLAB_CELL_DEBUG` (raw modem replies), to see what the modem says when an upload
-  fails on the move.
-- d. If the engine was idling: in OBD builds, no standby while the engine computer reports RPM > 0.
+**Firmware fixes (done with Craig's go-ahead, `feat/cell-beam` `0b87e07`, on the device now; details in
+`firmware/README.md`):**
+- a. ✅ **Unsent readings survive sleep:** before sleeping, the backlog goes to `/VSLABQ.TXT` on the SD card; after the
+  restart it's sent first (progress kept in NVS). On wake the restart waits for that save. Desk test: 39 readings saved,
+  all 39 delivered after the restart (`OK 15`, `OK 15`, `OK 9`).
+- b. ✅ **Likely cause of the failed uploads, fixed:** the modem library wrote the upload body without checking that the
+  modem had asked for it (`DOWNLOAD`), and gave the whole round trip 5 s before asking for the reply. A late prompt
+  turns the body into AT commands, which fits "upload fails, then the modem stops answering". Now: body only after
+  `DOWNLOAD`, then up to 20 s for `+HTTPACTION:`. Not proven until the next drive.
+- c. ✅ **Faster recovery:** a modem that stops answering is powered fully off before restarting; after a failed modem
+  start the wait is 15 s, 30 s, 1 min, then 3 min. Seen on the desk: the modem didn't answer at boot (70 s), came back
+  on the 15 s retry.
+- d. ✅ **Logging for the next drive** (always on): a failed upload logs the modem's reply to the failing step and the
+  network state (`AT+CPSI?`, e.g. `LTE,Online,302-720,…,EUTRAN-BAND66,…`).
+- e. ⏳ Engine idling at standby: waiting for Craig's answer (did the engine idle after parking?). If yes: in OBD builds,
+  no standby while the engine computer reports RPM > 0.
+
+**Next drive:** same set-up (laptop recording). Check that uploads keep getting `OK` on the move; if not, the new log
+lines say why. Also park for 3+ minutes before switching off, to see the backlog saved and sent after the wake.
 
 ## Open items (in order)
 
