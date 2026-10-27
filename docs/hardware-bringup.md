@@ -4,7 +4,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 
 **Who updates it:** whichever Claude session does device work updates it at the end of each step, so the next session has the full context. Updates are committed to `main` (docs only), so every session reads one copy; the work itself stays on its branch until merged.
 
-**Last updated:** 2026-10-25
+**Last updated:** 2026-10-27
 
 ---
 
@@ -233,6 +233,48 @@ starting.
 
 **Our device as a load:** while parked it stays partly awake (watching for motion) and powers the modem every
 15 minutes. The parked voltage trend will show its effect; machines parked for weeks may need longer check-in gaps.
+
+## Field test 2 (2026-10-27, CX-9 drive with the laptop recording; desktop session)
+
+About 14 minutes from Craig's home, mostly at 90–100 km/h, then parked (08:14–08:33 local, NDT = UTC−2:30). Build on the
+device: `bench-beam-obd` `6150144`. Serial log kept on Craig's PC (`%LOCALAPPDATA%\Temp\claude-vslab-build\drive2.log`);
+the SD card also holds the whole drive (`/DATA/77.CSV`).
+
+**What worked:**
+- **No sleep while driving.** The device tracked the whole drive (GPS every second, 12 satellites, OBD answering the
+  whole time; no `ECU OFF`). The field-test-1 fix holds.
+- Boot reason on the log: `power_on` at the start, `software` after the wake (as designed).
+- The server answered every upload it received in ≤ 0.5 s (Vercel: `/hub/api/post` time to first byte, max 475 ms).
+
+**❌ New problem 1: uploads fail while driving.** At rest at the start, 5 uploads in a row got `OK`. From the moment the car
+was moving (08:15:34) the pattern repeated four times:
+1. after a full modem start, 1–2 uploads get `OK`;
+2. the next one gets `[HTTP] No response` after ~7 s, the firmware declares `Not in service` and re-activates (a few seconds);
+3. the next upload fails the same way; on the second re-activation the modem stops answering (`No supported module`, ~70 s);
+4. the firmware switches the modem off and **waits 3 minutes** before starting again.
+
+So about 2 uploads (30 readings) got through every 5 minutes against 300 readings made. Signal was fine throughout
+(RSSI −71 to −93 dBm, same operator 302720, same IP). Vercel's request counts match the device's `OK`s, apart from one
+upload at 10:55 UTC that the device logged as failed but the server received (the device later resent it and got
+`OK 0`: nothing new, so the dedupe worked). So the uploads mostly don't reach the server: the cause is between the modem
+and Soracom (modem HTTP stack or cell handover at speed), not VS-lab. Not proven which yet.
+
+**❌ New problem 2: the backlog was lost.** Parked at 08:28; at 08:31:32 `Stationary for 182 secs` → standby with
+**763 readings still waiting** (the modem was in its 3-minute pause, so the flush before sign-off couldn't send). A bump
+woke it at 08:32:40, and the restart on wake (`RESET_AFTER_WAKEUP`) cleared memory. VS-lab therefore has only the first
+~2.5 minutes of the drive (readings up to device time 164 s) and the restart. The readings are still on the SD card.
+
+**❓ To check with Craig:** after the restart the engine computer reported 714 RPM at 12.68 V (Mazda's smart charging can
+idle near 12.7 V). If the engine was idling when the device went to standby, stock Telelogger signs off after 3 minutes
+without movement **even with the engine running**, and VS-lab ends the engine session at the sign-off.
+
+**Proposed firmware fixes (`feat/cell-beam`, waiting for Craig's go-ahead):**
+- a. **Keep unsent readings through sleep:** write the backlog to the SD card before standby and send it after the restart.
+- b. **Faster recovery:** when the modem stops answering, power-cycle it straight away instead of the 3-minute pause, and
+  after a failed upload restart only the modem's HTTP session (`AT+HTTPTERM` / `AT+HTTPINIT`) before a full reconnect.
+- c. **Find the cause:** next drive with `VSLAB_CELL_DEBUG` (raw modem replies), to see what the modem says when an upload
+  fails on the move.
+- d. If the engine was idling: in OBD builds, no standby while the engine computer reports RPM > 0.
 
 ## Open items (in order)
 
