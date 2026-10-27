@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { devices, machines, notificationEvents, organizations } from "@/lib/db/schema";
+import { devices, machines, notificationEvents, organizations, telemetry } from "@/lib/db/schema";
 import { createMachine, pairDevice } from "@/lib/machines";
-import { ingestSamples } from "@/lib/telemetry/ingest";
+import { ingestSamples, recordEvent } from "@/lib/telemetry/ingest";
 import { batteryThreshold } from "./battery";
 
 let db: Db;
@@ -47,6 +47,25 @@ describe("low battery warning", () => {
     await report(11.0, 100);
     await report(11.0, 110);
     expect(await warnings()).toHaveLength(2);
+  });
+
+  it("uses the voltage from parked check-ins (&BV=): stored for the chart, and warns about a draining battery", async () => {
+    const parked = (cv: number, min: number, type = "login") => recordEvent(db, "DEV1", { type, batteryCentivolts: cv }, { now: at(min) });
+    await parked(1240, 0);
+    await parked(1180, 15, "logout");
+    expect(await warnings()).toEqual([]);
+    await parked(1175, 30);
+    expect(await warnings()).toHaveLength(1);
+    expect(await machine()).toMatchObject({ lastBatteryV: expect.closeTo(11.75, 3) });
+    const rows = await db.select().from(telemetry).orderBy(telemetry.id);
+    expect(rows.map((r) => [r.batteryV, r.engineOn, r.lat])).toEqual([
+      [12.4, false, null],
+      [11.8, false, null],
+      [11.75, false, null],
+    ]);
+    // A desk device on USB isn't a machine battery.
+    await parked(368, 45);
+    expect(await warnings()).toHaveLength(1);
   });
 
   it("ignores the dip while cranking and readings with the engine running", async () => {

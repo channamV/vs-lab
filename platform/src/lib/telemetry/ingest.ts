@@ -346,7 +346,14 @@ async function alreadyStored(db: Db, deviceId: string, samples: SampleFields[], 
 export async function recordEvent(
   db: Db,
   deviceId: string,
-  event: { type: string; rssi?: number | null; vin?: string | null; restart?: { reason: string | null; boot: number | null } | null },
+  event: {
+    type: string;
+    rssi?: number | null;
+    vin?: string | null;
+    restart?: { reason: string | null; boot: number | null } | null;
+    /** Our firmware's parked check-ins (every 15 min, sign-in + sign-off) carry the battery voltage (&BV=, centivolts). */
+    batteryCentivolts?: number | null;
+  },
   opts: { autoRegister?: boolean; now?: Date } = {},
 ) {
   const now = opts.now ?? new Date();
@@ -387,6 +394,30 @@ export async function recordEvent(
     // the engine-on period, and a ping ends one nothing has confirmed for a while.
     await endQuietEngineSessions(db, now, { machineId, signedOff: event.type === "logout" });
   }
+  if (event.batteryCentivolts != null) await recordParkedBattery(db, deviceId, machineId, event.batteryCentivolts / 100, now);
+}
+
+/**
+ * A battery voltage from a parked check-in (docs/hardware-bringup.md, "Battery voltage while parked"): stored as a
+ * reading (no position) so the battery chart shows the overnight trend, and fed to the low battery warning as an
+ * engine-off reading. If VS-lab still thinks the engine is running, the reading doesn't count as engine-off.
+ */
+async function recordParkedBattery(db: Db, deviceId: string, machineId: number | null, volts: number, now: Date) {
+  const [m] = machineId ? await db.select({ engineOn: machines.engineOn }).from(machines).where(eq(machines.id, machineId)) : [];
+  const engineOn = m?.engineOn === true ? null : false;
+  await db.insert(telemetry).values({
+    deviceId,
+    machineId,
+    receivedAt: now,
+    recordedAt: now,
+    batteryV: volts,
+    engineOn,
+    fields: { batteryCentivolts: Math.round(volts * 100), parkedCheckIn: 1 },
+  });
+  await db.update(devices).set({ lastBatteryV: volts }).where(eq(devices.id, deviceId));
+  if (!machineId) return;
+  await db.update(machines).set({ lastBatteryV: volts }).where(eq(machines.id, machineId));
+  await sideCheck("Battery check", () => checkBattery(db, machineId, [{ volts, engineOn }], now));
 }
 
 /**

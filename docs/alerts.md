@@ -126,9 +126,9 @@ With the engine off, a healthy battery rests at about 12.6 V (25.2 V on 24 V mac
 - clears it once an engine-off reading is at least 0.4 V above the warning level (e.g. after charging).
 
 While parked, the device sleeps and checks in every 15 minutes. With our firmware (2026-10-26) each check-in
-carries the battery voltage (`&BV=`), so a battery draining while parked can be caught before the next start
-once VS-lab reads it (see `docs/hardware-bringup.md`). The stock firmware didn't send it, so readings came only from
-just after stopping and just before starting. Settings:
+carries the battery voltage (`&BV=`), so a battery draining while parked is caught before the next start (VS-lab
+reads it since 2026-10-27; it also shows on the machine's Battery voltage chart). The stock firmware doesn't send it,
+so with it readings come only from just after stopping and just before starting. Settings:
 `BATTERY_RULES` in `platform/src/lib/battery.ts`.
 
 ## Setting up email (Resend, free)

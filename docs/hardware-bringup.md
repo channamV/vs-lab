@@ -240,12 +240,11 @@ starting.
 `EV=1` then a sign-off `EV=2`) carries `&BV=<centivolts>`, e.g. `&BV=1262` = 12.62 V, read the same way as PID 0x24
 (A0 on board type 15). Desk test with a 60 s interval: 3.68 / 3.69 V on USB; each check-in keeps the modem on about 13 s.
 
-**⏳ VS-lab (cloud session):**
-- read `BV` on notify; store it (device/machine `lastBatteryV` and a reading for history, dated by arrival);
-- feed it to the low battery warning as an **engine-off** reading (`checkBattery`); the 8 V floor still applies (a desk
-  device on USB sends ~3.6 V);
-- show the parked voltage trend on the machine page (overnight / weekend), useful for spotting parasitic drain,
-  including our own device's.
+**VS-lab (done 2026-10-27, cloud session):** `BV` on notify is stored as a reading without a position (dated by
+arrival, `fields.parkedCheckIn = 1`) and as the device/machine's latest voltage, so the machine page's Battery voltage
+chart shows the overnight / weekend trend; it feeds the low battery warning as an **engine-off** reading (not if VS-lab
+still has the engine running); the 8 V floor still applies (a desk device on USB sends ~3.6 V). Code:
+`recordParkedBattery` in `platform/src/lib/telemetry/ingest.ts` (tested in `battery.test.ts`).
 
 **Our device as a load:** while parked it stays partly awake (watching for motion) and powers the modem every
 15 minutes. The parked voltage trend will show its effect; machines parked for weeks may need longer check-in gaps.

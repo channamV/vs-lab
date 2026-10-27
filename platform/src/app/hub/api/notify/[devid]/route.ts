@@ -10,7 +10,8 @@ import { afterDeviceReport } from "@/lib/alert-jobs";
 /**
  * Connection events from the Freematics Telelogger (login, logout, ping...).
  * The device sends: GET /hub/api/notify/<DEVICE_ID>?EV=<code>&SSI=<rssi>&VIN=<vin>
- * Our firmware fork adds &FW=<version> (docs/firmware-updates.md) and, after a restart, &RST=<reason>&BOOT=<n>.
+ * Our firmware fork adds &FW=<version> (docs/firmware-updates.md), after a restart &RST=<reason>&BOOT=<n>, and on
+ * parked check-ins &BV=<centivolts> (battery voltage, e.g. 1262 = 12.62 V).
  */
 export async function GET(request: Request, ctx: RouteContext<"/hub/api/notify/[devid]">) {
   const { devid } = await ctx.params;
@@ -28,6 +29,7 @@ export async function GET(request: Request, ctx: RouteContext<"/hub/api/notify/[
       restart: q.has("RST")
         ? { reason: restartReason(q.get("RST")) ?? q.get("RST")!.slice(0, 40), boot: /^\d{1,9}$/.test(q.get("BOOT") ?? "") ? Number(q.get("BOOT")) : null }
         : null,
+      batteryCentivolts: /^\d{1,4}$/.test(q.get("BV") ?? "") ? Number(q.get("BV")) : null,
     });
     if (q.has("FW")) await noteFirmwareVersion(getDb(), devid, q.get("FW"));
     // A sign-off can end the engine-on period: automatic check-out and the "stopped" notification follow.

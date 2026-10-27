@@ -31,7 +31,8 @@ github.com/stanleyhuangyc/Freematics.
 - `POST /hub/api/post/<DEVID>` — body `PID:val[;val],...*CHECKSUM` (hex PIDs, PID 0 starts a sample)
 - `GET  /hub/api/notify/<DEVID>?EV=&SSI=&VIN=` — connection events (1 login, 2 logout, 7 ping...)
 - `GET  /hub/api/push?id=&lat=&lon=&speed=<knots>...` — "HTTPS GET" mode (GPS only)
-- Our fork only: notify `FW=<version>` (→ `devices.firmware_version`), `GET /hub/api/firmware/<release>?d=&s=` (download),
+- Our fork only: notify `FW=<version>` (→ `devices.firmware_version`), notify `BV=<centivolts>` on parked check-ins
+  (→ position-less telemetry row + low battery check, `recordParkedBattery` in ingest), `GET /hub/api/firmware/<release>?d=&s=` (download),
   login notify `RST=<reason>&BOOT=<n>` (restart reason → login event detail + tamper wording, `src/lib/restart-reasons.ts`),
   and `POST /hub/api/diag/<DEVID>` (restart report: `BOOT=;RST=` line + last log lines → `device_diagnostics`,
   `src/lib/diagnostics.ts`, staff device page; `docs/device-diagnostics.md`), and relay devices' beacon starts
