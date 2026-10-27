@@ -391,6 +391,10 @@ local), then switched off.
   Firmware, send to Y5725A32; the device takes it the next time it's awake (engine running), installs it after
   the engine stops. Then check: log line `Offers fuel level: yes, odometer: yes`, `0x12F` and `0x1A6` (about once a
   minute) in the uploads. The device runs vs-0.2.6 now.
+  First attempt (2026-10-27, sent 20:16 UTC while the car was parked): **Expired**, never downloaded. VS-lab gave up
+  after 5 offers, which went to the parked check-ins the firmware ignores (posts stopped at 20:00, no
+  `/hub/api/firmware/4` requests). VS-lab now keeps offering updates until answered or 7 days (`main`, commands.ts):
+  send it again and drive.
 
 ## Open items (in order)
 

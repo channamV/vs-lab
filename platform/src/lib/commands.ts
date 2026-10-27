@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { and, asc, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { deviceCommands, devices } from "@/lib/db/schema";
 
@@ -22,7 +22,11 @@ export class CommandError extends Error {}
 export const COMMAND_RULES = {
   /** Commands not answered within this long expire. */
   expiresHours: 24,
-  /** Resend an unanswered command after this long, up to maxSends times. */
+  /**
+   * Resend an unanswered command after this long, up to maxSends times. Firmware updates are exempt: the device only
+   * acts on commands while it's awake (not at its 15-minute parked check-ins), so they're resent until answered or
+   * their own expiry (7 days).
+   */
   resendSeconds: 60,
   maxSends: 5,
   /** At most this many commands per reply. */
@@ -139,7 +143,15 @@ async function expire(db: Db, deviceId: string, now: Date) {
       and(
         eq(deviceCommands.deviceId, deviceId),
         inArray(deviceCommands.status, ["pending", "sent"]),
-        or(lt(deviceCommands.expiresAt, now), and(eq(deviceCommands.status, "sent"), eq(deviceCommands.sendCount, COMMAND_RULES.maxSends), lt(deviceCommands.sentAt, new Date(now.getTime() - COMMAND_RULES.resendSeconds * 1000)))),
+        or(
+          lt(deviceCommands.expiresAt, now),
+          and(
+            eq(deviceCommands.status, "sent"),
+            isNull(deviceCommands.firmwareReleaseId),
+            gte(deviceCommands.sendCount, COMMAND_RULES.maxSends),
+            lt(deviceCommands.sentAt, new Date(now.getTime() - COMMAND_RULES.resendSeconds * 1000)),
+          ),
+        ),
       ),
     );
 }
@@ -160,7 +172,11 @@ export async function commandsForReply(db: Db, deviceId: string, now = new Date(
           eq(deviceCommands.deviceId, deviceId),
           or(
             eq(deviceCommands.status, "pending"),
-            and(eq(deviceCommands.status, "sent"), lt(deviceCommands.sentAt, new Date(now.getTime() - COMMAND_RULES.resendSeconds * 1000)), lt(deviceCommands.sendCount, COMMAND_RULES.maxSends)),
+            and(
+              eq(deviceCommands.status, "sent"),
+              lt(deviceCommands.sentAt, new Date(now.getTime() - COMMAND_RULES.resendSeconds * 1000)),
+              or(lt(deviceCommands.sendCount, COMMAND_RULES.maxSends), isNotNull(deviceCommands.firmwareReleaseId)),
+            ),
           ),
         ),
       )

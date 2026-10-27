@@ -73,6 +73,19 @@ describe("rollout", () => {
     expect(cmd.expiresAt).toEqual(new Date(t0.getTime() + 7 * 86_400_000));
   });
 
+  it("keeps offering an update through a parked night (the device ignores commands at its parked check-ins)", async () => {
+    const r = await upload("vs-1.1.0");
+    await queueUpdate(db, r.id, ["DEV1"], "craig", t0);
+    // A check-in every 15 minutes for 12 hours: well past the usual 5 tries.
+    for (let i = 0; i < 48; i++) expect(await commandsForReply(db, "DEV1", new Date(t0.getTime() + i * 15 * 60_000))).toHaveLength(1);
+    const [cmd] = await db.select().from(deviceCommands);
+    expect(cmd).toMatchObject({ status: "sent", sendCount: 48 });
+    // Still within its 7 days: the device gets it when it's next awake.
+    expect(await commandsForReply(db, "DEV1", new Date(t0.getTime() + 3 * 86_400_000))).toHaveLength(1);
+    expect(await commandsForReply(db, "DEV1", new Date(t0.getTime() + 8 * 86_400_000))).toEqual([]);
+    expect((await db.select().from(deviceCommands))[0].status).toBe("expired");
+  });
+
   it("a newer choice replaces a waiting update", async () => {
     const a = await upload("vs-1.1.0");
     const b = await upload("vs-1.2.0", image(100_000, 2));

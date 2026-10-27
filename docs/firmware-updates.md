@@ -31,13 +31,16 @@ this update is going.
 3. **Everyone else.** **Tick all shown not on this version**. Filter by organization to go customer by
    customer.
 
-Each device gets the update at its next contact: within seconds when running, or within 15 minutes when parked.
-An update waits up to **7 days** for a device that's switched off.
+A device takes the update the next time it's **awake** (engine running, or just after stopping): within seconds if it's
+running now. A parked device is offered it at each 15-minute check-in but doesn't act on it until it's next woken
+(it's driven or the engine starts). It installs once the engine is off again. An update waits up to **7 days**.
+(Until 2026-10-27 VS-lab gave up after 5 tries, which a parked device used up in about 75 minutes and showed as
+Expired: resend those.)
 
 | Status | Meaning |
 |---|---|
 | Waiting for the device | Queued; the device hasn't been in touch yet |
-| Sent, installing | The device has it; it downloads (~1–2 minutes on LTE Cat 1), installs and restarts |
+| Sent, installing | Offered to the device; once it's awake it downloads (about 7 minutes), installs after the engine stops and restarts |
 | Updated | The device answered that it's running the new version |
 | Failed | The device answered with a problem (e.g. the download was incomplete); it kept its old version |
 | Expired | No answer within 7 days |
@@ -97,7 +100,8 @@ An update waits up to **7 days** for a device that's switched off.
   - after restarting: `ok=1` with a result such as `running vs-1.0.3`;
   - on a failure: `ok=0` with the reason.
   - Store the command id before restarting, so the answer can be sent after the restart.
-  - The command is resent every minute until answered (up to 5 times), so ignore ids already run or in progress.
+  - The command is resent every minute until answered or expired (7 days; other commands stop after 5 tries), so
+    ignore ids already run or in progress.
 - **Version:** add `&FW=<version>` to the login notify (`EV=1`).
 - **Code:** `platform/src/lib/firmware.ts` (tested).
 - **Simulator:** `npm run simulate` behaves like this. It reports `--firmware` (default `sim-1.0.0`), and on
