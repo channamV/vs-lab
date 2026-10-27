@@ -318,14 +318,22 @@ int handlerLiveData(UrlHandlerParam* param)
 uint8_t rpmRepeats = 0;
 int lastRpm = -1;
 
+// VSLAB: the engine computer lists the odometer (PID A6), and each supported-PID range leading to it answered
+bool odometerListed()
+{
+  return obd.isValidPID(0x20) && obd.isValidPID(0x40) && obd.isValidPID(0x60) && obd.isValidPID(0x80) &&
+    obd.isValidPID(0xA0) && obd.isValidPID(PID_ODOMETER);
+}
+
 void processOBD(CBuffer* buffer)
 {
   static int idx[2] = {0, 0};
   int tier = 1;
   for (byte i = 0; i < sizeof(obdData) / sizeof(obdData[0]); i++) {
     if (obdData[i].tier > tier) {
-        // reset previous tier index
-        idx[tier - 2] = 0;
+        // reset previous tier index (VSLAB: tier 1 has none; upstream wrote idx[-1], zeroing whatever was next to it
+        // in memory: here the odometer's last-read time, so it was read and sent every cycle)
+        if (tier >= 2) idx[tier - 2] = 0;
         // keep new tier number
         tier = obdData[i].tier;
         // move up current tier index
@@ -359,9 +367,7 @@ void processOBD(CBuffer* buffer)
   // Only when the engine computer lists it (and the supported-PID ranges leading to it); dropped after 3 failed reads.
   static uint32_t lastOdometer = 0;
   static uint8_t odometerFails = 0;
-  if (odometerFails < 3 && (!lastOdometer || millis() - lastOdometer >= 60000) && obd.isValidPID(0x20) &&
-      obd.isValidPID(0x40) && obd.isValidPID(0x60) && obd.isValidPID(0x80) && obd.isValidPID(0xA0) &&
-      obd.isValidPID(PID_ODOMETER)) {
+  if (odometerFails < 3 && (!lastOdometer || millis() - lastOdometer >= 60000) && odometerListed()) {
     lastOdometer = millis();
     byte errors = obd.errors; // an unanswered odometer doesn't mean the engine computer went quiet
     int value;
@@ -638,6 +644,11 @@ void initialize()
     timeoutsOBD = 0;
     if (obd.init()) {
       Serial.println("OBD:OK");
+      // VSLAB: which of the readings VS-lab's fuel and maintenance features use this engine computer offers
+      Serial.print("[OBD] Offers fuel level: ");
+      Serial.print(obd.isValidPID(0x20) && obd.isValidPID(PID_FUEL_LEVEL) ? "yes" : "no");
+      Serial.print(", odometer: ");
+      Serial.println(odometerListed() ? "yes" : "no");
       state.set(STATE_OBD_READY);
 #if ENABLE_OLED
       oled.println("OBD OK");

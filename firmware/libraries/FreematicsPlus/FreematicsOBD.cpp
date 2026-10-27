@@ -353,7 +353,7 @@ bool COBD::isValidPID(byte pid)
 bool COBD::init(OBD_PROTOCOLS protocol, bool quick)
 {
 	const char *initcmd[] = {"ATE0\r", "ATH0\r"};
-	char buffer[64];
+	char buffer[128]; // VSLAB: room for several control units' answers (upstream 64)
 	bool success = false;
 
 	if (!link) {
@@ -409,12 +409,18 @@ bool COBD::init(OBD_PROTOCOLS protocol, bool quick)
 		if (!link->receive(buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || checkErrorMessage(buffer)) {
 			break;
 		}
+		// VSLAB: several control units can answer (engine, transmission...): combine their lists. Upstream kept the
+		// last answer only, so the CX-9's list changed between connections (fuel level and odometer missing when
+		// the transmission unit answered last; desk check 2026-10-27).
+		bool answered = false;
 		for (char *p = buffer; (p = strstr(p, "41 ")); ) {
 			p += 3;
 			if (hex2uint8(p) == pid) {
+				if (!answered) memset(pidmap + i * 4, 0, 4);
+				answered = true;
 				p += 2;
 				for (byte n = 0; n < 4 && *(p + n * 3) == ' '; n++) {
-					pidmap[i * 4 + n] = hex2uint8(p + n * 3 + 1);
+					pidmap[i * 4 + n] |= hex2uint8(p + n * 3 + 1);
 				}
 				success = true;
 			}
