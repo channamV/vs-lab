@@ -76,7 +76,7 @@ export function HistoryReplay({
   const [ready, setReady] = useState(false);
   const [showSites, setShowSites] = useState(true);
   const [skipQuiet, setSkipQuiet] = useState(true);
-  const [speed, setSpeed] = useState<number>(300);
+  const [speed, setSpeed] = useState<number>(60);
   const [follow, setFollow] = useState(true);
   const [playing, setPlaying] = useState(false);
   /** Replay position (ms of replay time); null = not replaying, the whole track is shown. */

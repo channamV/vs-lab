@@ -33,7 +33,7 @@ Yesterday / 7 days / 30 days**, or a custom range (up to 31 days), in the compan
   at that moment. Worksites can be shown underneath.
 - **Gaps:** where the device went silent and the machine reappeared elsewhere, the line breaks instead of drawing a
   straight line across (we don't know the way it went).
-- **Replay:** ▶ Replay plays the trip with a moving arrow. Choose the speed (1 min to 2 h per second), **Skip parked
+- **Replay:** ▶ Replay plays the trip with a moving arrow. Choose the speed (1 min to 2 h per second; starts at 1 min/s), **Skip parked
   time** (nights and long silences play in a moment), **Follow machine** (the map keeps it in view), or drag the
   slider. The bar above the map shows the time, speed, engine and operator as it plays.
 - **Stops table:** when, how long, what the engine did (*Engine off*, *Idled 45 min*, or *Engine running* when
