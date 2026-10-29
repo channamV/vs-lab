@@ -49,7 +49,7 @@ import { currentMode } from "@/lib/mode-types";
 import { ensureTrainingDefaults, latestRecords, recordStatus } from "@/lib/training";
 import { todayIn } from "@/lib/schedule-time";
 import { scanAvailable } from "@/lib/scan";
-import { locationHistory, voltageHistory } from "@/lib/history";
+import { engineReadings, locationHistory, voltageHistory } from "@/lib/history";
 import { historyRange } from "@/lib/history-track";
 import { onRoadMachineCount, roadCoverageByMonth } from "@/lib/posted-speed";
 import { hasRole } from "@/lib/auth";
@@ -1156,6 +1156,14 @@ export async function machineLocationHistory(id: number, params: { range?: strin
   const tz = (await requireSession()).timeZone;
   const r = historyRange(params, now, tz);
   return { range: r, timeZone: tz, history: await locationHistory(getDb(), id, r.from, r.to, now) };
+}
+
+/** Every reading for the history page's period (engine readings CSV). */
+export async function machineEngineReadings(id: number, params: { range?: string; from?: string; to?: string }) {
+  await requireMachine(id);
+  const tz = (await requireSession()).timeZone;
+  const r = historyRange(params, Date.now(), tz);
+  return { range: r, timeZone: tz, readings: await engineReadings(getDb(), id, r.from, r.to) };
 }
 
 /** Settings (owners): road kilometres with/without a known posted limit by month, and how many on-road machines. */

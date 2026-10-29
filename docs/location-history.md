@@ -39,6 +39,9 @@ Yesterday / 7 days / 30 days**, or a custom range (up to 31 days), in the compan
 - **Stops table:** when, how long, what the engine did (*Engine off*, *Idled 45 min*, or *Engine running* when
   it worked in place), and who was checked in; **Show** zooms to it, **Replay from here** starts there.
 - **CSV:** every position shown (time, coordinates, speed, heading, engine, operator).
+- **Engine readings CSV:** every reading in the period, with or without a position: engine on/off, speed, RPM, fuel
+  level, odometer, battery, coolant. Use it to check what a fuel log entry (refuel, possible theft) or an engine
+  period was based on (fuel checks use the medians of 5 readings: see `docs/alerts.md`). Up to 100,000 rows.
 
 Long periods are thinned to one position per time slice so the page stays fast (a note says so); pick a shorter
 period for every detail.

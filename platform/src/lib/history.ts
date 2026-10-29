@@ -23,6 +23,8 @@ export const HISTORY_RULES = {
   voltageBuckets: 300,
   /** Positions sent to the map; longer ranges keep one per time slice. */
   maxTrackPoints: 5000,
+  /** Rows in the engine readings CSV (about 4 days of driving at one reading a second). */
+  maxReadings: 100_000,
 };
 
 const range = (machineId: number, from: number, to: number) =>
@@ -103,6 +105,33 @@ export async function voltageHistory(db: Db, machineId: number, from: number, to
 }
 
 export type VoltageHistory = Awaited<ReturnType<typeof voltageHistory>>;
+
+const field = (key: string) => sql<number | null>`(${telemetry.fields}->>${key})::float`;
+
+/**
+ * Every reading over a range (with or without a position), with the engine values used for engine state, fuel and
+ * meters: for checking what a fuel log entry or engine period was based on. Oldest first, at most maxReadings.
+ */
+export async function engineReadings(db: Db, machineId: number, from: number, to: number) {
+  return db
+    .select({
+      at: telemetry.recordedAt,
+      receivedAt: telemetry.receivedAt,
+      engineOn: telemetry.engineOn,
+      speedKph: telemetry.speedKph,
+      lat: telemetry.lat,
+      lng: telemetry.lng,
+      batteryV: telemetry.batteryV,
+      rpm: sql<number | null>`coalesce(${field("j1939Rpm")}, ${field("obdRpm")})`,
+      fuelPct: sql<number | null>`coalesce(${field("j1939FuelLevelPct")}, ${field("obdFuelLevelPct")})`,
+      odometerKm: sql<number | null>`coalesce(${field("j1939OdometerKm")}, ${field("obdOdometerKm")})`,
+      coolantC: field("obdCoolantTempC"),
+    })
+    .from(telemetry)
+    .where(range(machineId, from, to))
+    .orderBy(asc(telemetry.recordedAt), asc(telemetry.id))
+    .limit(HISTORY_RULES.maxReadings);
+}
 
 /** Positions over a range (thinned to one per time slice when there are many), with stops, segments and operators. */
 export async function locationHistory(db: Db, machineId: number, from: number, to: number, now = Date.now()) {

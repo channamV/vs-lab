@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createDb, migrateDb, type Db } from "@/lib/db";
 import { checkins, devices, engineSessions, operators, organizations, telemetry } from "@/lib/db/schema";
 import { createMachine } from "@/lib/machines";
-import { HISTORY_RULES, locationHistory, voltageHistory } from "./history";
+import { engineReadings, HISTORY_RULES, locationHistory, voltageHistory } from "./history";
 import { toCsv } from "./reports";
 import {
   dropOutliers,
@@ -156,6 +156,21 @@ describe("database history", () => {
     ]);
     expect(h.summary).toMatchObject({ readings: 4, min: 9.8, max: 14.2, latest: { v: 14.1, at: T0 + 3 * MIN }, system: 12, lowThreshold: 11.9 });
     expect(h.engine).toEqual([{ from: T0 + 2 * MIN, to: T0 + 4 * MIN }]);
+  });
+
+  it("lists every reading with its engine values, with or without a position", async () => {
+    await db.insert(telemetry).values([
+      row(1, { engineOn: true, fields: { obdRpm: 820, obdFuelLevelPct: 38.4, obdOdometerKm: 81033.2 } }),
+      row(0, { engineOn: false, batteryV: 12.4, lat: 45, lng: -75 }),
+      row(2, { engineOn: true, speedKph: 50, fields: { j1939Rpm: 1500, j1939FuelLevelPct: 50 } }),
+      row(90, { engineOn: true }),
+    ]);
+    const r = await engineReadings(db, machineId, T0 - MIN, T0 + 60 * MIN);
+    expect(r.map((x) => [x.at.getTime() - T0, x.engineOn, x.rpm, x.fuelPct, x.odometerKm, x.batteryV, x.lat])).toEqual([
+      [0, false, null, null, null, 12.4, 45],
+      [MIN, true, 820, 38.4, 81033.2, null, null],
+      [2 * MIN, true, 1500, 50, null, null, null],
+    ]);
   });
 
   it("returns the track with stops and operators, thinning long histories", async () => {

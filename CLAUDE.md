@@ -260,7 +260,7 @@ says it's compliant. Update that doc when items are done.
   slice inlined, engine spans, 12/24 V; `VoltageChart.tsx`; CSV `machines/[id]/battery/export`) and `/machines/[id]/history`
   (`historyRange` presets/custom ≤31 days in `appTimeZone()`; `locationHistory` thins with DISTINCT ON above
   `HISTORY_RULES.maxTrackPoints`; `dropOutliers`, `splitSegments`, `findStops`, operators from check-ins;
-  `HistoryReplay.tsx` replay with skip-parked-time timeline; CSV `history/export`). Popups are built with textContent.
+  `HistoryReplay.tsx` replay with skip-parked-time timeline; CSV `history/export`; every reading with engine/fuel/odometer values via `engineReadings` → CSV `history/readings`). Popups are built with textContent.
 - Low battery (`src/lib/battery.ts`, tested): engine-off readings below 11.9 V / 23.8 V, confirmed 3 min later →
   `machines.battery_low_at` + `low_battery` event (once per spell; clears at +0.4 V). Called from ingest.
 - Privacy / GDPR (`src/lib/privacy.ts`, tested; `docs/privacy.md`): per-org `privacy_contact` and `retain_*_days`

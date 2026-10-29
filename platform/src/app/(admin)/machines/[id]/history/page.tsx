@@ -100,9 +100,14 @@ async function History({ params, searchParams }: Pick<PageProps<"/machines/[id]/
         sites={sites}
         timeZone={timeZone}
       />
-      <a href={`/machines/${id}/history/export?${query}`} className="inline-block text-sm text-sky-700 hover:underline dark:text-sky-400">
-        Download positions (CSV)
-      </a>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        <a href={`/machines/${id}/history/export?${query}`} className="text-sky-700 hover:underline dark:text-sky-400">
+          Download positions (CSV)
+        </a>
+        <a href={`/machines/${id}/history/readings?${query}`} className="text-sky-700 hover:underline dark:text-sky-400">
+          Download engine readings (CSV): fuel level, RPM, odometer, battery
+        </a>
+      </div>
     </>
   );
 }
