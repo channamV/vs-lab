@@ -78,6 +78,9 @@ engine hours, km) and the machine page's **Recent engine sessions**.
 - **GPS** otherwise: movement is counted only once the machine has moved 25 m from the last counted spot, so GPS
   jitter while parked or idling doesn't add up. Close to the odometer on roads; a little under on tight, slow
   manoeuvring (equipment on site), and straight-line across signal gaps.
+- **Only while the engine runs**: distance is counted inside engine-on periods only, so a machine hauled on a trailer
+  with its engine off adds nothing. Periods detected from **vibration alone** (devices that read neither RPM nor
+  battery voltage) get no GPS distance, since a machine bouncing on a trailer can look like a running engine.
 - A period cut by the report's start or end counts its share by time. Periods are worked out 5 minutes after they
   end (the watchdog; running ones live). Periods from before 2026-10-29 are filled in gradually, newest first.
 - Code: `platform/src/lib/distance.ts` (tested), `engine_sessions.distance_km` / `distance_source`.

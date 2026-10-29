@@ -9,6 +9,9 @@ import { effectiveEnd } from "@/lib/telemetry/engine";
  * accurate source (OBD PID A6 on newer vehicles, J1939 on trucks); it's read about once a minute, so GPS covers the
  * minutes before its first and after its last reading. Without an odometer, GPS alone: positions are counted only
  * once the machine has moved a little (`gpsStepM`), so GPS jitter while parked or idling doesn't add up.
+ * Only engine-on periods count, so a machine hauled on a trailer with its engine off adds nothing. A period detected
+ * from vibration alone (no RPM or voltage) gets no GPS distance: a machine bouncing on a trailer can look like a running
+ * engine (Craig 2026-10-29).
  */
 export const DISTANCE_RULES = {
   /** GPS: count movement only once the machine is this far from the last counted spot. */
@@ -57,17 +60,21 @@ function odometerReadings(points: DistancePoint[]) {
   return odo;
 }
 
-/** Distance over one engine-on period's readings: odometer (plus GPS before/after its readings), else GPS (pure). */
-export function distanceFrom(points: DistancePoint[]): { km: number; source: DistanceSource } | null {
+/**
+ * Distance over one engine-on period's readings: odometer (plus GPS before/after its readings), else GPS (pure).
+ * `gps: false` when the period can't be trusted to be the machine driving itself (detected from vibration only).
+ */
+export function distanceFrom(points: DistancePoint[], opts: { gps?: boolean } = {}): { km: number; source: DistanceSource } | null {
+  const useGps = opts.gps ?? true;
   const sorted = [...points].sort((a, b) => a.t - b.t);
   const odo = odometerReadings(sorted);
   if (odo) {
     const first = odo[0];
     const last = odo.at(-1)!;
-    const km = Math.max(0, last.odometerKm! - first.odometerKm!) + gpsKm(sorted, -Infinity, first.t) + gpsKm(sorted, last.t, Infinity);
-    return { km, source: "odometer" };
+    const edges = useGps ? gpsKm(sorted, -Infinity, first.t) + gpsKm(sorted, last.t, Infinity) : 0;
+    return { km: Math.max(0, last.odometerKm! - first.odometerKm!) + edges, source: "odometer" };
   }
-  if (sorted.filter(hasFix).length < 2) return null;
+  if (!useGps || sorted.filter(hasFix).length < 2) return null;
   return { km: gpsKm(sorted), source: "gps" };
 }
 
@@ -80,7 +87,10 @@ export async function sessionDistance(db: Db, s: EngineSession, now = Date.now()
     .from(telemetry)
     .where(and(eq(telemetry.machineId, s.machineId), gte(telemetry.recordedAt, s.startedAt), lte(telemetry.recordedAt, new Date(effectiveEnd(s, now)))))
     .orderBy(asc(telemetry.recordedAt));
-  return distanceFrom(rows.map((r) => ({ t: r.at.getTime(), lat: r.lat, lng: r.lng, odometerKm: r.odometerKm === null ? null : Number(r.odometerKm) })));
+  return distanceFrom(
+    rows.map((r) => ({ t: r.at.getTime(), lat: r.lat, lng: r.lng, odometerKm: r.odometerKm === null ? null : Number(r.odometerKm) })),
+    { gps: s.source !== "vibration" },
+  );
 }
 
 /** Stores the distance of ended periods not worked out yet, newest first (watchdog). Returns how many. */

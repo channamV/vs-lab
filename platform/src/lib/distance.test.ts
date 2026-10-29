@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, gte } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
 import { devices, engineSessions, organizations, telemetry } from "@/lib/db/schema";
 import { createMachine } from "@/lib/machines";
@@ -25,6 +25,12 @@ describe("distance per engine-on period (pure)", () => {
     // Went backwards: not a real odometer reading.
     expect(distanceFrom([east(0, 0, 500), east(5, 5, 100), east(10, 10)])).toMatchObject({ source: "gps" });
     expect(distanceFrom([{ t: T0, lat: null, lng: null, odometerKm: null }])).toBeNull();
+  });
+
+  it("gives no GPS distance when the engine was only detected from vibration (could be riding on a trailer)", () => {
+    expect(distanceFrom([east(0, 0), east(30, 30)], { gps: false })).toBeNull();
+    // An odometer still counts: a towed machine's odometer doesn't move.
+    expect(distanceFrom([east(0, 0, 100), east(30, 30, 100)], { gps: false })).toEqual({ km: 0, source: "odometer" });
   });
 
   it("ignores GPS jitter while parked or idling", () => {
@@ -57,7 +63,7 @@ describe("stored per period, and in Reports", () => {
   });
 
   it("works out ended periods once (watchdog), and reports km per machine and per period", async () => {
-    await db.insert(telemetry).values([reading(0, 0, 1000), reading(10, 10, 1010), reading(60, 10), reading(70, 16)]);
+    await db.insert(telemetry).values([reading(0, 0, 1000), reading(10, 10, 1010)]);
     const [trip] = await db.insert(engineSessions).values({ machineId, startedAt: new Date(T0), endedAt: new Date(T0 + 10 * MIN), lastSeenAt: new Date(T0 + 10 * MIN) }).returning();
     // Still running: worked out on the spot.
     await db.insert(engineSessions).values({ machineId, startedAt: new Date(T0 + 60 * MIN), lastSeenAt: new Date(T0 + 70 * MIN) });
@@ -65,6 +71,17 @@ describe("stored per period, and in Reports", () => {
     expect(await fillSessionDistances(db, new Date(T0 + 20 * MIN))).toBe(1);
     expect((await db.select().from(engineSessions).where(eq(engineSessions.id, trip.id)))[0]).toMatchObject({ distanceKm: 10, distanceSource: "odometer" });
     expect(await fillSessionDistances(db, new Date(T0 + 30 * MIN))).toBe(0); // done once
+    // Engine "on" from vibration only, the machine on a trailer: no km.
+    const [hauled] = await db
+      .insert(engineSessions)
+      .values({ machineId, source: "vibration", startedAt: new Date(T0 + 20 * MIN), endedAt: new Date(T0 + 50 * MIN), lastSeenAt: new Date(T0 + 50 * MIN) })
+      .returning();
+    await db.insert(telemetry).values([reading(20, 10), reading(50, 40)]);
+    await fillSessionDistances(db, new Date(T0 + 59 * MIN));
+    expect((await db.select().from(engineSessions).where(eq(engineSessions.id, hauled.id)))[0]).toMatchObject({ distanceKm: null, distanceSource: "none" });
+    await db.delete(engineSessions).where(eq(engineSessions.id, hauled.id));
+    await db.delete(telemetry).where(gte(telemetry.recordedAt, new Date(T0 + 20 * MIN)));
+    await db.insert(telemetry).values([reading(60, 10), reading(70, 16)]);
 
     const now = T0 + 71 * MIN;
     const range = reportRange({ range: "today" }, now, "America/St_Johns");
