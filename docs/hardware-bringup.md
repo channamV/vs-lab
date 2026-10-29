@@ -1,4 +1,4 @@
-# Hardware bring-up log (Freematics Model H, Y5725A32)
+# Hardware bring-up log (Freematics Model H: Y5725A32, UCFLF8Y7)
 
 The working record for the device phase: what's proven, what's decided, what's open.
 
@@ -395,6 +395,21 @@ local), then switched off.
   after 5 offers, which went to the parked check-ins the firmware ignores (posts stopped at 20:00, no
   `/hub/api/firmware/4` requests). VS-lab now keeps offering updates until answered or 7 days (`main`, commands.ts):
   send it again and drive.
+
+## Second device: UCFLF8Y7 (2026-10-29, desk; desktop session)
+
+| | |
+|---|---|
+| Device ID | **UCFLF8Y7** (ESP32 MAC `7c:9e:bd:fa:90:3c`) |
+| Board | Model H (board type 15), 16 MB flash, 8 MB PSRAM, ICM-42627 motion sensor, own GPS chip (`GNSS:OK(I)`) |
+| Modem | SIM7670G-LN, IMEI 864643060135706 |
+| SIM | Soracom, in group `vs-lab-beam` (Craig); registered on operator 302-220 (Telus) at the desk, where Y5725A32 uses 302-720 (Rogers) |
+| SD card | 29.8 GB, empty at first start |
+| Firmware | `bench-beam-obd` **vs-0.2.7** (`421cde1`), flashed by USB; same build as Y5725A32, so one update file serves both |
+
+First start on the desk (USB power): signed in through Beam, restart report sent, every upload `OK` (4–6 readings each,
+no engine computer on the desk). VS-lab registers it on first contact in Veristart stock; pairing with a machine is a
+platform-admin step (Platform → device).
 
 ## Open items (in order)
 
