@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { reportData, requestTime } from "@/lib/data";
 import { clockTime, formatHours, machineLabel, timeAgo } from "@/lib/format";
-import { IDLE_SOURCE_LABELS, isMeasuredIdle, RANGE_PRESETS, REPORT_RULES, type Report } from "@/lib/reports";
+import { DISTANCE_SOURCE_LABELS, IDLE_SOURCE_LABELS, isMeasuredIdle, RANGE_PRESETS, REPORT_RULES, type Report } from "@/lib/reports";
 import { WORKSITE_TYPES, worksiteColor, type WorksiteType } from "@/lib/worksite-types";
 import { SAFETY_KINDS, type SafetyKind } from "@/lib/safety-kinds";
 import { ActivityHeatmap, DailyHoursChart, HoursBars, Meter, dayLabel } from "./charts";
@@ -85,7 +85,7 @@ async function Reports({ searchParams }: { searchParams: Promise<Params> }) {
       ) : tab === "overview" ? (
         <Overview report={report} />
       ) : tab === "machines" ? (
-        <Machines report={report} csv={csv("machines")} now={now} />
+        <Machines report={report} csv={csv("machines")} sessionsCsv={csv("sessions")} now={now} />
       ) : tab === "operators" ? (
         <Operators report={report} csv={csv("operators")} />
       ) : tab === "compliance" ? (
@@ -304,7 +304,7 @@ function Overview({ report }: { report: Report }) {
   );
 }
 
-function TableCard({ title, csv, children, note }: { title: string; csv: string; children: React.ReactNode; note?: string }) {
+function TableCard({ title, csv, children, note, extra }: { title: string; csv: string; children: React.ReactNode; note?: string; extra?: React.ReactNode }) {
   return (
     <section className={`${card} overflow-hidden`}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
@@ -312,9 +312,12 @@ function TableCard({ title, csv, children, note }: { title: string; csv: string;
           <h2 className="font-semibold">{title}</h2>
           {note && <p className="text-xs text-slate-500">{note}</p>}
         </div>
-        <a href={csv} className="rounded border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
-          Download CSV
-        </a>
+        <div className="flex flex-wrap gap-2">
+          {extra}
+          <a href={csv} className="rounded border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
+            Download CSV
+          </a>
+        </div>
       </div>
       <div className="overflow-x-auto">{children}</div>
     </section>
@@ -324,10 +327,20 @@ function TableCard({ title, csv, children, note }: { title: string; csv: string;
 const thead = "border-b border-slate-200 text-left text-xs uppercase text-slate-500 dark:border-slate-800";
 const row = "border-b border-slate-100 last:border-0 dark:border-slate-800";
 
-function Machines({ report, csv, now }: { report: Report; csv: string; now: number }) {
+function Machines({ report, csv, sessionsCsv, now }: { report: Report; csv: string; sessionsCsv: string; now: number }) {
   const rows = [...report.machines].sort((a, b) => b.hours - a.hours);
+  const showDistance = report.totals.distanceMachines > 0;
   return (
-    <TableCard title="Machines" csv={csv} note={`Utilization is against ${report.plannedHoursPerDay} h per working day (${formatHours(report.plannedHoursPerMachine)} in this period).`}>
+    <TableCard
+      title="Machines"
+      csv={csv}
+      note={`Utilization is against ${report.plannedHoursPerDay} h per working day (${formatHours(report.plannedHoursPerMachine)} in this period).${showDistance ? " Distance: from the vehicle's odometer where it has one, else GPS." : ""}`}
+      extra={
+        <a href={sessionsCsv} className="rounded border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800" title="One row per engine-on period: times, hours, km, operator">
+          Engine sessions CSV
+        </a>
+      }
+    >
       <table className="w-full text-sm">
         <thead className={thead}>
           <tr>
@@ -338,6 +351,7 @@ function Machines({ report, csv, now }: { report: Report; csv: string; now: numb
             <th className={th}>Utilization</th>
             <th className={th}>Last used</th>
             <th className={th}>Most time at</th>
+            {showDistance && <th className={th}>Distance</th>}
             {report.totals.fuelMachines > 0 && <th className={th}>Fuel used</th>}
           </tr>
         </thead>
@@ -372,6 +386,18 @@ function Machines({ report, csv, now }: { report: Report; csv: string; now: numb
               </td>
               <td className={td}>{m.lastUsed ? timeAgo(m.lastUsed, now) : "not in this period"}</td>
               <td className="px-3 py-2">{m.topWorksite ?? "—"}</td>
+              {showDistance && (
+                <td className={td}>
+                  {m.distanceKm === null ? (
+                    "—"
+                  ) : (
+                    <>
+                      {Math.round(m.distanceKm).toLocaleString("en-CA")} km
+                      {m.distanceSource && <div className="text-xs text-slate-500">{DISTANCE_SOURCE_LABELS[m.distanceSource]}</div>}
+                    </>
+                  )}
+                </td>
+              )}
               {report.totals.fuelMachines > 0 && (
                 <td className={td}>
                   {m.fuelL === null ? (

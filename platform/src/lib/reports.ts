@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { alerts, checkins, divisions, engineSessions, fuelEvents, machines, operators, organizations, safetyEvents, telemetry, worksites, worksiteVisits, type FuelEvent, type SafetyEvent } from "@/lib/db/schema";
+import { sessionDistance, type DistanceSource } from "@/lib/distance";
 import { machineScope, type Scope } from "@/lib/divisions";
 import { SAFETY_KINDS, SAFETY_UNITS, type SafetyKind } from "@/lib/safety-kinds";
 import { effectiveEnd, localDateKey, midnightInZone, type SessionSpan } from "@/lib/telemetry/engine";
@@ -22,6 +23,8 @@ export const REPORT_RULES = {
   idleSpeedKph: 1,
   /** Longest range a report can cover. */
   maxDays: 92,
+  /** Engine-on periods whose distance isn't stored yet (running, just ended) worked out on the spot, newest first. */
+  liveDistanceSessions: 30,
 };
 
 // ---------- Date ranges ----------
@@ -178,6 +181,21 @@ export type MachineReport = {
   theftL: number | null;
   /** Where the idle figure comes from (see IdleSource). Null when the machine didn't run. */
   idleSource: IdleSource | "mixed" | null;
+  /** Distance travelled while the engine ran (src/lib/distance.ts); null = no odometer or GPS data. */
+  distanceKm: number | null;
+  distanceSource: DistanceSource | "mixed" | null;
+};
+
+/** One engine-on period (the Sessions CSV): times, hours, distance and the operator checked in. */
+export type SessionReport = {
+  machine: string;
+  startedAt: Date;
+  endedAt: Date;
+  running: boolean;
+  hours: number;
+  distanceKm: number | null;
+  distanceSource: DistanceSource | null;
+  operator: string | null;
 };
 
 /**
@@ -193,6 +211,7 @@ export const IDLE_SOURCE_LABELS: Record<IdleSource | "mixed", string> = {
   mixed: "mixed sources",
 };
 /** Measured sources; anything else is an estimate. */
+export const DISTANCE_SOURCE_LABELS: Record<DistanceSource | "mixed", string> = { odometer: "odometer", gps: "GPS", mixed: "odometer and GPS" };
 export const isMeasuredIdle = (s: IdleSource | "mixed" | null) => s === "meter" || s === "rpm";
 
 function fuelSummary(events: FuelEvent[]) {
@@ -232,6 +251,8 @@ export type Report = {
   worksites: WorksiteReport[];
   /** Every fuel log entry in the period, oldest first. */
   fuelLog: (FuelEvent & { machine: string })[];
+  /** Engine-on periods overlapping the period, oldest first. */
+  sessionLog: SessionReport[];
   /** The safety log in the period (speeding, restricted areas, idling, fatigue), newest first. */
   safetyLog: (SafetyEvent & { machine: string; operator: string | null; worksite: string | null })[];
   totals: {
@@ -254,6 +275,9 @@ export type Report = {
     /** Engine hours whose idle was measured (meter or RPM) vs estimated, to label the fleet figure. */
     idleMeasuredHours: number;
     idleEstimatedHours: number;
+    /** Machines with distance data, and their total km. */
+    distanceMachines: number;
+    distanceKm: number;
   };
 };
 
@@ -401,6 +425,14 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
     if (c.checkin.engineSessionId) sessionOperator.set(c.checkin.engineSessionId, { id: c.checkin.operatorId, name: c.operatorName });
   }
 
+  // Distance per engine-on period: stored once it has ended (watchdog), worked out now for running / just-ended ones.
+  const distanceOf = new Map<number, { km: number; source: DistanceSource } | null>();
+  const pendingDistance = sessions.filter((s) => !s.distanceSource).sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+  for (const s of pendingDistance.slice(0, REPORT_RULES.liveDistanceSessions)) distanceOf.set(s.id, await sessionDistance(db, s, now));
+  for (const s of sessions) {
+    if (s.distanceSource && s.distanceSource !== "none" && s.distanceKm !== null) distanceOf.set(s.id, { km: s.distanceKm, source: s.distanceSource as DistanceSource });
+  }
+
   const operatorStats = new Map<number, { name: string; ms: number; checkins: number; machines: Set<number>; days: Set<string>; defects: number }>();
   const op = (id: number, name: string) => {
     let entry = operatorStats.get(id);
@@ -413,10 +445,19 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
     let coveredMs = 0;
     let lastUsed: number | null = null;
     const spans: [number, number][] = [];
+    let km: number | null = null;
+    const kmSources = new Set<DistanceSource>();
     for (const s of sessionsBy.get(machine.id) ?? []) {
       const [start, end] = spanOf(s);
       if (end <= start) continue;
       spans.push([start, end]);
+      // A period cut by the report's start or end counts its share of the distance (by time).
+      const d = distanceOf.get(s.id);
+      if (d) {
+        const full = effectiveEnd(s, now) - s.startedAt.getTime();
+        km = (km ?? 0) + (full > 0 ? (d.km * (end - start)) / full : d.km);
+        kmSources.add(d.source);
+      }
       lastUsed = Math.max(lastUsed ?? 0, end);
       for (const [day, ms] of splitByDay(start, end, range, tz)) byDay.set(day, (byDay.get(day) ?? 0) + ms);
       const who = sessionOperator.get(s.id);
@@ -494,6 +535,8 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
       fuelL: ecuBy.get(machine.id)?.fuel ?? null,
       idleFuelL: ecuBy.get(machine.id)?.idleFuel ?? null,
       idleSource: idleSourceOf(sources),
+      distanceKm: km,
+      distanceSource: kmSources.size === 0 ? null : kmSources.size === 1 ? [...kmSources][0] : "mixed",
       ...fuelSummary(fuelBy.get(machine.id) ?? []),
     };
   });
@@ -542,6 +585,27 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
       const m = fleet.find((x) => x.machine.id === f.machineId)!.machine;
       return { ...f, machine: m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name };
     }),
+    sessionLog: sessions
+      .filter((s) => {
+        const [start, end] = spanOf(s);
+        return end > start;
+      })
+      .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())
+      .map((s) => {
+        const m = fleet.find((x) => x.machine.id === s.machineId)!.machine;
+        const end = effectiveEnd(s, now);
+        const d = distanceOf.get(s.id) ?? null;
+        return {
+          machine: m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name,
+          startedAt: s.startedAt,
+          endedAt: new Date(end),
+          running: !s.endedAt && end === now,
+          hours: hoursOf(end - s.startedAt.getTime()),
+          distanceKm: d ? d.km : null,
+          distanceSource: d ? d.source : null,
+          operator: sessionOperator.get(s.id)?.name ?? null,
+        };
+      }),
     safetyLog: safetyRows.map((r) => {
       const m = fleet.find((x) => x.machine.id === r.event.machineId)!.machine;
       return { ...r.event, machine: m.unitNumber ? `Unit ${m.unitNumber} · ${m.name}` : m.name, operator: r.operator, worksite: r.worksite };
@@ -564,6 +628,8 @@ export async function buildReport(db: Db, scope: Scope, range: ReportRange, tz: 
       idleFuelL: sum((m) => m.idleFuelL ?? 0),
       idleMeasuredHours: sum((m) => (isMeasuredIdle(m.idleSource) ? m.hours : 0)),
       idleEstimatedHours: sum((m) => (isMeasuredIdle(m.idleSource) ? 0 : m.hours)),
+      distanceMachines: machineReports.filter((m) => m.distanceKm !== null).length,
+      distanceKm: sum((m) => m.distanceKm ?? 0),
     },
   };
 }
@@ -583,7 +649,7 @@ const pct = (n: number | null) => (n === null ? "" : (n * 100).toFixed(1));
 
 export const REPORT_CSV = {
   machines: (r: Report) => [
-    ["Unit", "Machine", "Type", "Division", "Engine hours", "Idle hours", "Idle %", "Idle from", "Days used", "Utilization %", "Last used", "Most time at worksite", "Hour meter hours (engine computer)", "Fuel used (L)", "Average fuel (L/h)", "Idle fuel (L)"],
+    ["Unit", "Machine", "Type", "Division", "Engine hours", "Idle hours", "Idle %", "Idle from", "Days used", "Utilization %", "Last used", "Most time at worksite", "Hour meter hours (engine computer)", "Fuel used (L)", "Average fuel (L/h)", "Idle fuel (L)", "Distance (km)", "Distance from"],
     ...r.machines.map((m) => [
       m.unitNumber,
       m.name,
@@ -601,6 +667,20 @@ export const REPORT_CSV = {
       m.fuelL === null ? "" : h2(m.fuelL),
       m.fuelL !== null && m.hours > 0 ? h2(m.fuelL / m.hours) : "",
       m.idleFuelL === null ? "" : h2(m.idleFuelL),
+      m.distanceKm === null ? "" : m.distanceKm.toFixed(1),
+      m.distanceSource ? DISTANCE_SOURCE_LABELS[m.distanceSource] : "",
+    ]),
+  ],
+  sessions: (r: Report) => [
+    ["Started", "Ended", "Machine", "Operator", "Engine hours", "Distance (km)", "Distance from"],
+    ...r.sessionLog.map((s) => [
+      s.startedAt,
+      s.running ? "running" : s.endedAt,
+      s.machine,
+      s.operator ?? "",
+      h2(s.hours),
+      s.distanceKm === null ? "" : s.distanceKm.toFixed(1),
+      s.distanceSource ? DISTANCE_SOURCE_LABELS[s.distanceSource] : "",
     ]),
   ],
   operators: (r: Report) => [

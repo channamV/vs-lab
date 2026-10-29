@@ -68,8 +68,23 @@ Machines whose device reads the engine computer (J1939, [can-data.md](can-data.m
 and column: litres used in the period from the engine's own fuel meter, and the average litres per engine
 hour. With the engine's idle fuel meter, the idle figures also show **idle fuel** (litres burned idling). The Machines CSV also has the engine's hour meter hours for the period.
 
+## Distance (km)
+
+Every engine-on period gets the distance travelled (Craig, 2026-10-29), shown in the **Machines** tab (Distance
+column, with where it came from), the **Engine sessions CSV** (one row per engine-on period: start, end, operator,
+engine hours, km) and the machine page's **Recent engine sessions**.
+- **Odometer** (accurate): vehicles that report one over OBD (PID A6, mostly newer vehicles; the CX-9 does) or J1939.
+  It's read about once a minute, so GPS covers the first and last minute of each period.
+- **GPS** otherwise: movement is counted only once the machine has moved 25 m from the last counted spot, so GPS
+  jitter while parked or idling doesn't add up. Close to the odometer on roads; a little under on tight, slow
+  manoeuvring (equipment on site), and straight-line across signal gaps.
+- A period cut by the report's start or end counts its share by time. Periods are worked out 5 minutes after they
+  end (the watchdog; running ones live). Periods from before 2026-10-29 are filled in gradually, newest first.
+- Code: `platform/src/lib/distance.ts` (tested), `engine_sessions.distance_km` / `distance_source`.
+
 ## Later
 
-- Estimated fuel for machines without engine data (from make/model, as in Insights' Telematics page).
+- Estimated fuel for machines without engine data: OBD airflow (MAF) → litres per period, checked against
+  fill-ups; then L/100 km with the distance above (needs the firmware to read MAF; Craig 2026-10-29).
 - PDF export of the overview, and emailed weekly reports.
 - Worksite travel times and A/B comparison (Insights' Worksite Analytics).

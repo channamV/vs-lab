@@ -488,6 +488,12 @@ export const engineSessions = pgTable(
     fuelAnchorTotalL: doublePrecision("fuel_anchor_total_l"),
     fuelAnchorAt: timestamp("fuel_anchor_at", { withTimezone: true }),
     fuelRunCheckedAt: timestamp("fuel_run_checked_at", { withTimezone: true }),
+    /**
+     * Distance travelled in this engine-on period (src/lib/distance.ts), worked out once it has ended: from the vehicle's
+     * odometer where it reports one, else from GPS. Source odometer / gps / none (no data); null = not worked out yet.
+     */
+    distanceKm: doublePrecision("distance_km"),
+    distanceSource: text("distance_source"),
   },
   (t) => [
     index("engine_sessions_machine_start_idx").on(t.machineId, t.startedAt),

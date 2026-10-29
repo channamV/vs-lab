@@ -1,3 +1,4 @@
+import { fillSessionDistances } from "@/lib/distance";
 import { checkSchedules, runMaintenanceChecks } from "@/lib/maintenance";
 import { sendAllow, syncAccessLists } from "@/lib/relay";
 import "server-only";
@@ -116,9 +117,11 @@ export async function runWatchdog(now = new Date()) {
   const maintenance = await runMaintenanceChecks(db, now);
   // Relay machines: the approved operators' beacons (approvals, training and schedules change over time).
   const beaconLists = await syncAccessLists(db, now);
+  // Distance travelled in engine-on periods that have ended (reports, machine page).
+  const distances = await fillSessionDistances(db, now);
   // Connectivity and worksite notifications for every machine with something pending.
   await processEvents(db, {}, now);
-  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges, trainingReminders, maintenance, beaconLists };
+  return { ...result, alerts: raised.length, worksiteDwell: dwell, fatigue, modeChanges, trainingReminders, maintenance, beaconLists, distances };
 }
 
 /** Schedules, every minute (Vercel Cron → /api/jobs/schedules): apply changes, then deliver their notifications. */

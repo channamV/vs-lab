@@ -179,7 +179,10 @@ says it's compliant. Update that doc when items are done.
   from the best source, reported as `idleSource`: J1939 idle meter delta, else share of engine-on telemetry with RPM <
   `REPORT_RULES.idleRpm` (measured), else speed < 1 km/h (estimated, labelled so); operator hours via
   check-ins linked to sessions; compliance = days run with a check-in ÷ days run; utilization vs org
-  `planned_hours_per_day` × `working_days` (Settings); worksite engine hours = sessions ∩ visits). Charts are plain
+  `planned_hours_per_day` × `working_days` (Settings); worksite engine hours = sessions ∩ visits; km per engine session
+  from `src/lib/distance.ts` (tested: odometer delta + GPS edges, else jitter-filtered GPS; stored in
+  `engine_sessions.distance_km/_source` by `fillSessionDistances` in `runWatchdog`, live for running ones) → Distance
+  column + `sessions` CSV + machine page). Charts are plain
   HTML in `reports/charts.tsx` (validated blue/orange, one blue ramp; hover + sr-only tables).
 - J1939 engine data (`docs/can-data.md`): our own PIDs 0x301–0x311 (0x308/0x309 idle hours/fuel) in `protocol.ts` (for the future firmware fork;
   simulator sends them). `detectEngine` prefers `j1939Rpm`. `src/lib/faults.ts` (tested) `updateEngineData` from

@@ -50,6 +50,7 @@ import { ensureTrainingDefaults, latestRecords, recordStatus } from "@/lib/train
 import { todayIn } from "@/lib/schedule-time";
 import { scanAvailable } from "@/lib/scan";
 import { engineReadings, locationHistory, voltageHistory } from "@/lib/history";
+import { sessionDistance } from "@/lib/distance";
 import { historyRange } from "@/lib/history-track";
 import { onRoadMachineCount, roadCoverageByMonth } from "@/lib/posted-speed";
 import { hasRole } from "@/lib/auth";
@@ -191,12 +192,17 @@ export async function engineHoursByDay(id: number, days = 7) {
 
 export async function recentEngineSessions(id: number, limit = 10) {
   await requireMachine(id);
-  return getDb()
-    .select()
-    .from(engineSessions)
-    .where(eq(engineSessions.machineId, id))
-    .orderBy(desc(engineSessions.startedAt))
-    .limit(limit);
+  const db = getDb();
+  const rows = await db.select().from(engineSessions).where(eq(engineSessions.machineId, id)).orderBy(desc(engineSessions.startedAt)).limit(limit);
+  // Distance: stored once a period has ended (watchdog); worked out now for the running or just-ended one.
+  const now = Date.now();
+  return Promise.all(
+    rows.map(async (s) => {
+      if (s.distanceSource) return { ...s, distance: s.distanceSource === "none" || s.distanceKm === null ? null : { km: s.distanceKm, source: s.distanceSource } };
+      const d = await sessionDistance(db, s, now);
+      return { ...s, distance: d };
+    }),
+  );
 }
 
 /** The organization's machines, with the device currently on each (null if none). */

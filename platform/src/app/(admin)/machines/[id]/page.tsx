@@ -199,6 +199,7 @@ async function MachineDetail({
                   <th className="py-1">Started</th>
                   <th className="py-1">Ended</th>
                   <th className="py-1 text-right">Duration</th>
+                  <th className="py-1 text-right">Distance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -219,6 +220,9 @@ async function MachineDetail({
                         )}
                       </td>
                       <td className="py-1.5 text-right">{formatHours((end - s.startedAt.getTime()) / 3_600_000)}</td>
+                      <td className="py-1.5 text-right" title={s.distance ? `From ${s.distance.source === "odometer" ? "the odometer" : "GPS"}` : undefined}>
+                        {s.distance ? `${s.distance.km < 10 ? s.distance.km.toFixed(1) : Math.round(s.distance.km).toLocaleString("en-CA")} km` : "—"}
+                      </td>
                     </tr>
                   );
                 })}
