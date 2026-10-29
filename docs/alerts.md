@@ -93,7 +93,9 @@ Enter each machine's **fuel tank size** (Edit machine) to get litres, and the th
 lower than when it last **stopped**:
 - fuel level only comes in while the ignition is on, so it compares the last readings before the stop with the
   first readings after the start, once the level has settled (2 minutes);
-- the **median** of 5 readings each side, so sloshing or one odd reading doesn't count;
+- only readings taken while the machine is **stopped** (under 3 km/h) count, in all three checks: fuel sloshing while
+  driving moves the reading a lot (a car's 38% read as 50%, logged as a false refuel on 2026-10-28);
+- the **median** of up to 15 readings each side, so one odd reading doesn't count;
 - at least **5% of the tank** and, with the tank size, at least **20 L**. One check per engine start.
 
 **2. Refuels → the fuel log** (and the *Refuelled* notification, if you subscribe). The level went **up** by at

@@ -7,8 +7,9 @@ import { recordEvent } from "@/lib/notifications";
 
 /**
  * Fuel: the refuelling log, and two theft checks. Fuel level is only reported while the ignition is on
- * (from the engine computer: J1939 SPN 96, or OBD-II PID 2F). Medians of several readings smooth out fuel
- * slosh and sensor noise. See docs/alerts.md.
+ * (from the engine computer: J1939 SPN 96, or OBD-II PID 2F). Only readings taken while the machine is stopped
+ * count (Craig 2026-10-29: fuel sloshing while driving moved a car's reading 38% → 50% and logged a false refuel),
+ * and medians of several readings smooth out the rest of the noise. See docs/alerts.md.
  *
  * 1. At each engine start, once the level has settled: compare it with the last readings before the stop.
  *    Lower → "Possible fuel theft" (taken while parked). Higher → a refuel while parked.
@@ -28,8 +29,10 @@ export const FUEL_RULES = {
   minRefuelLitres: 20,
   /** Wait this long after a start for the level to settle before comparing. */
   settleMinutes: 2,
-  /** Readings used for each median. */
-  readings: 5,
+  /** Readings used for each median (only readings taken while stopped). */
+  readings: 15,
+  /** A reading counts only below this speed (OBD speed, else GPS speed; no speed at all counts as stopped). */
+  stoppedBelowKph: 3,
   /** Give up on a start that hasn't sent enough fuel readings after this long. */
   giveUpMinutes: 15,
   /** Only compare with a stop within this many days. */
@@ -40,7 +43,9 @@ export const FUEL_RULES = {
 };
 
 const FUEL_LEVEL = sql<number>`coalesce(${telemetry.fields}->>'j1939FuelLevelPct', ${telemetry.fields}->>'obdFuelLevelPct')::float`;
-const HAS_FUEL_LEVEL = sql`(${telemetry.fields} ? 'j1939FuelLevelPct' or ${telemetry.fields} ? 'obdFuelLevelPct')`;
+/** Has a fuel level, and was taken while stopped: a level read while moving is mostly fuel sloshing. */
+const HAS_FUEL_LEVEL = sql`(${telemetry.fields} ? 'j1939FuelLevelPct' or ${telemetry.fields} ? 'obdFuelLevelPct')
+  and coalesce((${telemetry.fields}->>'obdSpeedKph')::float, ${telemetry.speedKph}, 0) < ${FUEL_RULES.stoppedBelowKph}`;
 const TOTAL_FUEL = sql<number | null>`(${telemetry.fields}->>'j1939TotalFuelL')::float`;
 
 export function median(values: number[]): number {

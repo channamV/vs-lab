@@ -118,8 +118,27 @@ describe("while running", () => {
     const raised = await drive(0, 40, level, (m) => 10_000 + m * 0.4);
     expect(raised).toHaveLength(1);
     expect(raised[0]).toMatchObject({ type: "fuel-loss", title: "Possible fuel theft (while running): Unit 7 · Loader" });
-    expect(raised[0].detail).toMatch(/the tank dropped from 80% to 65% \(about 60 L\), but the engine only burned \d+ L: about 5\d L is unaccounted for/);
+    expect(raised[0].detail).toMatch(/the tank dropped from 80% to 65% \(about 60 L\), but the engine only burned \d+ L: about 4\d L is unaccounted for/);
     expect(await db.select().from(fuelEvents)).toMatchObject([{ kind: "loss", when: "running", alertId: raised[0].id }]);
+  });
+
+  it("ignores levels read while moving (fuel sloshing in a car)", async () => {
+    // The CX-9, 2026-10-28: 38% at the start, the gauge reading 50% at times while driving, 37% when parked again.
+    const drive = (fuel: number, kph: number, min: number) =>
+      ingestSamples(db, "DEV1", [{ obdRpm: 2000, obdSpeedKph: kph, obdFuelLevelPct: fuel }], { now: at(min) });
+    const raised = [];
+    for (let m = 0; m <= 40; m++) {
+      await drive(m < 3 ? 38 : m < 38 ? (m % 2 ? 50 : 41) : 37, m < 3 || m >= 38 ? 0 : 60, m);
+      raised.push(...(await checkFuelTheft(db, machineId, at(m))), ...(await checkFuelWhileRunning(db, machineId, at(m))));
+    }
+    expect(raised).toEqual([]);
+    expect(await db.select().from(fuelEvents)).toEqual([]);
+    // A real refuel at the pump (stopped) is still logged.
+    for (let m = 41; m <= 60; m++) {
+      await drive(m < 45 ? 37 : 95, 0, m);
+      await checkFuelWhileRunning(db, machineId, at(m));
+    }
+    expect(await db.select().from(fuelEvents)).toMatchObject([{ kind: "refuel", when: "running", fromPct: 38, toPct: 95 }]);
   });
 
   it("logs a refuel while running, and needs the fuel meter and tank size for the loss check", async () => {
