@@ -944,7 +944,7 @@ void process()
       break;
     }
   }
-#ifdef VSLAB_CELL_DEBUG
+#if defined(VSLAB_CELL_DEBUG) || defined(VSLAB_TEST_AWAKE)
   stationary = false; // VSLAB test build: never go to standby on the desk
 #endif
 #if ENABLE_OBD
