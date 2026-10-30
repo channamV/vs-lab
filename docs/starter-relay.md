@@ -49,7 +49,8 @@ At most 60 per machine for now.
 
 **Beacon starts are reported:** `GET /hub/api/access/<device>?op=<operator id>&b=<beacon>&t=<unix time>&sig=<sig>`,
 signature = first 16 hex of HMAC-SHA256(device key, `access\n<device>\n<op>\n<beacon>\n<t>`). Send it when it
-happens, or later if there was no signal (VS-lab accepts up to 24 h late, dated when it happened). VS-lab records a
+happens, or later if there was no signal (VS-lab accepts up to 24 h late, dated when it happened). `t=0` when the device's clock isn't set yet (no GPS fix since it
+started): VS-lab dates it on arrival. VS-lab records a
 **beacon check-in** (no checklist, so the "checklist due" beeps play until the operator does one with the QR code).
 It always answers 200.
 

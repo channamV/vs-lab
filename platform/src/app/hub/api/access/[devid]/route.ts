@@ -12,7 +12,8 @@ import { deviceReply } from "@/lib/freematics/reply";
  *    → a beacon / app check-in;
  *  - after a break, with the phone of the operator whose check-in it was holding (session hold, docs/operator-app.md):
  *    GET /hub/api/access/<DEVICE_ID>?op=<operator id>&c=<check-in id>&t=<unix time>&sig=<signature> → that check-in carries on.
- * Sent when it happens, or later if the machine was out of coverage.
+ * Sent when it happens, or later if the machine was out of coverage. t=0: the device's clock isn't set yet (no GPS
+ * fix since it started), so the report is dated when it arrives.
  */
 export async function GET(request: Request, ctx: RouteContext<"/hub/api/access/[devid]">) {
   const { devid } = await ctx.params;
@@ -23,7 +24,7 @@ export async function GET(request: Request, ctx: RouteContext<"/hub/api/access/[
   const checkinId = q.has("c") ? Number(q.get("c")) : null;
   const t = Number(q.get("t"));
   const validId = (n: number) => Number.isSafeInteger(n) && n > 0;
-  if (!validId(operatorId) || (checkinId === null ? !beacon : !validId(checkinId)) || !Number.isFinite(t) || t <= 0) return deviceReply("Bad request", 400);
+  if (!validId(operatorId) || (checkinId === null ? !beacon : !validId(checkinId)) || !Number.isFinite(t) || t < 0) return deviceReply("Bad request", 400);
   const key = deviceKey(devid);
   if (key) {
     const expected = Buffer.from(checkinId !== null ? resumeSignature(key, devid, operatorId, checkinId, t) : accessSignature(key, devid, operatorId, beacon, t));
@@ -32,7 +33,7 @@ export async function GET(request: Request, ctx: RouteContext<"/hub/api/access/[
   }
   try {
     const db = getDb();
-    const at = new Date(t * 1000);
+    const at = t === 0 ? new Date() : new Date(t * 1000);
     const id = checkinId !== null ? await resumeCheckIn(db, devid, { operatorId, checkinId, at }) : await beaconCheckIn(db, devid, { operatorId, beacon, at });
     afterCheckin(id);
     return deviceReply("OK");
