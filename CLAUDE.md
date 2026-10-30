@@ -315,7 +315,9 @@ says it's compliant. Update that doc when items are done.
   (`syncAccessList`: active operators with `operators.beacon_name` = MAC `AA:BB:CC:DD:EE:FF` or broadcast name (`cleanBeaconName`;
   operator id after the last colon), approved/scheduled/certified, required training; watchdog
   + approval/operator changes; ack → `machines.access_list_hash`). Beacon starts → `beaconCheckIn` (method ble, no
-  checklist; not a checklist result). Firmware side: hardware-bringup to-do 9.
+  checklist; not a checklist result). Beacons also on `monitor` tier (Craig 2026-10-30: a beacon replicates a check-in):
+  ACCESS lists every operator with a beacon (required training still needed), `beaconCheckIn` sets `authorized` like a QR
+  check-in and `relay_allowed_at` only on `control`. Firmware side: hardware-bringup to-do 9.
 - Operator app (`src/lib/operator-app.ts`, tested; `docs/operator-app.md`; Craig 2026-10-26; app in `mobile/`, checks:
   `npm run typecheck && npm test && npm run bundle` there):
   `/api/app/*` (excluded from `src/proxy.ts`; each route checks `Authorization: Bearer` via `withApp` in `src/lib/app-api.ts`).

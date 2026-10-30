@@ -20,7 +20,10 @@ import { trainingAccess } from "@/lib/training";
  *  - REVOKE=<check-in id>: that check-in ended (a manager ended it, the operator was deactivated): open the relay.
  *  - ACCESS=<version>\t<beacon>:<operator id>,…: the operators whose Bluetooth beacon may start this machine without
  *    signal. A beacon is a MAC address (AA:BB:CC:DD:EE:FF) or a broadcast name; the operator id follows the last colon. The device reports a beacon start at /hub/api/access/<device> (a beacon check-in, method "ble").
- * Only machines on the Safety & Access Control tier (`control`) with a paired device get these commands.
+ * Only machines on the Safety & Access Control tier (`control`) with a paired device get the relay commands. Beacons
+ * also work on Safety & Access Monitoring (`monitor`; Craig 2026-10-30: a beacon replicates a check-in, whether the
+ * machine is access-controlled or access-monitored): those machines get an ACCESS list of every operator with a
+ * beacon, and a beacon near the device becomes a check-in, flagged "not approved" like a QR check-in would be.
  */
 
 export const RELAY_RULES = {
@@ -32,6 +35,17 @@ export const RELAY_RULES = {
   /** A beacon start reported this late (device was offline) still becomes a check-in, dated when it happened. */
   maxReportDelayHours: 24,
 };
+
+/** The paired device of a machine that uses beacons (Safety & Access Monitoring or Control), or null. */
+async function beaconDevice(db: Db, machineId: number) {
+  const [row] = await db
+    .select({ machine: machines, deviceId: deviceAssignments.deviceId })
+    .from(machines)
+    .innerJoin(deviceAssignments, and(eq(deviceAssignments.machineId, machines.id), isNull(deviceAssignments.endedAt)))
+    .where(eq(machines.id, machineId));
+  return row && BEACON_TIERS.includes(row.machine.tier) ? row : null;
+}
+const BEACON_TIERS: Machine["tier"][] = ["monitor", "control"];
 
 /** The paired device of a Safety & Access Control machine, or null. */
 async function relayDevice(db: Db, machineId: number) {
@@ -106,11 +120,21 @@ export function accessCommand(entries: AccessEntry[]) {
   return { version, command: `ACCESS=${version}\t${list}` };
 }
 
+/** Approved for the machine: no approval list, on it, scheduled access, or a certification that grants access. */
+async function approvedFor(db: Db, m: Pick<Machine, "id" | "organizationId" | "categoryId">, operatorId: number, now: Date) {
+  const approved = await db.select({ operatorId: machineOperators.operatorId }).from(machineOperators).where(eq(machineOperators.machineId, m.id));
+  if (approved.length === 0 || approved.some((a) => a.operatorId === operatorId)) return true;
+  if ((await scheduledAccess(db, m.organizationId, m.id, now)).includes(operatorId)) return true;
+  return (await trainingAccess(db, m.organizationId, m, operatorId, now)).granted;
+}
+
 /**
- * Operators whose beacon may start this machine: active, with a beacon, approved for the machine (or the machine has
- * no approval list), and holding any required training (a certification that grants access counts as approved).
+ * The machine's beacon list: active operators with a beacon who hold any required training. On Safety & Access
+ * Control only those approved for the machine (or it has no approval list; a certification that grants access
+ * counts): their beacon closes the relay. On Safety & Access Monitoring everyone, so an unapproved operator's check-in
+ * is recorded and flagged, as with the QR code.
  */
-export async function accessEntries(db: Db, m: Pick<Machine, "id" | "organizationId" | "categoryId">, now = new Date()): Promise<AccessEntry[]> {
+export async function accessEntries(db: Db, m: Pick<Machine, "id" | "organizationId" | "categoryId" | "tier">, now = new Date()): Promise<AccessEntry[]> {
   const [ops, approved, scheduled] = await Promise.all([
     db
       .select({ id: operators.id, beacon: operators.beaconName })
@@ -123,7 +147,7 @@ export async function accessEntries(db: Db, m: Pick<Machine, "id" | "organizatio
   for (const op of ops) {
     const training = await trainingAccess(db, m.organizationId, m, op.id, now);
     if (training.missing.length) continue;
-    const ok = approved.length === 0 || approved.some((a) => a.operatorId === op.id) || scheduled.includes(op.id) || training.granted;
+    const ok = m.tier !== "control" || approved.length === 0 || approved.some((a) => a.operatorId === op.id) || scheduled.includes(op.id) || training.granted;
     if (ok) out.push({ beacon: op.beacon!, operatorId: op.id });
   }
   return out;
@@ -134,7 +158,7 @@ export async function accessEntries(db: Db, m: Pick<Machine, "id" | "organizatio
  * command expired). Returns true when a command was queued.
  */
 export async function syncAccessList(db: Db, machineId: number, now = new Date()) {
-  const relay = await relayDevice(db, machineId);
+  const relay = await beaconDevice(db, machineId);
   if (!relay) return false;
   const { version, command } = accessCommand(await accessEntries(db, relay.machine, now));
   const [last] = await db
@@ -155,7 +179,7 @@ export async function syncAccessLists(db: Db, now = new Date(), organizationId?:
     .select({ id: machines.id })
     .from(machines)
     .innerJoin(deviceAssignments, and(eq(deviceAssignments.machineId, machines.id), isNull(deviceAssignments.endedAt)))
-    .where(and(eq(machines.tier, "control"), organizationId ? eq(machines.organizationId, organizationId) : undefined));
+    .where(and(inArray(machines.tier, BEACON_TIERS), organizationId ? eq(machines.organizationId, organizationId) : undefined));
   let sent = 0;
   for (const r of rows) if (await syncAccessList(db, r.id, now)) sent++;
   return sent;
@@ -184,8 +208,8 @@ export class RelayError extends Error {}
  * Returns the check-in id.
  */
 export async function beaconCheckIn(db: Db, deviceId: string, input: { operatorId: number; beacon: string; at: Date }, now = new Date()) {
-  const relay = await relayDevice(db, (await pairedMachineId(db, deviceId)) ?? -1);
-  if (!relay) throw new RelayError("Not a relay machine");
+  const relay = await beaconDevice(db, (await pairedMachineId(db, deviceId)) ?? -1);
+  if (!relay) throw new RelayError("Not a machine that uses beacons");
   const m = relay.machine;
   const [op] = await db
     .select()
@@ -203,6 +227,7 @@ export async function beaconCheckIn(db: Db, deviceId: string, input: { operatorI
     .from(checkins)
     .where(and(eq(checkins.machineId, m.id), isNull(checkins.endedAt)));
   if (open?.operatorId === op.id) return open.id;
+  const authorized = await approvedFor(db, m, op.id, at);
   return db.transaction(async (tx) => {
     await endOpenCheckins(tx, eq(checkins.machineId, m.id), "replaced", at);
     await endOpenCheckins(tx, eq(checkins.operatorId, op.id), "moved", at);
@@ -213,13 +238,14 @@ export async function beaconCheckIn(db: Db, deviceId: string, input: { operatorI
         machineId: m.id,
         operatorId: op.id,
         startedAt: at,
-        authorized: true,
+        authorized,
         checklistOk: true,
         answers: [],
         // The beacon was within reach of the device: the operator was at the machine.
         locationCheck: "near",
         method: viaApp ? "app" : "ble",
-        relayAllowedAt: at,
+        // Only a relay machine's device closed its relay for it.
+        relayAllowedAt: m.tier === "control" ? at : null,
       })
       .returning({ id: checkins.id });
     return row.id;

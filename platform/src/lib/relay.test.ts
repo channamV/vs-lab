@@ -123,10 +123,29 @@ describe("relay commands", () => {
     expect(cmd.command.split("\t")[1]).toBe(`VS-BEACON-20:${jane}`);
     await confirmRelayAnswer(db, "DEV1", cmd.command, true, at(3));
     expect((await db.select().from(machines))[0].accessListHash).toBe(cmd.command.slice(7, 15));
-    // Not a relay machine: nothing sent.
+    // Safety & Access Monitoring: every operator with a beacon, so unapproved ones are recorded too.
     await db.update(machines).set({ tier: "monitor" }).where(eq(machines.id, machineId));
+    expect(await syncAccessList(db, machineId, at(4))).toBe(true);
+    cmd = (await db.select().from(deviceCommands).orderBy(deviceCommands.id)).at(-1)!;
+    expect(cmd.command.split("\t")[1]).toBe(`VS-BEACON-20:${jane},VS-BEACON-22:${bob}`);
+    // GPS & Telematics: no beacons.
+    await db.update(machines).set({ tier: "gps" }).where(eq(machines.id, machineId));
     await setMachineOperators(db, org, machineId, []);
-    expect(await syncAccessList(db, machineId, at(4))).toBe(false);
+    expect(await syncAccessList(db, machineId, at(5))).toBe(false);
+  });
+
+  it("records beacon check-ins on Safety & Access Monitoring, flagging operators not approved", async () => {
+    await db.update(machines).set({ tier: "monitor" }).where(eq(machines.id, machineId));
+    await updateOperator(db, org, jane, { name: "Jane", active: true, beaconName: "VS-BEACON-20" });
+    await updateOperator(db, org, bob, { name: "Bob", active: true, beaconName: "VS-BEACON-22" });
+    await setMachineOperators(db, org, machineId, [jane]);
+    const janes = await beaconCheckIn(db, "DEV1", { operatorId: jane, beacon: "VS-BEACON-20", at: at(0) }, at(0));
+    expect((await db.select().from(checkins).where(eq(checkins.id, janes)))[0]).toMatchObject({ method: "ble", authorized: true, relayAllowedAt: null });
+    const bobs = await beaconCheckIn(db, "DEV1", { operatorId: bob, beacon: "VS-BEACON-22", at: at(1) }, at(1));
+    expect((await db.select().from(checkins).where(eq(checkins.id, bobs)))[0]).toMatchObject({ authorized: false, relayAllowedAt: null });
+    // GPS & Telematics: not accepted.
+    await db.update(machines).set({ tier: "gps" }).where(eq(machines.id, machineId));
+    await expect(beaconCheckIn(db, "DEV1", { operatorId: jane, beacon: "VS-BEACON-20", at: at(2) }, at(2))).rejects.toThrow(RelayError);
   });
 
   it("turns a beacon start into a check-in without a checklist, once", async () => {

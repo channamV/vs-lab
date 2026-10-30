@@ -39,6 +39,12 @@ Control tier with a paired device (`platform/src/lib/relay.ts`, tested):
 
 Who's on the beacon list: active operators with a beacon set on their operator page, approved for the machine
 (or the machine has no approval list, or a schedule or certification grants it), and holding any required training.
+
+**Beacons on Safety & Access Monitoring too** (Craig, 2026-10-30: a beacon replicates a check-in, whether the machine
+is access-controlled or access-monitored). Those machines have no relay, but their device gets an ACCESS list of
+**every** active operator with a beacon (and any required training), and reports a beacon near it the same way. VS-lab
+records the check-in and, as with the QR code, flags it "not approved" when that operator isn't approved for the
+machine. GPS & Telematics machines don't use beacons.
 At most 60 per machine for now.
 
 **Beacon starts are reported:** `GET /hub/api/access/<device>?op=<operator id>&b=<beacon>&t=<unix time>&sig=<sig>`,

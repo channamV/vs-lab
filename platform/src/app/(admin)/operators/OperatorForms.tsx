@@ -57,7 +57,8 @@ export function EditOperatorForm({
       <label className="block text-sm">
         <span className="text-slate-600 dark:text-slate-400">
           Bluetooth beacon (optional): its address (MAC, e.g. AA:BB:CC:DD:EE:FF, as in Veristart&apos;s production system) or its
-          name (e.g. VS-BEACON-20). On Safety &amp; Access Control machines it lets them start without a phone or signal.
+          name (e.g. VS-BEACON-20). Near a Safety &amp; Access Monitoring or Control machine it checks them in, like the QR code; on
+          Access Control machines it also lets them start without a phone or signal.
         </span>
         <input name="beaconName" maxLength={31} defaultValue={state.beaconName ?? operator.beaconName ?? ""} placeholder="AA:BB:CC:DD:EE:FF" className={field} />
       </label>
