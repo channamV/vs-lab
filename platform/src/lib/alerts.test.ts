@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { alerts, engineSessions, machines, organizations, users } from "@/lib/db/schema";
+import { alerts, checkins, engineSessions, machines, operators, organizations, users } from "@/lib/db/schema";
 import { DEFAULT_SECTIONS } from "@/lib/checklists";
 import { CHECKIN_RULES, checkIn, checkOut, createOperator, setMachineOperators, syncCheckins } from "@/lib/operators";
 import { acknowledgeAlert, ALERT_RULES, checkUnauthorizedUse, isArmed, raiseCheckinAlerts } from "./alerts";
@@ -131,6 +131,19 @@ describe("check-in alerts", () => {
     expect(raised.find((a) => a.type === "checklist-failed")!.detail).toContain('Jane reported #1001 Seatbelt in good condition and working (Service soon). Notes: "buckle broken"');
     expect(raised.find((a) => a.type === "not-at-machine")!.detail).toMatch(/Jane checked in [\d.]+ km away/);
     expect(await raiseCheckinAlerts(db, result.checkinId)).toHaveLength(0);
+  });
+
+  it("calls an unapproved beacon check-in an unapproved operator running the machine", async () => {
+    const [jane] = await db.select().from(operators).where(eq(operators.name, "Jane"));
+    const bob = await createOperator(db, ORG, { name: "Bob", pin: "2222" });
+    await setMachineOperators(db, ORG, MACHINE, [bob.id]);
+    const [c] = await db
+      .insert(checkins)
+      .values({ organizationId: ORG, machineId: MACHINE, operatorId: jane.id, startedAt: at(0), authorized: false, checklistOk: true, answers: [], method: "ble", locationCheck: "near" })
+      .returning();
+    const [alert] = await raiseCheckinAlerts(db, c.id, at(0));
+    expect(alert).toMatchObject({ type: "not-approved", title: expect.stringContaining("Unapproved operator running") });
+    expect(alert.detail).toContain("Jane's Bluetooth beacon was at the machine when its engine started");
   });
 
   it("is quiet for a clean check-in, and for machines that aren't monitored", async () => {

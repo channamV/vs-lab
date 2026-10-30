@@ -45,6 +45,21 @@ is access-controlled or access-monitored). Those machines have no relay, but the
 **every** active operator with a beacon (and any required training), and reports a beacon near it the same way. VS-lab
 records the check-in and, as with the QR code, flags it "not approved" when that operator isn't approved for the
 machine. GPS & Telematics machines don't use beacons.
+
+**When a beacon counts as a check-in** (Craig, 2026-10-30): on a busy site dozens of operators walk past machines
+they aren't approved for, so a beacon near a **parked** machine is not a check-in, and VS-lab keeps no log of who
+walked past (that would track workers' movements: personal information, docs/privacy-canada.md). The device reports a
+beacon check-in only **at an engine start**: the closest listed beacon that has stayed near for several seconds; with
+none near at the start, the first one that does while the engine runs. It then follows that operator until their
+beacon has been silent for a minute; others walking past are ignored. An unapproved operator's beacon check-in
+therefore means they were running the machine: the alert says "Unapproved operator running". On Access Control
+machines the list only holds approved operators (an unapproved person can't start it, so there's nothing to record).
+
+**How near is near** (desk measurement 2026-10-30, Craig's beacon, Model H on the desk): 30 cm and 70 cm in the open
+read alike (-55 to -71 dBm), 2 m -70 to -79, 5 m -91 to -100 (often not heard), **70 cm in a shirt pocket -84 to -94**
+(the body blocks ~25 dB). So signal strength can't tell "at the controls" from "a few metres away", and a stricter
+threshold than production's -92 dBm would miss pocketed beacons: hence the engine-start rule. Re-measure with the
+device fitted in a cab (metal changes the readings).
 At most 60 per machine for now.
 
 **Beacon starts are reported:** `GET /hub/api/access/<device>?op=<operator id>&b=<beacon>&t=<unix time>&sig=<sig>`,

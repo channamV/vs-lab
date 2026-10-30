@@ -153,12 +153,17 @@ export async function raiseCheckinAlerts(db: Db, checkinId: number, now = new Da
     );
   }
   if (!c.authorized) {
+    // A beacon check-in only happens at an engine start, with that operator's beacon the closest (Craig 2026-10-30:
+    // operators walking past a machine aren't check-ins), so it means they're running the machine.
+    const beacon = c.method === "ble";
     raised.push(
       ...(await raise(db, {
         ...base,
         type: "not-approved",
-        title: `Operator not approved: ${name}`,
-        detail: `${who} checked in but isn't on the approved operator list for this machine.`,
+        title: beacon ? `Unapproved operator running: ${name}` : `Operator not approved: ${name}`,
+        detail: beacon
+          ? `${who}'s Bluetooth beacon was at the machine when its engine started, but ${who} isn't on the approved operator list for this machine.`
+          : `${who} checked in but isn't on the approved operator list for this machine.`,
       })),
     );
   }
