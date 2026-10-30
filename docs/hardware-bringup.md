@@ -433,7 +433,9 @@ operator 3):
 - With both beacons near, the first build checked in both operators in turn: now only the closest (operator 3),
   followed until it's gone, as in production. Check-in delivered (`[NET] Beacon check-in sent: operator 3`).
 
-**Next:** ⏳ Craig: confirm the beacon check-in on the CX-9's page; walk-away test (beacon away > 1 minute → "gone",
+✅ Craig confirmed the beacon check-in on the CX-9's page.
+
+**Next:** walk-away test (beacon away > 1 minute → "gone",
 the other beacon then checks in); the relay for Safety & Access Control (to-do 9 a–d); phone-app passes (9 f).
 Command size limits the list to about 7 beacons for now.
 
