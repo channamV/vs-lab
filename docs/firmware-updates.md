@@ -35,7 +35,7 @@ Each version can only be uploaded once. A new build needs a new version number.
 
 ## Sending it, in stages
 
-Open the release. Every device is listed with the version it runs, where it is, when it last reported and how
+Open the release. Every device in service is listed (retired devices are left out and never get updates) with the version it runs, where it is, when it last reported and how
 this update is going.
 
 1. **One bench device first.** Tick it and press **Send**. Check it updates and keeps reporting normally.

@@ -73,6 +73,14 @@ describe("rollout", () => {
     expect(cmd.expiresAt).toEqual(new Date(t0.getTime() + 7 * 86_400_000));
   });
 
+  it("leaves retired devices out: not listed, not sent", async () => {
+    const r = await upload("vs-1.1.0");
+    await db.update(devices).set({ retiredAt: t0 }).where(eq(devices.id, "DEV2"));
+    expect((await releaseRollout(db, r.id))!.devices.map((d) => d.id)).toEqual(["DEV1", "DEV3"]);
+    expect(await queueUpdate(db, r.id, ["DEV1", "DEV2"], "craig", t0)).toEqual({ queued: 1, skipped: 1 });
+    expect((await db.select().from(deviceCommands)).map((c) => c.deviceId)).toEqual(["DEV1"]);
+  });
+
   it("keeps offering an update through a parked night (the device ignores commands at its parked check-ins)", async () => {
     const r = await upload("vs-1.1.0");
     await queueUpdate(db, r.id, ["DEV1"], "craig", t0);

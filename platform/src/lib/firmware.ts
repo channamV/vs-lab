@@ -178,7 +178,11 @@ export async function queueUpdate(db: Db, releaseId: number, deviceIds: string[]
   const ids = [...new Set(deviceIds)];
   if (ids.length === 0) throw new FirmwareError("Choose at least one device.");
   const [found, open] = await Promise.all([
-    db.select({ id: devices.id, firmwareVersion: devices.firmwareVersion }).from(devices).where(inArray(devices.id, ids)),
+    // Retired devices (out of service) never get updates.
+    db
+      .select({ id: devices.id, firmwareVersion: devices.firmwareVersion })
+      .from(devices)
+      .where(and(inArray(devices.id, ids), isNull(devices.retiredAt))),
     db
       .select({ deviceId: deviceCommands.deviceId })
       .from(deviceCommands)
@@ -314,6 +318,7 @@ export async function releaseRollout(db: Db, releaseId: number) {
       .leftJoin(organizations, eq(organizations.id, devices.organizationId))
       .leftJoin(deviceAssignments, and(eq(deviceAssignments.deviceId, devices.id), isNull(deviceAssignments.endedAt)))
       .leftJoin(machines, eq(machines.id, deviceAssignments.machineId))
+      .where(isNull(devices.retiredAt)) // out of service: not offered
       .orderBy(asc(devices.id)),
     db.select().from(deviceCommands).where(eq(deviceCommands.firmwareReleaseId, releaseId)).orderBy(asc(deviceCommands.id)),
   ]);
