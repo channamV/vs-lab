@@ -90,8 +90,13 @@ not iOS, so it isn't the primary method.
 
 Steps 1–3 need no firmware changes. They work with the stock Telelogger and the simulator.
 
-## Tier 3 — Safety & Access Control (deferred)
+## Tier 3 — Safety & Access Control (selectable since 2026-10-30, bench testing)
 
-Needs a starter-control relay output, which the ONE+ doesn't have straight from the box. When we
-get there: bench setup first (relay module plus an LED), offline authorization with signed digital
-keys, and a qualified review of the wiring before anything goes into a real machine.
+Needs a starter-control relay on the device's external socket. The VS-lab side is built ([starter-relay.md](starter-relay.md):
+operating modes sent to the device, allow/revoke per check-in, beacon lists, the operator app's signed unlock passes,
+the lunch-break hold). The firmware side is being built and tested on the bench with an LED standing in for the
+relay (Y5725A32; [hardware-bringup.md](hardware-bringup.md) to-do 9).
+- **Choosing it:** Machine details → Service level → **Safety & Access Control**. Only Veristart staff can switch a
+  machine to or from it, because it depends on the relay being installed; customers see it on their machines but can't
+  change it.
+- Before any real machine: the starter-only wiring with a mechanic's bypass, and a qualified review of the wiring.

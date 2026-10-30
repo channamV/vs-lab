@@ -30,6 +30,11 @@ export type DivisionChoice = {
   categories: { id: number; name: string }[];
   /** "Scan serial plate" is available (src/lib/scan.ts). */
   scan?: boolean;
+  /**
+   * Safety & Access Control can be chosen (Veristart staff: it needs the starter relay installed). Others see it, and keep
+   * it on a machine that already has it, but can't switch to or from it.
+   */
+  controlAllowed?: boolean;
 };
 
 /**
@@ -152,12 +157,15 @@ function Fields({ values, choice }: { values: Values; choice: DivisionChoice }) 
       <label className="block text-sm">
         <span className="text-slate-600 dark:text-slate-400">Service level</span>
         <select name="tier" defaultValue={values.tier || "gps"} className={field}>
-          {(["gps", "monitor", "control"] as const).map((t) => (
-            <option key={t} value={t} disabled={t === "control"}>
-              {TIER_LABELS[t]}
-              {t === "control" ? " (future)" : ""}
-            </option>
-          ))}
+          {(["gps", "monitor", "control"] as const).map((t) => {
+            const locked = !choice.controlAllowed && (t === "control") !== (values.tier === "control");
+            return (
+              <option key={t} value={t} disabled={locked}>
+                {TIER_LABELS[t]}
+                {t === "control" ? (choice.controlAllowed ? " (needs the starter relay installed)" : " (set up by Veristart)") : ""}
+              </option>
+            );
+          })}
         </select>
       </label>
       {choice.divisions.length > 0 && (

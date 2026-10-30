@@ -7,11 +7,13 @@ import { requireAuth, requirePlatformAdmin } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { tierEnum } from "@/lib/db/schema";
 import { createMachine, MachineError, pairDevice, unpairDevice, updateMachine } from "@/lib/machines";
+import { syncRelayMode } from "@/lib/modes";
+import { syncAccessList } from "@/lib/relay";
 import { assertDivisionChoice, assertMachineInScope, DivisionError } from "@/lib/divisions";
 import { recordEvent } from "@/lib/notifications";
 import { afterEvents } from "@/lib/alert-jobs";
 import { and, eq } from "drizzle-orm";
-import { machineCategories } from "@/lib/db/schema";
+import { machineCategories, machines } from "@/lib/db/schema";
 import { scanAvailable, ScanError, scanSerialPlate, type PlateFields } from "@/lib/scan";
 import { guessCategory } from "@/lib/training";
 import { lookupSerial, normalizeSerial, repairVin, type SerialLookup } from "@/lib/vin";
@@ -54,12 +56,22 @@ function toInput(values: MachineFields) {
   return { ...input, year, fuelTankLitres, speedLimitKph, divisionId: input.divisionId ? Number(input.divisionId) : null, categoryId: input.categoryId ? Number(input.categoryId) : null, onRoad: input.onRoad === "on" };
 }
 
+/** Safety & Access Control needs the starter relay installed, so Veristart staff switch machines to and from it. */
+const CONTROL_STAFF_ONLY = "Safety & Access Control needs the starter relay installed: Veristart sets it up. Contact Veristart to change it.";
+
+/** A Safety & Access Control machine's device needs its operating mode and beacon list (no-op on other tiers). */
+async function sendRelaySetup(machineId: number, by: string) {
+  await syncRelayMode(getDb(), machineId, by);
+  await syncAccessList(getDb(), machineId);
+}
+
 export async function addMachineAction(prev: MachineFormState, formData: FormData): Promise<MachineFormState> {
   const auth = await requireAuth("manager");
   const values = readFields(formData);
   let id: number;
   try {
     const input = toInput(values);
+    if (input.tier === "control" && !auth.isPlatformAdmin) throw new MachineError(CONTROL_STAFF_ONLY);
     await assertDivisionChoice(getDb(), auth, input.divisionId);
     ({ id } = await createMachine(getDb(), auth.organizationId, input));
     afterEvents([
@@ -79,8 +91,14 @@ export async function updateMachineAction(prev: MachineFormState, formData: Form
   try {
     const input = toInput(values);
     await assertMachineInScope(getDb(), auth, id);
+    if (!auth.isPlatformAdmin) {
+      const [current] = await getDb().select({ tier: machines.tier }).from(machines).where(and(eq(machines.id, id), eq(machines.organizationId, auth.organizationId)));
+      if (current && (current.tier === "control") !== (input.tier === "control")) throw new MachineError(CONTROL_STAFF_ONLY);
+    }
     await assertDivisionChoice(getDb(), auth, input.divisionId);
     await updateMachine(getDb(), auth.organizationId, id, input);
+    // Now on Safety & Access Control: the device gets its mode and beacon list straight away.
+    if (input.tier === "control") await sendRelaySetup(id, auth.email);
     afterEvents([
       await recordEvent(getDb(), { organizationId: auth.organizationId, machineId: id, type: "equipment_updated", detail: `Changed by ${auth.email}` }),
     ]);
@@ -101,6 +119,7 @@ export async function pairDeviceAction(prev: PairingState, formData: FormData): 
   const deviceId = z.string().min(1).max(32).parse(formData.get("deviceId"));
   try {
     await pairDevice(getDb(), deviceId, machineId);
+    await sendRelaySetup(machineId, "VS-lab (device paired)");
   } catch (err) {
     if (err instanceof MachineError) return { error: err.message, version: prev.version + 1 };
     throw err;

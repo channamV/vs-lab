@@ -336,4 +336,5 @@ says it's compliant. Update that doc when items are done.
   ends a replaced check-in that was on a break at its engine stop.
 - Product language: tiers are "GPS & Telematics", "Safety & Access Monitoring",
   "Safety & Access Control" (`gps` / `monitor` / `control`). Control (starter relay): VS-lab side built 2026-10-26,
-  firmware in progress.
+  selectable 2026-10-30 by platform admins only (switching to/from `control` is refused for others: `CONTROL_STAFF_ONLY`
+  in machines/actions.ts), firmware in progress.

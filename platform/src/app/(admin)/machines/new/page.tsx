@@ -31,7 +31,7 @@ async function Form() {
   const [divisions, categories, scan] = await Promise.all([listDivisions(), listMachineCategories(), scanEnabled()]);
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-      <AddMachineForm choice={{ divisions, allowNone: auth.divisionIds === null, categories, scan }} />
+      <AddMachineForm choice={{ divisions, allowNone: auth.divisionIds === null, categories, scan, controlAllowed: auth.isPlatformAdmin }} />
     </section>
   );
 }

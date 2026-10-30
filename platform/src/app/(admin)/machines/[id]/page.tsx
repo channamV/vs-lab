@@ -424,7 +424,7 @@ async function MachineDetail({
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="font-semibold">Machine details</h2>
-          <EditMachineForm machine={machine} choice={{ divisions, allowNone: auth?.divisionIds === null, categories, scan }} />
+          <EditMachineForm machine={machine} choice={{ divisions, allowNone: auth?.divisionIds === null, categories, scan, controlAllowed: auth?.isPlatformAdmin }} />
         </section>
 
         <DeviceSection
