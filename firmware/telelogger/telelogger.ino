@@ -127,6 +127,8 @@ struct Beacon {
   uint32_t op;
   volatile uint32_t heardAt; // last heard at -96 dBm or better (millis, 0 = never)
   volatile uint32_t nearAt; // last heard at -92 dBm or better
+  volatile uint8_t nearCount; // heard at -92 dBm or better, with no gap over 10 s
+  volatile int8_t nearRssi; // their running average
   volatile int8_t rssi;
 };
 uint32_t lastStatsTime = 0;
@@ -223,6 +225,10 @@ uint32_t lastAlertBeep = 0;
 // while it sees the engine running).
 bool engineRunning()
 {
+#ifdef VSLAB_TEST_ENGINE_AT
+  // VSLAB test build: a pretend engine, running from this many seconds after start-up
+  return millis() >= VSLAB_TEST_ENGINE_AT * 1000UL;
+#endif
 #if ENABLE_OBD
   // OBD builds are for vehicles with an engine computer: no answer means the ignition is off. Voltage isn't used:
   // it stays high for minutes after a drive (field test 2026-10-26: beeps with the engine off at 14.4 V).
@@ -1079,8 +1085,11 @@ bool forceReport = false; // VSLAB: REPORT command: send now, without waiting fo
   the machine's list as ACCESS=<version>\t<beacon>:<operator id>,... (kept in NVS, VSLAB_ACCESS); a beacon is a
   broadcast name (VS-BEACON-20) or a MAC address (AA:BB:CC:DD:EE:FF), the operator ID after the last colon. A listed
   beacon that comes within about 70 cm (signal at least -92 dBm, Veristart's production threshold) is reported to
-  VS-lab as a check-in for its operator, and so is one still near when the engine starts. It counts as gone after
-  a minute without being heard at -96 dBm or better (desk test 2026-10-30: 10 s made beacons a metre away flicker).
+  VS-lab as a check-in for its operator, but only at an engine start (Craig 2026-10-30: operators walking past a
+  parked machine aren't check-ins): the closest beacon that has stayed near (heard twice, no gap over 10 s), or, with
+  none near at the start, the first that does while the engine runs. That operator is followed until their beacon
+  hasn't been heard at -96 dBm or better for a minute (10 s made beacons a metre away flicker); others are ignored.
+  Signal strength can't tell 70 cm from a few metres (a pocket costs ~25 dB), hence the engine rule.
   Reports wait in memory (up to 8) for signal; without a clock (no GPS fix yet) they go undated (t=0) and VS-lab
   dates them on arrival.
 *******************************************************************************/
@@ -1092,11 +1101,30 @@ bool forceReport = false; // VSLAB: REPORT command: send now, without waiting fo
 Beacon beacons[VSLAB_BEACON_MAX];
 volatile uint8_t beaconCount = 0;
 volatile uint32_t advertsHeard = 0; // all advertisements, for the log
+#ifdef VSLAB_TEST_RSSI
+// VSLAB test build: every listed beacon's signal, summed over 5 s, for measuring distances
+volatile int32_t rssiSum[VSLAB_BEACON_MAX];
+volatile uint16_t rssiCount[VSLAB_BEACON_MAX];
+volatile int8_t rssiMin[VSLAB_BEACON_MAX], rssiMax[VSLAB_BEACON_MAX];
+#endif
 
 // on the Bluetooth task, for every advertisement heard
 void beaconHeard(const uint8_t* addr, const char* name, int rssi)
 {
   advertsHeard++;
+#ifdef VSLAB_TEST_RSSI
+  {
+    char m[18];
+    snprintf(m, sizeof(m), "%02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+    for (uint8_t i = 0; i < beaconCount; i++) {
+      if (strchr(beacons[i].id, ':') ? strcmp(beacons[i].id, m) != 0 : (!name[0] || strcasecmp(beacons[i].id, name) != 0)) continue;
+      if (!rssiCount[i] || rssi < rssiMin[i]) rssiMin[i] = rssi;
+      if (!rssiCount[i] || rssi > rssiMax[i]) rssiMax[i] = rssi;
+      rssiSum[i] += rssi;
+      rssiCount[i]++;
+    }
+  }
+#endif
   if (rssi < VSLAB_BEACON_FAR_RSSI) return;
   char mac[18];
   snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
@@ -1107,7 +1135,16 @@ void beaconHeard(const uint8_t* addr, const char* name, int rssi)
     if (strchr(b.id, ':') ? strcmp(b.id, mac) != 0 : (!name[0] || strcasecmp(b.id, name) != 0)) continue;
     b.heardAt = now;
     b.rssi = rssi;
-    if (rssi >= VSLAB_BEACON_NEAR_RSSI) b.nearAt = now;
+    if (rssi >= VSLAB_BEACON_NEAR_RSSI) {
+      if (!b.nearAt || now - b.nearAt > 10000) {
+        b.nearCount = 0;
+        b.nearRssi = rssi;
+      } else {
+        b.nearRssi = (b.nearRssi * 3 + rssi) / 4;
+      }
+      if (b.nearCount < 255) b.nearCount++;
+      b.nearAt = now;
+    }
   }
 }
 
@@ -1868,6 +1905,33 @@ void beaconTick()
   bool started = running && !wasRunning;
   wasRunning = running;
   uint32_t now = millis();
+#ifdef VSLAB_TEST_RSSI
+  static uint32_t lastRssiLog = 0;
+  if (now - lastRssiLog >= 5000) {
+    lastRssiLog = now;
+    Serial.print("[RSSI]");
+    for (uint8_t i = 0; i < beaconCount; i++) {
+      Serial.print(' ');
+      Serial.print(beacons[i].id + 12); // last two bytes of the MAC are enough here
+      Serial.print('=');
+      if (rssiCount[i]) {
+        Serial.print(rssiSum[i] / (int)rssiCount[i]);
+        Serial.print(" (");
+        Serial.print(rssiMin[i]);
+        Serial.print("..");
+        Serial.print(rssiMax[i]);
+        Serial.print(", n=");
+        Serial.print(rssiCount[i]);
+        Serial.print(')');
+      } else {
+        Serial.print("none");
+      }
+      rssiSum[i] = 0;
+      rssiCount[i] = 0;
+    }
+    Serial.println();
+  }
+#endif
   // once a minute: is the scan hearing things, and when were the listed beacons last heard
   static uint32_t lastSummary = 0;
   if (beaconCount && now - lastSummary >= 60000) {
@@ -1893,39 +1957,39 @@ void beaconTick()
     advertsHeard = 0;
     lastSummary = now;
   }
-  // one operator at a time, as in Veristart's production firmware: the closest beacon that comes near is followed
-  // until it's gone; other beacons are ignored meanwhile
+  // the operator: picked at an engine start (or while running, if nobody was near at the start), followed until
+  // their beacon is gone; nothing while the engine is off
   static int8_t current = -1;
   if (current >= beaconCount) current = -1; // the list changed
+  if (current >= 0 && (!beacons[current].heardAt || now - beacons[current].heardAt >= VSLAB_BEACON_GONE_MS)) {
+    Serial.print("[BLE] Beacon ");
+    Serial.print(beacons[current].id);
+    Serial.println(" gone");
+    current = -1;
+  }
+  if (started) {
+    current = -1; // a new start: whoever is at the controls now
+    Serial.println("[BLE] Engine started: looking for the operator's beacon");
+  }
+  if (!running) {
+    current = -1;
+    return;
+  }
+  if (current >= 0) return;
+  for (uint8_t i = 0; i < beaconCount; i++) {
+    Beacon& b = beacons[i];
+    bool sustained = b.nearCount >= 2 && b.nearAt && now - b.nearAt < 10000;
+    if (sustained && (current < 0 || b.nearRssi > beacons[current].nearRssi)) current = i;
+  }
   if (current >= 0) {
     Beacon& b = beacons[current];
-    if (!b.heardAt || now - b.heardAt >= VSLAB_BEACON_GONE_MS) {
-      Serial.print("[BLE] Beacon ");
-      Serial.print(b.id);
-      Serial.println(" gone");
-      current = -1;
-    } else if (started) {
-      Serial.print("[BLE] Engine started with beacon ");
-      Serial.print(b.id);
-      Serial.println(" near: check-in");
-      queueBeaconReport(b);
-    }
-  }
-  if (current < 0) {
-    for (uint8_t i = 0; i < beaconCount; i++) {
-      Beacon& b = beacons[i];
-      if (b.nearAt && now - b.nearAt < 3000 && (current < 0 || b.rssi > beacons[current].rssi)) current = i;
-    }
-    if (current >= 0) {
-      Beacon& b = beacons[current];
-      Serial.print("[BLE] Beacon ");
-      Serial.print(b.id);
-      Serial.print(" near (");
-      Serial.print(b.rssi);
-      Serial.print(" dBm): check-in for operator ");
-      Serial.println(b.op);
-      queueBeaconReport(b);
-    }
+    Serial.print("[BLE] Beacon ");
+    Serial.print(b.id);
+    Serial.print(" at the machine with the engine running (");
+    Serial.print(b.nearRssi);
+    Serial.print(" dBm): check-in for operator ");
+    Serial.println(b.op);
+    queueBeaconReport(b);
   }
 }
 
