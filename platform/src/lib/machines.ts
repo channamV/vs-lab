@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { deviceAssignments, devices, divisions, engineSessions, machineCategories, machines, organizations, type Tier } from "@/lib/db/schema";
+import { deviceAssignments, deviceCommands, devices, divisions, engineSessions, machineCategories, machines, organizations, type Tier } from "@/lib/db/schema";
 
 /**
  * Machines (the customer's equipment) and devices (the tracking hardware on them).
@@ -138,6 +138,7 @@ async function openPairing(db: Db, where: ReturnType<typeof eq>) {
 export async function pairDevice(db: Db, deviceId: string, machineId: number, now = new Date()) {
   const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
   if (!device) throw new MachineError("Device not found.");
+  if (device.retiredAt) throw new MachineError("That device is retired. Reactivate it first.");
   const [machine] = await db.select().from(machines).where(eq(machines.id, machineId));
   if (!machine) throw new MachineError("Machine not found.");
   if (device.organizationId !== null && device.organizationId !== machine.organizationId) {
@@ -182,6 +183,7 @@ export async function unpairDevice(db: Db, deviceId: string, now = new Date()) {
 export async function setDeviceStock(db: Db, deviceId: string, organizationId: number | null) {
   const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
   if (!device) throw new MachineError("Device not found.");
+  if (device.retiredAt) throw new MachineError("That device is retired. Reactivate it first.");
   if (await openPairing(db, eq(deviceAssignments.deviceId, deviceId))) {
     throw new MachineError("That device is on a machine. Unpair it first.");
   }
@@ -190,4 +192,28 @@ export async function setDeviceStock(db: Db, deviceId: string, organizationId: n
     if (!org) throw new MachineError("Organization not found.");
   }
   await db.update(devices).set({ organizationId }).where(eq(devices.id, deviceId));
+}
+
+/**
+ * Staff: take a device out of service (test devices, lost or scrapped units). It comes off its machine first (the
+ * machine keeps its history), goes back to Veristart stock, its waiting commands are cancelled, and from then on its
+ * reports are refused and it's hidden from the Platform list and pairing. Its past data stays. Reversible.
+ */
+export async function retireDevice(db: Db, deviceId: string, now = new Date()) {
+  const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
+  if (!device) throw new MachineError("Device not found.");
+  if (device.retiredAt) return;
+  await unpairDevice(db, deviceId, now);
+  await db
+    .update(deviceCommands)
+    .set({ status: "cancelled" })
+    .where(and(eq(deviceCommands.deviceId, deviceId), inArray(deviceCommands.status, ["pending", "sent"])));
+  await db.update(devices).set({ retiredAt: now, organizationId: null }).where(eq(devices.id, deviceId));
+}
+
+/** Staff: put a retired device back in service, in Veristart stock. */
+export async function reactivateDevice(db: Db, deviceId: string) {
+  const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
+  if (!device) throw new MachineError("Device not found.");
+  await db.update(devices).set({ retiredAt: null }).where(eq(devices.id, deviceId));
 }

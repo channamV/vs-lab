@@ -45,3 +45,15 @@ before this change kept their old device ID as the code, so stickers already pri
 
 Reports from a device that isn't paired (on the bench, in stock) are stored for diagnostics only. They
 never create engine hours, check-ins or alerts for any machine.
+
+## Retiring a device (Craig, 2026-10-30)
+
+For test devices (e.g. the simulator's SIM00001–3 and TEST00001) and units that are lost, scrapped or returned for
+good: **Platform → the device → Retire device**.
+- It comes off its machine first (the machine keeps all its history), goes back to Veristart stock, and its waiting
+  commands are cancelled.
+- From then on it's hidden from the device list and from pairing, and **its reports are refused** (the server answers
+  403, so a real device keeps its readings and sends them if it's reactivated). Its past data stays.
+- **Reactivate**: Platform → "retired devices" (under the device list) or the device's page. It goes back to Veristart
+  stock, ready to pair.
+- Code: `retireDevice` / `reactivateDevice` in `platform/src/lib/machines.ts` (tested), `devices.retired_at`.

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDb, migrateDb, type Db } from "@/lib/db";
-import { deviceAssignments, devices, engineSessions, machines, organizations } from "@/lib/db/schema";
-import { createMachine, MachineError, newMachineCode, pairDevice, setDeviceStock, unpairDevice, updateMachine } from "./machines";
+import { deviceAssignments, deviceCommands, devices, engineSessions, machines, organizations } from "@/lib/db/schema";
+import { ingestSamples, UnknownDeviceError } from "@/lib/telemetry/ingest";
+import { createMachine, MachineError, newMachineCode, pairDevice, reactivateDevice, retireDevice, setDeviceStock, unpairDevice, updateMachine } from "./machines";
 
 let db: Db;
 let orgA: number;
@@ -98,6 +99,23 @@ describe("pairing devices with machines", () => {
     const other = await createMachine(db, orgA, { name: "Loader" });
     await pairDevice(db, "DEV1", other.id, at(80));
     expect(await db.select().from(deviceAssignments).where(eq(deviceAssignments.machineId, m.id))).toHaveLength(2);
+  });
+
+  it("retires a device: off its machine, commands cancelled, reports refused; reactivating puts it back in stock", async () => {
+    const m = await createMachine(db, orgA, { name: "Loader" });
+    await pairDevice(db, "DEV1", m.id, at(0));
+    await db.insert(deviceCommands).values({ deviceId: "DEV1", command: "REPORT", label: "Report now", createdBy: "staff", expiresAt: at(60) });
+    await retireDevice(db, "DEV1", at(5));
+    expect(await device("DEV1")).toMatchObject({ retiredAt: at(5), organizationId: null });
+    expect((await db.select().from(deviceAssignments))[0].endedAt).toEqual(at(5));
+    expect((await db.select().from(deviceCommands))[0].status).toBe("cancelled");
+    // Its reports are refused, even with auto-registration on; it can't be paired or moved.
+    await expect(ingestSamples(db, "DEV1", [{ obdRpm: 900 }], { now: at(6), autoRegister: true })).rejects.toThrow(UnknownDeviceError);
+    await expect(pairDevice(db, "DEV1", m.id, at(7))).rejects.toThrow(/retired/);
+    await expect(setDeviceStock(db, "DEV1", orgA)).rejects.toThrow(/retired/);
+    await reactivateDevice(db, "DEV1");
+    expect(await device("DEV1")).toMatchObject({ retiredAt: null, organizationId: null });
+    await expect(ingestSamples(db, "DEV1", [{ obdRpm: 900 }], { now: at(8) })).resolves.toBe(1);
   });
 
   it("staff can return an unpaired device to Veristart stock", async () => {

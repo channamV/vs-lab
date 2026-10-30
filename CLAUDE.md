@@ -53,7 +53,8 @@ github.com/stanleyhuangyc/Freematics.
   alerts, approvals, PIN failures are per machine). A `device` is hardware that supplies data while paired
   (`device_assignments`, one open pairing per device and per machine). Ingest resolves the pairing;
   unpaired devices store telemetry only. `devices.organization_id` = whose stock (null = Veristart's).
-  Only platform admins pair/unpair/move stock (`src/lib/machines.ts`, tested). Machines get a random `code`
+  Only platform admins pair/unpair/move stock and retire devices (`retireDevice`: unpair, cancel commands, `devices.retired_at`
+  → hidden, reports refused as `RetiredDeviceError`; reversible) (`src/lib/machines.ts`, tested). Machines get a random `code`
   for the QR URL; migrated machines kept the old device ID as code.
 - **Divisions** (optional, one level; `src/lib/divisions.ts`, tested). A machine is in one division or none
   (`machines.division_id`). `user_divisions` limits a manager/viewer to some divisions; none = whole org;

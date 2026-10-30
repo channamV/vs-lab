@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { companyTimeZone, getDeviceForStaff, requestTime } from "@/lib/data";
 import { clockTime, fmt, machineLabel, timeAgo } from "@/lib/format";
 import { restartLabel } from "@/lib/restart-reasons";
+import { retireDeviceAction } from "../../actions";
 import { Commands } from "./Commands";
 
 /** Veristart staff only: one tracking device's health and the machines it has been on. */
@@ -32,11 +33,13 @@ async function DeviceDetail({ params }: Pick<PageProps<"/platform/devices/[id]">
       <div>
         <h1 className="font-mono text-2xl font-semibold">{device.id}</h1>
         <p className="text-sm text-slate-500">
-          {current
-            ? `On ${machineLabel({ name: current.machineName, unitNumber: current.unitNumber })} · ${current.organizationName}`
-            : device.stockOrganization
-              ? `Spare in ${device.stockOrganization}'s stock`
-              : "Veristart stock"}
+          {device.retiredAt
+            ? `Retired ${timeAgo(device.retiredAt, now)}: out of service, its reports are refused`
+            : current
+              ? `On ${machineLabel({ name: current.machineName, unitNumber: current.unitNumber })} · ${current.organizationName}`
+              : device.stockOrganization
+                ? `Spare in ${device.stockOrganization}'s stock`
+                : "Veristart stock"}
         </p>
       </div>
 
@@ -141,6 +144,24 @@ async function DeviceDetail({ params }: Pick<PageProps<"/platform/devices/[id]">
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="font-semibold">{device.retiredAt ? "Retired" : "Retire this device"}</h2>
+        <p className="text-slate-500">
+          {device.retiredAt
+            ? "Out of service: hidden from the device list and pairing, and its reports are refused. Its past data stays. Reactivate to use it again (it goes to Veristart stock)."
+            : "For test devices and units that are lost, scrapped or returned for good. It comes off its machine (the machine keeps its history), waiting commands are cancelled, and its reports are refused from then on. Its past data stays, and you can reactivate it."}
+        </p>
+        <form action={retireDeviceAction}>
+          <input type="hidden" name="deviceId" value={device.id} />
+          {device.retiredAt && <input type="hidden" name="reactivate" value="1" />}
+          <button
+            className={`rounded px-3 py-1.5 font-medium ${device.retiredAt ? "border border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800" : "border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"}`}
+          >
+            {device.retiredAt ? "Reactivate device" : "Retire device"}
+          </button>
+        </form>
       </section>
     </>
   );

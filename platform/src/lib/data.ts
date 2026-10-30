@@ -942,8 +942,20 @@ export async function allDevices() {
     .leftJoin(organizations, eq(organizations.id, devices.organizationId))
     .leftJoin(deviceAssignments, and(eq(deviceAssignments.deviceId, devices.id), isNull(deviceAssignments.endedAt)))
     .leftJoin(machines, eq(machines.id, deviceAssignments.machineId))
+    .where(isNull(devices.retiredAt))
     .orderBy(sql`${devices.organizationId} is not null`, desc(devices.lastSeenAt));
   return rows.map((r) => ({ ...r.device, stockOrganization: r.stockOrganization, machine: r.machineId ? { id: r.machineId, name: r.machineName!, unitNumber: r.unitNumber } : null }));
+}
+
+/** Staff: retired devices (out of service), most recently retired first. */
+export async function retiredDevices() {
+  await connection();
+  await requirePlatformAdmin();
+  return getDb()
+    .select({ id: devices.id, retiredAt: devices.retiredAt, lastSeenAt: devices.lastSeenAt })
+    .from(devices)
+    .where(isNotNull(devices.retiredAt))
+    .orderBy(desc(devices.retiredAt));
 }
 
 /** Staff: devices that could go on one of this organization's machines (unpaired, in Veristart's or their stock). */
@@ -954,7 +966,7 @@ export async function pairableDevices(organizationId: number) {
     .select({ id: devices.id, organizationId: devices.organizationId, lastSeenAt: devices.lastSeenAt })
     .from(devices)
     .leftJoin(deviceAssignments, and(eq(deviceAssignments.deviceId, devices.id), isNull(deviceAssignments.endedAt)))
-    .where(and(isNull(deviceAssignments.id), or(isNull(devices.organizationId), eq(devices.organizationId, organizationId))))
+    .where(and(isNull(deviceAssignments.id), isNull(devices.retiredAt), or(isNull(devices.organizationId), eq(devices.organizationId, organizationId))))
     .orderBy(desc(devices.lastSeenAt));
 }
 

@@ -1,8 +1,9 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { allDevices, listOrganizations, machinesWithoutDevice, requestTime } from "@/lib/data";
+import { allDevices, listOrganizations, machinesWithoutDevice, requestTime, retiredDevices } from "@/lib/data";
 import { machineLabel, timeAgo } from "@/lib/format";
 import { unpairDeviceAction } from "../machines/actions";
+import { retireDeviceAction } from "./actions";
 import { CreateOrganizationForm } from "./CreateOrganizationForm";
 import { DeviceStockForm, PairWithMachineForm } from "./DeviceForms";
 
@@ -39,11 +40,12 @@ export default function PlatformPage() {
 }
 
 async function Platform() {
-  const [orgs, devices, openMachines, now] = await Promise.all([
+  const [orgs, devices, openMachines, now, retired] = await Promise.all([
     listOrganizations(),
     allDevices(),
     machinesWithoutDevice(),
     requestTime(),
+    retiredDevices(),
   ]);
   const notPaired = devices.filter((d) => !d.machine);
 
@@ -117,6 +119,30 @@ async function Platform() {
           </div>
         )}
         {notPaired.length > 0 && <p className="text-xs text-slate-500">{notPaired.length} not on a machine.</p>}
+        {retired.length > 0 && (
+          <details className="text-sm">
+            <summary className="cursor-pointer text-slate-500">
+              {retired.length} retired device{retired.length === 1 ? "" : "s"} (out of service; reports refused)
+            </summary>
+            <ul className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
+              {retired.map((d) => (
+                <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+                  <span>
+                    <Link href={`/platform/devices/${encodeURIComponent(d.id)}`} className="font-mono text-sky-700 hover:underline dark:text-sky-400">
+                      {d.id}
+                    </Link>
+                    <span className="text-slate-500"> · retired {timeAgo(d.retiredAt, now)} · last report {timeAgo(d.lastSeenAt, now)}</span>
+                  </span>
+                  <form action={retireDeviceAction}>
+                    <input type="hidden" name="deviceId" value={d.id} />
+                    <input type="hidden" name="reactivate" value="1" />
+                    <button className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">Reactivate</button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </section>
 
       <section className={card}>

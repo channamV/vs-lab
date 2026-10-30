@@ -6,7 +6,7 @@ import { z } from "zod";
 import { viewOrganization } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { AccountError, createOrganization } from "@/lib/organizations";
-import { MachineError, setDeviceStock } from "@/lib/machines";
+import { MachineError, reactivateDevice, retireDevice, setDeviceStock } from "@/lib/machines";
 import { requirePlatformAdmin } from "@/lib/session";
 import { cancelCommand, CommandError, queueCommand } from "@/lib/commands";
 
@@ -46,6 +46,15 @@ export async function setDeviceStockAction(prev: PlatformFormState, formData: Fo
   }
   refresh();
   return { error: null, version: prev.version + 1 };
+}
+
+/** Take a device out of service (test devices, lost or scrapped units), or put it back. */
+export async function retireDeviceAction(formData: FormData) {
+  await requirePlatformAdmin();
+  const deviceId = z.string().min(1).max(32).parse(formData.get("deviceId"));
+  if (formData.get("reactivate") === "1") await reactivateDevice(getDb(), deviceId);
+  else await retireDevice(getDb(), deviceId);
+  refresh();
 }
 
 export type CommandFormState = { error: string | null; queued: boolean; version: number };

@@ -372,6 +372,11 @@ export const devices = pgTable("devices", {
   /** Firmware version the device last reported (FW= on login, or a finished update), and when. */
   firmwareVersion: text("firmware_version"),
   firmwareReportedAt: timestamp("firmware_reported_at", { withTimezone: true }),
+  /**
+   * Taken out of service (src/lib/machines.ts `retireDevice`): hidden from the Platform list and pairing, and its reports
+   * are refused (403). Its past data stays. Null = in service.
+   */
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
 });
 
 /** One row per data sample sent by a device. */

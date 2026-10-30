@@ -28,14 +28,14 @@ export function autoRegisterEnabled(): boolean {
 }
 
 export class UnknownDeviceError extends Error {}
+/** A retired device (Platform → Retire): its reports are refused like an unknown device's. */
+export class RetiredDeviceError extends UnknownDeviceError {}
 
 async function ensureDevice(db: Db, deviceId: string, autoRegister: boolean) {
-  if (autoRegister) {
-    await db.insert(devices).values({ id: deviceId }).onConflictDoNothing();
-    return;
-  }
-  const existing = await db.select({ id: devices.id }).from(devices).where(eq(devices.id, deviceId));
-  if (existing.length === 0) throw new UnknownDeviceError(deviceId);
+  if (autoRegister) await db.insert(devices).values({ id: deviceId }).onConflictDoNothing();
+  const [existing] = await db.select({ id: devices.id, retiredAt: devices.retiredAt }).from(devices).where(eq(devices.id, deviceId));
+  if (!existing) throw new UnknownDeviceError(deviceId);
+  if (existing.retiredAt) throw new RetiredDeviceError(deviceId);
 }
 
 /** The machine this device is currently paired with, or null (in stock, on the bench, unpaired). */
