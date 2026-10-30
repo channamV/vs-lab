@@ -435,8 +435,14 @@ operator 3):
 
 ✅ Craig confirmed the beacon check-in on the CX-9's page.
 
-**Next:** walk-away test (beacon away > 1 minute → "gone",
-the other beacon then checks in); the relay for Safety & Access Control (to-do 9 a–d); phone-app passes (9 f).
+✅ **Walk-away test** (test build `VSLAB_TEST_AWAKE`: on the desk the device otherwise sleeps after 3 minutes without
+movement and stops scanning; in a machine it's awake while the engine runs): operator 2's beacon (`F2:60`) checked in
+at -51 dBm; taken out of the room at ~12:15, last heard at -96 dBm, `gone` at 12:16:23 (a minute later); brought
+back at 12:17:32 (-78 dBm) → checked in again, delivered. The other beacon was then too far (-93 dBm) to take over,
+so the hand-over to a second operator wasn't exercised. A beacon going away doesn't end the check-in: VS-lab ends it
+by the engine rules, as for QR check-ins. Normal build back on the device.
+
+**Next:** the relay for Safety & Access Control (to-do 9 a–d); phone-app passes (9 f).
 Command size limits the list to about 7 beacons for now.
 
 ## Open items (in order)
