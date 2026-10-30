@@ -8,6 +8,18 @@ on the desk through VS-lab. The stock Telelogger ignores the command, so sending
 stopping); a parked device gets it at its next wake, not at its 15-minute check-ins. Updates go over cellular only,
 not Wi-Fi. A download takes about 7 minutes (1.8 MB as Base64, about 2.4 MB of cellular data).
 
+## Which file for which device (2026-10-30)
+
+Our firmware comes in two builds; a device must get an update made from the build it should run:
+
+| Build | Version name | For |
+|---|---|---|
+| `bench-beam-obd` | `vs-0.4.0` | GPS & Telematics and Safety & Access Monitoring: tracking, engine data, beacon check-ins; sleeps when parked |
+| `bench-beam-relay` | `vs-0.4.0-relay` | Safety & Access Control machines with the starter relay fitted; **never sleeps** (it would drain a parked vehicle's battery without a machine's charging) |
+
+Updates work for devices already on vs-0.2.2 or later (earlier versions are updated by USB). Sending the other build
+switches a device between them.
+
 ## Uploading a release (Veristart staff)
 
 **Platform → Firmware releases and updates** (or `/platform/firmware`).
