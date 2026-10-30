@@ -121,6 +121,12 @@ volatile bool netParked = false;
 volatile bool updateDownloading = false;
 // VSLAB: the SD card is mounted (it stays mounted while the device sleeps; STATE_STORAGE_READY doesn't)
 bool sdMounted = false;
+#ifdef VSLAB_TEST_POWER
+// VSLAB test build: parts switched off from the USB serial port, to measure each one's power draw (powerCommand)
+volatile bool testNetPaused = false;
+bool testGpsOff = false;
+bool testObdOff = false;
+#endif
 // VSLAB: the RPM the engine computer froze at after switch-off: not a running engine while it repeats (engineRunning)
 int frozenRpm = -1;
 // VSLAB: an operator's beacon on the machine's list (see loadAccess); defined up here for the generated prototypes
@@ -895,7 +901,11 @@ void process()
         }
       }
     }
-  } else if (obd.init(PROTO_AUTO, true)) {
+  } else if (
+#ifdef VSLAB_TEST_POWER
+      !testObdOff && // VSLAB test build: engine-computer link switched off
+#endif
+      obd.init(PROTO_AUTO, true)) {
     state.set(STATE_OBD_READY);
     Serial.println("[OBD] ECU ON");
   }
@@ -915,7 +925,11 @@ void process()
   processMEMS(buffer);
 #endif
 
+#ifdef VSLAB_TEST_POWER
+  bool success = testGpsOff ? true : processGPS(buffer); // VSLAB test build: GPS switched off
+#else
   bool success = processGPS(buffer);
+#endif
 #if GNSS_RESET_TIMEOUT
   if (success) {
     lastGPStick = millis();
@@ -2360,6 +2374,12 @@ void telemetry(void* inst)
 #endif
 
     while (state.check(STATE_WORKING)) {
+#ifdef VSLAB_TEST_POWER
+      if (testNetPaused) { // VSLAB test build: no network activity (the modem stays as it was left)
+        delay(100);
+        continue;
+      }
+#endif
 #if ENABLE_WIFI
       if (wifiSSID[0]) {
         if (!state.check(STATE_WIFI_CONNECTED) && teleClient.wifi.connected()) {
@@ -3047,8 +3067,83 @@ if (!state.check(STATE_MEMS_READY)) do {
 #endif
 }
 
+#ifdef VSLAB_TEST_POWER
+/*
+  VSLAB test build: switch parts on and off by typing on the USB serial port, to measure each one's draw with a USB
+  power meter (docs/power.md): net pause|run, modem off|on, scan full|low|off|on, adv off|on, gps off|on,
+  obd off|on, cpu 80|160|240, status.
+*/
+void powerCommand()
+{
+  static char line[24];
+  static uint8_t n = 0;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c != '\n' && c != '\r') {
+      if (n < sizeof(line) - 1) line[n++] = c;
+      continue;
+    }
+    if (!n) continue;
+    line[n] = 0;
+    n = 0;
+    bool ok = true;
+    if (!strcmp(line, "net pause")) testNetPaused = true;
+    else if (!strcmp(line, "net run")) testNetPaused = false;
+    else if (!strcmp(line, "modem off")) {
+      testNetPaused = true;
+      delay(1000); // the network task finishes what it's doing
+      teleClient.cell.end();
+      state.clear(STATE_NET_READY | STATE_CELL_CONNECTED);
+    } else if (!strcmp(line, "modem on")) testNetPaused = false; // the network task starts it again
+#if ENABLE_BLE
+    else if (!strcmp(line, "scan full")) ble_scan_timing(80, 60);
+    else if (!strcmp(line, "scan low")) ble_scan_timing(800, 48); // 30 ms of every 500 ms
+    else if (!strcmp(line, "scan off")) ble_scan_stop();
+    else if (!strcmp(line, "scan on")) ble_scan_start(beaconHeard);
+    else if (!strcmp(line, "adv off")) ble_advertising(0);
+    else if (!strcmp(line, "adv on")) ble_advertising(1);
+#endif
+    else if (!strcmp(line, "gps off")) {
+      testGpsOff = true;
+      sys.gpsEnd(true);
+      state.clear(STATE_GPS_READY | STATE_GPS_ONLINE);
+      gd = 0;
+    } else if (!strcmp(line, "gps on")) {
+      testGpsOff = false;
+      if (initGPS()) state.set(STATE_GPS_READY);
+    }
+#if ENABLE_OBD
+    else if (!strcmp(line, "obd off")) {
+      testObdOff = true;
+      state.clear(STATE_OBD_READY);
+      obd.enterLowPowerMode();
+    } else if (!strcmp(line, "obd on")) {
+      testObdOff = false;
+      obd.leaveLowPowerMode();
+    }
+#endif
+    else if (!strncmp(line, "cpu ", 4)) ok = setCpuFrequencyMhz(atoi(line + 4));
+    else if (strcmp(line, "status")) ok = false;
+    Serial.print("[POWER] ");
+    Serial.print(line);
+    Serial.print(ok ? ": done" : ": not understood");
+    Serial.print(" | cpu ");
+    Serial.print(getCpuFrequencyMhz());
+    Serial.print(" MHz, net ");
+    Serial.print(testNetPaused ? "paused" : "running");
+    Serial.print(", gps ");
+    Serial.print(testGpsOff ? "off" : "on");
+    Serial.print(", obd ");
+    Serial.println(testObdOff ? "off" : "on");
+  }
+}
+#endif
+
 void loop()
 {
+#ifdef VSLAB_TEST_POWER
+  powerCommand();
+#endif
 #ifdef VSLAB_MODEM_PASSTHROUGH
   // VSLAB test mode: relay bytes between the PC and the modem
   char buf[128];

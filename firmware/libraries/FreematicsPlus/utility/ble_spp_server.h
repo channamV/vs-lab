@@ -56,3 +56,6 @@ void ble_send_response(void* data, int len, char* ptr_to_free);
 typedef void (*ble_scan_cb_t)(const uint8_t* addr, const char* name, int rssi);
 void ble_scan_start(ble_scan_cb_t cb);
 void ble_scan_stop(void);
+// VSLAB: scan timing in 0.625 ms units (default 80 / 60: 37.5 ms of every 50 ms), and advertising on/off (power tests)
+void ble_scan_timing(uint16_t interval, uint16_t window);
+void ble_advertising(int on);

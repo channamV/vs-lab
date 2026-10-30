@@ -246,6 +246,22 @@ void ble_scan_start(ble_scan_cb_t cb)
     esp_ble_gap_set_scan_params(&scan_params); // scanning starts when the parameters are set (below)
 }
 
+void ble_scan_timing(uint16_t interval, uint16_t window)
+{
+    scan_params.scan_interval = interval;
+    scan_params.scan_window = window;
+    if (scan_cb) {
+        esp_ble_gap_stop_scanning();
+        esp_ble_gap_set_scan_params(&scan_params); // scanning restarts when they're set
+    }
+}
+
+void ble_advertising(int on)
+{
+    if (on) esp_ble_gap_start_advertising(&spp_adv_params);
+    else esp_ble_gap_stop_advertising();
+}
+
 void ble_scan_stop(void)
 {
     if (!scan_cb) return;
