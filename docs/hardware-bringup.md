@@ -23,7 +23,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 
 **Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`), no sleep while moving and restart/sleep reasons (`4d495a4`), battery voltage while parked (`6150144`), field-test-2 fixes (`0b87e07`: unsent readings kept on the SD card through
 sleep, SIM7670 upload fixes, faster modem recovery, failure logging), no sleep while the engine idles (`e4b6402`), frozen engine readings = engine off (`cfe7645`), and
-**vs-0.3.0** (beacon check-ins, `1199ba1`; earlier vs-0.2.x: see below): version on sign-in, log file on the SD card, restart reports, updates over the air (two
+**vs-0.3.1** (beacon check-ins at engine start; earlier vs-0.2.x: see below): version on sign-in, log file on the SD card, restart reports, updates over the air (two
 firmware slots: the partition table changed), fuel level and odometer, 10 s upload result wait. **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
 
 ---
@@ -441,6 +441,14 @@ at -51 dBm; taken out of the room at ~12:15, last heard at -96 dBm, `gone` at 12
 back at 12:17:32 (-78 dBm) → checked in again, delivered. The other beacon was then too far (-93 dBm) to take over,
 so the hand-over to a second operator wasn't exercised. A beacon going away doesn't end the check-in: VS-lab ends it
 by the engine rules, as for QR check-ins. Normal build back on the device.
+
+✅ **Passers-by aren't check-ins** (Craig, 2026-10-30): a beacon check-in only at an engine start, from the closest
+beacon that has stayed near; unapproved → "Unapproved operator running" alert (VS-lab `39454be`), firmware **vs-0.3.1**
+(`feat/cell-beam`, on Y5725A32). Distance measurement (Craig's beacon on the desk): 30 cm and 70 cm alike (-55 to
+-71 dBm), 2 m -70 to -79, 5 m -91 to -100, 70 cm in a shirt pocket -84 to -94: a pocket costs ~25 dB, so the -92 dBm
+threshold stays and the engine start decides. Desk test with a pretend engine start (`VSLAB_TEST_ENGINE_AT=90`):
+nothing while "parked", check-in for operator 2 a second after the start. ⏳ Real check in the CX-9 (vs-0.3.1 is on
+its device now): beacon in a pocket, start the engine, the check-in should appear; re-measure signal in the cab.
 
 **Next:** the relay for Safety & Access Control (to-do 9 a–d); phone-app passes (9 f).
 Command size limits the list to about 7 beacons for now.
