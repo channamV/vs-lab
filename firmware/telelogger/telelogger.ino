@@ -121,6 +121,14 @@ volatile bool netParked = false;
 volatile bool updateDownloading = false;
 // VSLAB: the SD card is mounted (it stays mounted while the device sleeps; STATE_STORAGE_READY doesn't)
 bool sdMounted = false;
+// VSLAB: an operator's beacon on the machine's list (see loadAccess); defined up here for the generated prototypes
+struct Beacon {
+  char id[32];
+  uint32_t op;
+  volatile uint32_t heardAt; // last heard at -96 dBm or better (millis, 0 = never)
+  volatile uint32_t nearAt; // last heard at -92 dBm or better
+  volatile int8_t rssi;
+};
 uint32_t lastStatsTime = 0;
 
 int32_t syncInterval = SERVER_SYNC_INTERVAL * 1000;
@@ -1067,6 +1075,74 @@ enum { BATCH_NONE, BATCH_SENT, BATCH_REJECTED, BATCH_FAILED };
 bool forceReport = false; // VSLAB: REPORT command: send now, without waiting for the batch timer
 
 /*******************************************************************************
+  VSLAB: operators' Bluetooth beacons (docs/starter-relay.md; Safety & Access Monitoring and Control). VS-lab sends
+  the machine's list as ACCESS=<version>\t<beacon>:<operator id>,... (kept in NVS, VSLAB_ACCESS); a beacon is a
+  broadcast name (VS-BEACON-20) or a MAC address (AA:BB:CC:DD:EE:FF), the operator ID after the last colon. A listed
+  beacon that comes within about 70 cm (signal at least -92 dBm, Veristart's production threshold) is reported to
+  VS-lab as a check-in for its operator, and so is one still near when the engine starts. It counts as gone after
+  a minute without being heard at -96 dBm or better (desk test 2026-10-30: 10 s made beacons a metre away flicker).
+  Reports wait in memory (up to 8) for signal; without a clock (no GPS fix yet) they go undated (t=0) and VS-lab
+  dates them on arrival.
+*******************************************************************************/
+#if ENABLE_BLE
+#define VSLAB_BEACON_NEAR_RSSI -92
+#define VSLAB_BEACON_FAR_RSSI -96
+#define VSLAB_BEACON_GONE_MS 60000
+#define VSLAB_BEACON_MAX 16
+Beacon beacons[VSLAB_BEACON_MAX];
+volatile uint8_t beaconCount = 0;
+volatile uint32_t advertsHeard = 0; // all advertisements, for the log
+
+// on the Bluetooth task, for every advertisement heard
+void beaconHeard(const uint8_t* addr, const char* name, int rssi)
+{
+  advertsHeard++;
+  if (rssi < VSLAB_BEACON_FAR_RSSI) return;
+  char mac[18];
+  snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+  uint32_t now = millis() | 1;
+  uint8_t count = beaconCount;
+  for (uint8_t i = 0; i < count; i++) {
+    Beacon& b = beacons[i];
+    if (strchr(b.id, ':') ? strcmp(b.id, mac) != 0 : (!name[0] || strcasecmp(b.id, name) != 0)) continue;
+    b.heardAt = now;
+    b.rssi = rssi;
+    if (rssi >= VSLAB_BEACON_NEAR_RSSI) b.nearAt = now;
+  }
+}
+
+// value: <version>\t<beacon>:<operator id>,...
+void loadAccess(const char* value)
+{
+  ble_scan_stop();
+  beaconCount = 0;
+  delay(100); // a scan result being handled finishes with the old list
+  const char* tab = strchr(value, '\t');
+  uint8_t n = 0;
+  for (const char* p = tab ? tab + 1 : ""; *p && n < VSLAB_BEACON_MAX; ) {
+    const char* end = strchr(p, ',');
+    int len = end ? end - p : strlen(p);
+    const char* colon = 0;
+    for (const char* q = p; q < p + len; q++) if (*q == ':') colon = q;
+    if (colon && colon > p && colon - p < (int)sizeof(beacons[0].id)) {
+      Beacon& b = beacons[n];
+      memset(&b, 0, sizeof(b));
+      memcpy(b.id, p, colon - p);
+      b.op = strtoul(colon + 1, 0, 10);
+      if (b.op) n++;
+    }
+    p += len;
+    if (*p == ',') p++;
+  }
+  beaconCount = n;
+  Serial.print("[BLE] Beacon list: ");
+  Serial.print(n);
+  Serial.println(n ? " operators: scanning" : " operators");
+  if (n) ble_scan_start(beaconHeard);
+}
+#endif
+
+/*******************************************************************************
   VSLAB: device commands from VS-lab (docs/device-commands.md). Each "CMD <id> <sig> <command>" line is checked
   (HMAC-SHA256 with this device's key, first 16 hex characters), run once (IDs only go up; the last one is kept in
   NVS) and answered at /hub/api/ack. Without a key (VSLAB_DEVICE_KEY empty) unsigned commands ("-") are accepted,
@@ -1140,6 +1216,17 @@ void runCommand(const char* command, bool* ok, char* result, int resultSize)
     snprintf(result, resultSize, "reported");
   } else if (nameLen == 5 && !strncmp(command, "RESET", 5)) {
     snprintf(result, resultSize, "restarting");
+  } else if (nameLen == 6 && !strncmp(command, "ACCESS", 6)) {
+#if ENABLE_BLE
+    // VSLAB: the machine's beacon list (see loadAccess)
+    loadAccess(value);
+    nvs_set_str(nvs, "VSLAB_ACCESS", value);
+    nvs_commit(nvs);
+    snprintf(result, resultSize, "beacons %u", (unsigned int)beaconCount);
+#else
+    *ok = false;
+    snprintf(result, resultSize, "no Bluetooth in this build");
+#endif
   } else {
     *ok = false;
     snprintf(result, resultSize, "not supported yet");
@@ -1750,6 +1837,124 @@ void installUpdate(CStorageRAM& store)
 }
 #endif
 
+#if ENABLE_BLE
+// VSLAB: beacon arrivals (and beacons near at an engine start) waiting to be reported as check-ins
+struct BeaconReport {
+  uint32_t op;
+  char id[32];
+  uint32_t at; // millis when it happened
+};
+BeaconReport beaconReports[8];
+uint8_t beaconReportCount = 0;
+uint32_t beaconRetryAt = 0;
+
+void queueBeaconReport(const Beacon& b)
+{
+  if (beaconReportCount == sizeof(beaconReports) / sizeof(beaconReports[0])) {
+    memmove(beaconReports, beaconReports + 1, sizeof(beaconReports) - sizeof(beaconReports[0]));
+    beaconReportCount--;
+  }
+  BeaconReport& r = beaconReports[beaconReportCount++];
+  r.op = b.op;
+  strcpy(r.id, b.id);
+  r.at = millis();
+}
+
+// which listed beacons came near or went away
+void beaconTick()
+{
+  static bool wasRunning = false;
+  bool running = engineRunning();
+  bool started = running && !wasRunning;
+  wasRunning = running;
+  uint32_t now = millis();
+  // once a minute: is the scan hearing things, and when were the listed beacons last heard
+  static uint32_t lastSummary = 0;
+  if (beaconCount && now - lastSummary >= 60000) {
+    Serial.print("[BLE] Heard ");
+    Serial.print(advertsHeard);
+    Serial.print(" advertisements in ");
+    Serial.print(lastSummary ? (now - lastSummary) / 1000 : now / 1000);
+    Serial.print(" s");
+    for (uint8_t i = 0; i < beaconCount; i++) {
+      Serial.print("; ");
+      Serial.print(beacons[i].id);
+      if (!beacons[i].heardAt) {
+        Serial.print(" not heard");
+        continue;
+      }
+      Serial.print(' ');
+      Serial.print(beacons[i].rssi);
+      Serial.print(" dBm ");
+      Serial.print((now - beacons[i].heardAt) / 1000);
+      Serial.print(" s ago");
+    }
+    Serial.println();
+    advertsHeard = 0;
+    lastSummary = now;
+  }
+  // one operator at a time, as in Veristart's production firmware: the closest beacon that comes near is followed
+  // until it's gone; other beacons are ignored meanwhile
+  static int8_t current = -1;
+  if (current >= beaconCount) current = -1; // the list changed
+  if (current >= 0) {
+    Beacon& b = beacons[current];
+    if (!b.heardAt || now - b.heardAt >= VSLAB_BEACON_GONE_MS) {
+      Serial.print("[BLE] Beacon ");
+      Serial.print(b.id);
+      Serial.println(" gone");
+      current = -1;
+    } else if (started) {
+      Serial.print("[BLE] Engine started with beacon ");
+      Serial.print(b.id);
+      Serial.println(" near: check-in");
+      queueBeaconReport(b);
+    }
+  }
+  if (current < 0) {
+    for (uint8_t i = 0; i < beaconCount; i++) {
+      Beacon& b = beacons[i];
+      if (b.nearAt && now - b.nearAt < 3000 && (current < 0 || b.rssi > beacons[current].rssi)) current = i;
+    }
+    if (current >= 0) {
+      Beacon& b = beacons[current];
+      Serial.print("[BLE] Beacon ");
+      Serial.print(b.id);
+      Serial.print(" near (");
+      Serial.print(b.rssi);
+      Serial.print(" dBm): check-in for operator ");
+      Serial.println(b.op);
+      queueBeaconReport(b);
+    }
+  }
+}
+
+// sends waiting check-ins, oldest first
+void sendBeaconReports()
+{
+  if (!beaconReportCount || millis() < beaconRetryAt) return;
+  time_t clock = time(0);
+  BeaconReport& r = beaconReports[0];
+  uint32_t t = clock >= 1700000000 ? clock - (millis() - r.at) / 1000 : 0; // 0: no clock yet, dated on arrival
+  char sig[17] = "-";
+  const char* key = VSLAB_DEVICE_KEY;
+  if (key[0]) {
+    char text[96];
+    snprintf(text, sizeof(text), "access\n%s\n%u\n%s\n%u", devid, (unsigned int)r.op, r.id, (unsigned int)t);
+    hmac16(key, text, sig);
+  }
+  if (teleClient.access(r.op, r.id, t, sig)) {
+    Serial.print("[NET] Beacon check-in sent: operator ");
+    Serial.println(r.op);
+    memmove(beaconReports, beaconReports + 1, (beaconReportCount - 1) * sizeof(beaconReports[0]));
+    beaconReportCount--;
+  } else {
+    Serial.println("[NET] Beacon check-in not delivered: trying again in 10 s");
+    beaconRetryAt = millis() + 10000;
+  }
+}
+#endif
+
 /*******************************************************************************
   Initializing network, maintaining connection and doing transmissions
 *******************************************************************************/
@@ -1930,6 +2135,11 @@ void telemetry(void* inst)
       // VSLAB: an update waiting for the engine to stop; a new version that hasn't reached VS-lab in time
       if (updateInstall && engineOffForUpdate()) installUpdate(store);
       checkFirmwareDeadline();
+#if ENABLE_BLE
+      // VSLAB: operators' beacons: arrivals become check-ins
+      beaconTick();
+      if (state.check(STATE_NET_READY)) sendBeaconReports();
+#endif
 
       // VSLAB: send in batches, oldest first, once the oldest reading has waited long enough (see sendBatch)
       uint32_t oldest;
@@ -2484,6 +2694,12 @@ if (!state.check(STATE_MEMS_READY)) do {
 #if ENABLE_BLE
   // init BLE
   ble_init("FreematicsPlus");
+  // VSLAB: the machine's beacon list from before the restart
+  {
+    static char list[512];
+    size_t len = sizeof(list);
+    if (nvs_get_str(nvs, "VSLAB_ACCESS", list, &len) == ESP_OK) loadAccess(list);
+  }
 #endif
 
   // initialize components

@@ -4,7 +4,7 @@
 // (docs/firmware-updates.md). Raise it for every build that goes to devices; test builds can set it with
 // -DVSLAB_FW_VERSION=\"...\".
 #ifndef VSLAB_FW_VERSION
-#define VSLAB_FW_VERSION "vs-0.2.7"
+#define VSLAB_FW_VERSION "vs-0.3.0"
 #endif
 
 #define EVENT_LOGIN 1
@@ -126,6 +126,7 @@ public:
     void shutdown();
     bool ack(uint32_t id, bool ok, const char* result, const char* sig); // VSLAB: answer a device command
     bool post(const char* path, const char* body, int bodySize); // VSLAB: e.g. the restart report; true on 200
+    bool access(uint32_t op, const char* beacon, uint32_t t, const char* sig); // VSLAB: a beacon check-in; true on 200
     int download(const char* path, uint32_t offset, uint32_t length, uint8_t* out); // VSLAB: firmware piece
 #if ENABLE_WIFI
     WifiHTTP wifi;

@@ -50,3 +50,9 @@ void ble_init(const char* adv_name);
 void ble_send(int spp_index, void* data, int len);
 char* ble_recv_command(int timeout);
 void ble_send_response(void* data, int len, char* ptr_to_free);
+
+// VSLAB: scanning for operators' beacons, alongside the phone service. The callback gets every advertisement (and
+// scan response) with the sender's address, its name ("" if none) and signal strength, on the Bluetooth task.
+typedef void (*ble_scan_cb_t)(const uint8_t* addr, const char* name, int rssi);
+void ble_scan_start(ble_scan_cb_t cb);
+void ble_scan_stop(void);

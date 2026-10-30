@@ -225,12 +225,71 @@ void ble_send_response(void* data, int len, char* ptr_to_free)
     }
 }
 
+/*
+  VSLAB: beacon scanning (docs/starter-relay.md). Active scanning (beacons may put their name in the scan response)
+  with Veristart's production timing: a 37.5 ms window every 50 ms. It runs until stopped, alongside advertising.
+*/
+static ble_scan_cb_t scan_cb = 0;
+static esp_ble_scan_params_t scan_params = {
+    .scan_type = BLE_SCAN_TYPE_ACTIVE,
+    .own_addr_type = BLE_ADDR_TYPE_PUBLIC,
+    .scan_filter_policy = BLE_SCAN_FILTER_ALLOW_ALL,
+    .scan_interval = 80,
+    .scan_window = 60,
+    .scan_duplicate = BLE_SCAN_DUPLICATE_DISABLE,
+};
+
+void ble_scan_start(ble_scan_cb_t cb)
+{
+    if (!cb || scan_cb == cb) return;
+    scan_cb = cb;
+    esp_ble_gap_set_scan_params(&scan_params); // scanning starts when the parameters are set (below)
+}
+
+void ble_scan_stop(void)
+{
+    if (!scan_cb) return;
+    scan_cb = 0;
+    esp_ble_gap_stop_scanning();
+}
+
+static void scan_name(uint8_t* data, uint8_t data_len, char* out, int size)
+{
+    uint8_t len = 0;
+    uint8_t* name = esp_ble_resolve_adv_data(data, ESP_BLE_AD_TYPE_NAME_CMPL, &len);
+    if (!name) name = esp_ble_resolve_adv_data(data, ESP_BLE_AD_TYPE_NAME_SHORT, &len);
+    if (!name || !len || name + len > data + data_len) return;
+    if (len > size - 1) len = size - 1;
+    memcpy(out, name, len);
+    out[len] = 0;
+}
+
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
     esp_err_t err;
+    if (event == ESP_GAP_BLE_SCAN_RESULT_EVT) {
+        // VSLAB: many per second while scanning: not logged
+        if (scan_cb && param->scan_rst.search_evt == ESP_GAP_SEARCH_INQ_RES_EVT) {
+            char name[32] = "";
+            uint8_t adv_len = param->scan_rst.adv_data_len, rsp_len = param->scan_rst.scan_rsp_len;
+            if (adv_len) scan_name(param->scan_rst.ble_adv, adv_len, name, sizeof(name));
+            if (!name[0] && rsp_len) scan_name(param->scan_rst.ble_adv + adv_len, rsp_len, name, sizeof(name));
+            ble_scan_cb_t cb = scan_cb;
+            if (cb) cb(param->scan_rst.bda, name, param->scan_rst.rssi);
+        }
+        return;
+    }
     ESP_LOGE(GATTS_TABLE_TAG, "GAP_EVT, event %d\n", event);
 
     switch (event) {
+    case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
+        if (scan_cb) esp_ble_gap_start_scanning(0); // VSLAB: 0 = until stopped
+        break;
+    case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
+        if ((err = param->scan_start_cmpl.status) != ESP_BT_STATUS_SUCCESS) {
+            ESP_LOGE(GATTS_TABLE_TAG, "Scan start failed: %s\n", esp_err_to_name(err));
+        }
+        break;
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
         esp_ble_gap_start_advertising(&spp_adv_params);
         break;

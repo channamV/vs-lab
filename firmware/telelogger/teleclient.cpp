@@ -608,6 +608,30 @@ bool TeleClientHTTP::ack(uint32_t id, bool ok, const char* result, const char* s
   }
 }
 
+// VSLAB: a beacon check-in (docs/starter-relay.md): GET /access/<device>?op=&b=&t=&sig=; true when VS-lab answers 200
+bool TeleClientHTTP::access(uint32_t op, const char* beacon, uint32_t t, const char* sig)
+{
+  char enc[96];
+  int n = 0;
+  for (const char* r = beacon; *r && n < (int)sizeof(enc) - 4; r++) {
+    if (isalnum((unsigned char)*r) || *r == '-' || *r == '_' || *r == '.' || *r == ':') enc[n++] = *r;
+    else n += sprintf(enc + n, "%%%02X", (unsigned char)*r);
+  }
+  enc[n] = 0;
+  char path[192];
+  snprintf(path, sizeof(path), "%s/access/%s?op=%u&b=%s&t=%u&sig=%s", SERVER_PATH, devid, (unsigned int)op, enc, (unsigned int)t, sig);
+#if ENABLE_WIFI
+  if (wifi.connected())
+  {
+    return wifi.send(METHOD_GET, path) && wifi.receive(cell.getBuffer(), RECV_BUF_SIZE - 1) && wifi.code() == 200;
+  }
+  else
+#endif
+  {
+    return cell.send(METHOD_GET, SERVER_HOST, SERVER_PORT, path) && cell.receive() && cell.code() == 200;
+  }
+}
+
 // VSLAB: posts a body to a path under SERVER_PATH (e.g. /diag/<device ID>); true when the server answers 200
 bool TeleClientHTTP::post(const char* path, const char* body, int bodySize)
 {
