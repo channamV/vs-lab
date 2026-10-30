@@ -52,6 +52,31 @@ describe("fuel theft", () => {
     expect(session.fuelStartPct).toBe(52);
   });
 
+  it("needs a 10% drop on car and pickup fuel gauges (OBD), which swing more", async () => {
+    // The F-150, 2026-10-30: 34% at the stop, 29% at the next start: 5 points, inside the gauge's own swing.
+    await run([34, 34, 34, 34, 34], 0);
+    await stopped(10);
+    expect(await run([29, 29, 29, 29, 29, 29], 30)).toEqual([]);
+    await stopped(40);
+    // A real 12-point drop still alerts.
+    expect(await run([17, 17, 17, 17, 17, 17], 70)).toHaveLength(1);
+  });
+
+  it("ignores readings taken just after braking", async () => {
+    const at2 = (min: number, sec: number) => new Date(t0.getTime() + min * 60_000 + sec * 1000);
+    const send = (fields: Record<string, number>, when: Date) => ingestSamples(db, "DEV1", [{ obdRpm: 900, ...fields }], { now: when });
+    await run([52, 52, 52, 52, 52], 0);
+    await stopped(10);
+    // Next start: drives off, brakes hard, and the gauge reads 20% for the next 25 seconds (fuel sloshing), then 52%.
+    await send({ obdFuelLevelPct: 52 }, at2(30, 0));
+    await send({ obdSpeedKph: 40, obdFuelLevelPct: 50 }, at2(31, 0));
+    for (const sec of [10, 20, 25]) await send({ obdSpeedKph: 0, obdFuelLevelPct: 20 }, at2(31, sec));
+    for (const min of [33, 34, 35]) await send({ obdSpeedKph: 0, obdFuelLevelPct: 52 }, at2(min, 0));
+    expect(await checkFuelTheft(db, machineId, at2(35, 1))).toEqual([]);
+    const [session] = await db.select().from(engineSessions).where(eq(engineSessions.startedAt, at2(30, 0)));
+    expect(session?.fuelStartPct).toBe(52);
+  });
+
   it("logs a refuel while parked", async () => {
     await run([30, 30, 30, 30, 30], 0);
     await stopped(10);

@@ -93,10 +93,14 @@ Enter each machine's **fuel tank size** (Edit machine) to get litres, and the th
 lower than when it last **stopped**:
 - fuel level only comes in while the ignition is on, so it compares the last readings before the stop with the
   first readings after the start, once the level has settled (2 minutes);
-- only readings taken while the machine is **stopped** (under 3 km/h) count, in all three checks: fuel sloshing while
-  driving moves the reading a lot (a car's 38% read as 50%, logged as a false refuel on 2026-10-28);
+- only readings taken while the machine is **stopped** (under 3 km/h) **for at least 30 seconds**, and not in the
+  **first minute after a start**, count, in all three checks: fuel sloshing while driving or just after braking moves the
+  reading a lot (a car's 38% read as 50%, a false refuel on 2026-10-28; an F-150 read 41% then 34% within a minute of
+  stopping, false theft alerts on 2026-10-30). If a vehicle drives off before the level can be read standing still, the
+  reference point for refuels while running is taken at its next long enough stop;
 - the **median** of up to 15 readings each side, so one odd reading doesn't count;
-- at least **5% of the tank** and, with the tank size, at least **20 L**. One check per engine start.
+- at least **5% of the tank** on machines whose engine computer reports the level (J1939), **10%** on cars and pickups
+  (OBD fuel gauges swing more), and, with the tank size, at least **20 L**. One check per engine start.
 
 **2. Refuels → the fuel log** (and the *Refuelled* notification, if you subscribe). The level went **up** by at
 least 8% of the tank (and 20 L with the tank size): while parked (compared at the next start) or while running

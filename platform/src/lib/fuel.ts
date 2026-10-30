@@ -20,8 +20,12 @@ import { recordEvent } from "@/lib/notifications";
  * Refuels and suspected thefts go in the fuel log (fuel_events).
  */
 export const FUEL_RULES = {
-  /** A drop of at least this much of the tank raises a theft alert... */
+  /**
+   * A drop of at least this much of the tank raises a theft alert (engine computer data, J1939: steady)... Car and pickup
+   * fuel gauges (OBD) swing more (an F-150 read 41% then 34% within a minute of stopping), so they need minDropPctObd.
+   */
   minDropPct: 5,
+  minDropPctObd: 10,
   /** ...and, when the tank size is known, at least this many litres. */
   minDropLitres: 20,
   /** A rise of at least this much of the tank is a refuel (and, with the tank size, at least minRefuelLitres). */
@@ -31,8 +35,12 @@ export const FUEL_RULES = {
   settleMinutes: 2,
   /** Readings used for each median (only readings taken while stopped). */
   readings: 15,
-  /** A reading counts only below this speed (OBD speed, else GPS speed; no speed at all counts as stopped). */
+  /** A reading counts only below this speed (OBD speed, else GPS speed; no speed at all counts as stopped)... */
   stoppedBelowKph: 3,
+  /** ...once the machine has been stopped this long (the fuel stops sloshing after braking)... */
+  stoppedSeconds: 30,
+  /** ...and not in the first minute after an engine start. */
+  afterStartSeconds: 60,
   /** Give up on a start that hasn't sent enough fuel readings after this long. */
   giveUpMinutes: 15,
   /** Only compare with a stop within this many days. */
@@ -43,9 +51,21 @@ export const FUEL_RULES = {
 };
 
 const FUEL_LEVEL = sql<number>`coalesce(${telemetry.fields}->>'j1939FuelLevelPct', ${telemetry.fields}->>'obdFuelLevelPct')::float`;
-/** Has a fuel level, and was taken while stopped: a level read while moving is mostly fuel sloshing. */
+/**
+ * Has a fuel level, and was taken after the machine had been stopped for a while: a level read while moving, or just
+ * after braking, is mostly fuel sloshing (Craig 2026-10-29 and 2026-10-30).
+ */
 const HAS_FUEL_LEVEL = sql`(${telemetry.fields} ? 'j1939FuelLevelPct' or ${telemetry.fields} ? 'obdFuelLevelPct')
-  and coalesce((${telemetry.fields}->>'obdSpeedKph')::float, ${telemetry.speedKph}, 0) < ${FUEL_RULES.stoppedBelowKph}`;
+  and coalesce((${telemetry.fields}->>'obdSpeedKph')::float, ${telemetry.speedKph}, 0) < ${FUEL_RULES.stoppedBelowKph}
+  and not exists (
+    select 1 from telemetry moving
+    where moving.machine_id = ${telemetry.machineId}
+      and moving.recorded_at < ${telemetry.recordedAt}
+      and moving.recorded_at >= ${telemetry.recordedAt} - make_interval(secs => ${FUEL_RULES.stoppedSeconds})
+      and coalesce((moving.fields->>'obdSpeedKph')::float, moving.speed_kph, 0) >= ${FUEL_RULES.stoppedBelowKph}
+  )`;
+/** Fuel levels from a car or pickup's OBD port rather than an engine computer (J1939). */
+const FROM_OBD = sql<boolean>`not (${telemetry.fields} ? 'j1939FuelLevelPct')`;
 const TOTAL_FUEL = sql<number | null>`(${telemetry.fields}->>'j1939TotalFuelL')::float`;
 
 export function median(values: number[]): number {
@@ -104,9 +124,16 @@ export async function checkFuelTheft(db: Db, machineId: number, now = new Date()
   if (runningMs < FUEL_RULES.settleMinutes * 60_000) return [];
 
   const after = await db
-    .select({ level: FUEL_LEVEL, total: TOTAL_FUEL })
+    .select({ level: FUEL_LEVEL, total: TOTAL_FUEL, obd: FROM_OBD })
     .from(telemetry)
-    .where(and(eq(telemetry.machineId, machineId), eq(telemetry.engineOn, true), gte(telemetry.receivedAt, session.startedAt), HAS_FUEL_LEVEL))
+    .where(
+      and(
+        eq(telemetry.machineId, machineId),
+        eq(telemetry.engineOn, true),
+        gte(telemetry.receivedAt, new Date(session.startedAt.getTime() + FUEL_RULES.afterStartSeconds * 1000)),
+        HAS_FUEL_LEVEL,
+      ),
+    )
     .orderBy(telemetry.receivedAt, telemetry.id)
     .limit(FUEL_RULES.readings);
   if (after.length < Math.min(3, FUEL_RULES.readings)) {
@@ -154,7 +181,8 @@ export async function checkFuelTheft(db: Db, machineId: number, now = new Date()
     return [];
   }
   const dropPct = stopPct - startPct;
-  if (!significant(machine, dropPct, FUEL_RULES.minDropPct, FUEL_RULES.minDropLitres)) return [];
+  const minDrop = after.some((r) => r.obd) ? FUEL_RULES.minDropPctObd : FUEL_RULES.minDropPct;
+  if (!significant(machine, dropPct, minDrop, FUEL_RULES.minDropLitres)) return [];
 
   const tz = await orgTimeZone(db, machine.organizationId);
   const stoppedAt = before[0].at;
@@ -192,6 +220,33 @@ export async function checkFuelTheft(db: Db, machineId: number, now = new Date()
   return raised;
 }
 
+/** A reference point for the checks while running, from the latest readings taken standing still (if enough). */
+async function anchorAtStop(db: Db, session: EngineSession, now: Date) {
+  const latest = await db
+    .select({ level: FUEL_LEVEL, total: TOTAL_FUEL })
+    .from(telemetry)
+    .where(
+      and(
+        eq(telemetry.machineId, session.machineId),
+        eq(telemetry.engineOn, true),
+        gte(telemetry.receivedAt, new Date(session.startedAt.getTime() + FUEL_RULES.afterStartSeconds * 1000)),
+        HAS_FUEL_LEVEL,
+      ),
+    )
+    .orderBy(desc(telemetry.receivedAt), desc(telemetry.id))
+    .limit(FUEL_RULES.readings);
+  if (latest.length < Math.min(3, FUEL_RULES.readings)) return;
+  await db
+    .update(engineSessions)
+    .set({
+      fuelAnchorPct: median(latest.map((r) => Number(r.level))),
+      fuelAnchorTotalL: latest[0].total === null ? null : Number(latest[0].total),
+      fuelAnchorAt: now,
+      fuelRunCheckedAt: now,
+    })
+    .where(eq(engineSessions.id, session.id));
+}
+
 /**
  * Check 2, while the engine runs (every few minutes): compare the tank level and the engine's fuel meter
  * with the reference point. A rise is a refuel. On J1939 machines with a tank size, a drop bigger than the
@@ -203,7 +258,13 @@ export async function checkFuelWhileRunning(db: Db, machineId: number, now = new
     .select()
     .from(engineSessions)
     .where(and(eq(engineSessions.machineId, machineId), isNull(engineSessions.endedAt)));
-  if (!session || session.fuelAnchorPct === null || !session.fuelAnchorAt) return [];
+  if (!session) return [];
+  if (session.fuelAnchorPct === null || !session.fuelAnchorAt) {
+    // The start check gave up (it drove off before the level could be read standing still): take the first
+    // reference point at a later stop instead.
+    if (session.fuelCheckedAt) await anchorAtStop(db, session, now);
+    return [];
+  }
   if (session.fuelRunCheckedAt && now.getTime() - session.fuelRunCheckedAt.getTime() < FUEL_RULES.runCheckMinutes * 60_000) return [];
 
   const latest = await db

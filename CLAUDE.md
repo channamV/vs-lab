@@ -190,8 +190,9 @@ says it's compliant. Update that doc when items are done.
   ingest: `machines.engine_hour_meter`, DM1 faults (SPN×32+FMI) → `machine_faults` (one open per machine+SPN+FMI,
   cleared when absent from a fault list) + `engine_fault` event; wording in `src/lib/j1939.ts`. Reports: fuel/hours
   from meter deltas.
-- Fuel theft (`src/lib/fuel.ts`, tested; only readings taken while stopped, < `FUEL_RULES.stoppedBelowKph`, count; Craig
-  2026-10-29): `checkFuelTheft` in `afterDeviceReport` — once per engine session, after
+- Fuel theft (`src/lib/fuel.ts`, tested; only readings taken while stopped (< `stoppedBelowKph`) for ≥ `stoppedSeconds` and
+  ≥ `afterStartSeconds` after a start count; OBD levels need `minDropPctObd` 10%, J1939 5%; Craig 2026-10-29/30; a start
+  check that gave up anchors the running check at a later stop, `anchorAtStop`): `checkFuelTheft` in `afterDeviceReport` — once per engine session, after
   `FUEL_RULES.settleMinutes`, median of first readings after start vs last readings before it (J1939 `j1939FuelLevelPct`
   or `obdFuelLevelPct`); drop ≥ 5% (and ≥ 20 L with `machines.fuel_tank_litres`) → `fuel-theft` alert (any tier) →
   `possible_fuel_theft` event. `engine_sessions.fuel_start_pct/fuel_checked_at` record the check; a rise is a parked
