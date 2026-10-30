@@ -26,6 +26,13 @@ describe("relay rules (pure)", () => {
     expect(cleanBeaconName(" vs-beacon-20 ")).toBe("VS-BEACON-20");
     expect(cleanBeaconName("")).toBeNull();
     expect(cleanBeaconName("bad name!")).toEqual({ error: expect.any(String) });
+    // MAC addresses, as production stores them: colons or dashes, any case → upper case with colons.
+    expect(cleanBeaconName(" ac:23:3f:a1:b2:c3 ")).toBe("AC:23:3F:A1:B2:C3");
+    expect(cleanBeaconName("AC-23-3F-A1-B2-C3")).toBe("AC:23:3F:A1:B2:C3");
+    expect(cleanBeaconName("AC:23:3F:A1:B2")).toEqual({ error: expect.any(String) });
+    expect(cleanBeaconName("AC:23:3F:A1:B2:G3")).toEqual({ error: expect.any(String) });
+    // In the device's list the operator id follows the last colon.
+    expect(accessCommand([{ beacon: "AC:23:3F:A1:B2:C3", operatorId: 5 }]).command).toMatch(/\tAC:23:3F:A1:B2:C3:5$/);
   });
   it("lets an approved check-in start only on an Access-Controlled relay machine", () => {
     const m: Parameters<typeof shouldAllow>[0] = { tier: "control", mode: "access_controlled", modeUntil: null, modeRevertTo: null, lockedOutAt: null };
@@ -129,6 +136,14 @@ describe("relay commands", () => {
     const [c] = await db.select().from(checkins);
     expect(c).toMatchObject({ method: "ble", operatorId: jane, startedAt: at(-1), answers: [], locationCheck: "near" });
     await expect(beaconCheckIn(db, "DEV1", { operatorId: bob, beacon: "VS-BEACON-20", at: at(0) }, at(0))).rejects.toThrow(RelayError);
+    // A beacon given by its MAC address (production style), reported however the device writes it.
+    await updateOperator(db, org, bob, { name: "Bob", active: true, beaconName: "ac-23-3f-a1-b2-c3" });
+    expect((await db.select().from(operators).where(eq(operators.id, bob)))[0].beaconName).toBe("AC:23:3F:A1:B2:C3");
+    const bobs = await beaconCheckIn(db, "DEV1", { operatorId: bob, beacon: "ac:23:3f:a1:b2:c3", at: at(1) }, at(1));
+    expect(bobs).not.toBe(id);
+    await expect(beaconCheckIn(db, "DEV1", { operatorId: bob, beacon: "AC:23:3F:A1:B2:C4", at: at(2) }, at(2))).rejects.toThrow(RelayError);
+    await db.delete(checkins).where(eq(checkins.id, bobs));
+    await db.update(checkins).set({ endedAt: null, endReason: null }).where(eq(checkins.id, id));
     // Not a checklist result.
     const { total } = await queryChecklistResults(db, org, { organizationId: org, divisionIds: null }, parseResultFilters({ covered: "1" }, T0, "America/Toronto"));
     expect(total).toBe(0);

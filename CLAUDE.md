@@ -311,7 +311,8 @@ says it's compliant. Update that doc when items are done.
   GPIO26 HIGH = start allowed): control-tier paired machines get `MODE=` (repair lockout counts as Locked: `syncRelayMode`),
   `ALLOW=<checkin>\t<start min>\t<break min>` after an approved QR check-in (`sendAllow` in `afterCheckin`; ack →
   `checkins.relay_allowed_at`), `REVOKE=<checkin>` (manager ends it, operator deactivated), `ACCESS=<version>\t<beacon>:<op>,…`
-  (`syncAccessList`: active operators with `operators.beacon_name`, approved/scheduled/certified, required training; watchdog
+  (`syncAccessList`: active operators with `operators.beacon_name` = MAC `AA:BB:CC:DD:EE:FF` or broadcast name (`cleanBeaconName`;
+  operator id after the last colon), approved/scheduled/certified, required training; watchdog
   + approval/operator changes; ack → `machines.access_list_hash`). Beacon starts → `beaconCheckIn` (method ble, no
   checklist; not a checklist result). Firmware side: hardware-bringup to-do 9.
 - Operator app (`src/lib/operator-app.ts`, tested; `docs/operator-app.md`; Craig 2026-10-26; app in `mobile/`, checks:

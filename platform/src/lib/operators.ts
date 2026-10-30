@@ -260,11 +260,19 @@ async function assertPinFree(db: Db, organizationId: number, pin: string, except
   if (taken) throw new OperatorError("That PIN is already used by another operator. Choose a different one.");
 }
 
-/** A beacon name as operators type it (pure): trimmed, upper case, letters/digits/dash/underscore, ≤ 31 characters. */
+/**
+ * An operator's beacon as typed (pure): its Bluetooth address (MAC, like production: "AA:BB:CC:DD:EE:FF", also with
+ * dashes or lower case; stored with colons) or its broadcast name (letters, digits, dash, underscore, ≤ 31 characters;
+ * upper case). Names can't contain colons, so the device can tell the two apart.
+ */
 export function cleanBeaconName(raw: string | null | undefined): string | null | { error: string } {
   const name = (raw ?? "").trim().toUpperCase();
   if (!name) return null;
-  if (!/^[A-Z0-9_-]{1,31}$/.test(name)) return { error: "A beacon name is letters, numbers and dashes, e.g. VS-BEACON-20." };
+  const mac = /^([0-9A-F]{2})[:-]([0-9A-F]{2})[:-]([0-9A-F]{2})[:-]([0-9A-F]{2})[:-]([0-9A-F]{2})[:-]([0-9A-F]{2})$/.exec(name);
+  if (mac) return mac.slice(1).join(":");
+  if (!/^[A-Z0-9_-]{1,31}$/.test(name)) {
+    return { error: "Enter the beacon's address (e.g. AA:BB:CC:DD:EE:FF) or its name (letters, numbers and dashes, e.g. VS-BEACON-20)." };
+  }
   return name;
 }
 

@@ -3,7 +3,7 @@ import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lte } from "d
 import type { Db } from "@/lib/db";
 import { checkins, deviceAssignments, deviceCommands, engineSessions, machineOperators, machines, operators, type Machine } from "@/lib/db/schema";
 import { effectiveMode } from "@/lib/modes";
-import { CHECKIN_RULES, endOpenCheckins, syncCheckins } from "@/lib/operators";
+import { CHECKIN_RULES, cleanBeaconName, endOpenCheckins, syncCheckins } from "@/lib/operators";
 import { scheduledAccess } from "@/lib/schedules";
 import { trainingAccess } from "@/lib/training";
 
@@ -19,7 +19,7 @@ import { trainingAccess } from "@/lib/training";
  *    the resume at /hub/api/access/<device>?c=<check-in id>). App check-ins with a hold get no free break.
  *  - REVOKE=<check-in id>: that check-in ended (a manager ended it, the operator was deactivated): open the relay.
  *  - ACCESS=<version>\t<beacon>:<operator id>,…: the operators whose Bluetooth beacon may start this machine without
- *    signal. The device reports a beacon start at /hub/api/access/<device> (a beacon check-in, method "ble").
+ *    signal. A beacon is a MAC address (AA:BB:CC:DD:EE:FF) or a broadcast name; the operator id follows the last colon. The device reports a beacon start at /hub/api/access/<device> (a beacon check-in, method "ble").
  * Only machines on the Safety & Access Control tier (`control`) with a paired device get these commands.
  */
 
@@ -193,7 +193,9 @@ export async function beaconCheckIn(db: Db, deviceId: string, input: { operatorI
     .where(and(eq(operators.id, input.operatorId), eq(operators.organizationId, m.organizationId), isNull(operators.erasedAt)));
   // b=APP: the operator app's pass (src/lib/operator-app.ts) rather than a beacon.
   const viaApp = input.beacon.toUpperCase() === "APP";
-  if (!op || (!viaApp && op.beaconName !== input.beacon.toUpperCase())) throw new RelayError("Unknown operator or beacon");
+  // The device reports the beacon as it's on the list (a MAC with colons, or a name); normalized the same way here.
+  const beacon = cleanBeaconName(input.beacon);
+  if (!op || (!viaApp && (typeof beacon !== "string" || op.beaconName !== beacon))) throw new RelayError("Unknown operator or beacon");
   const at = new Date(Math.min(now.getTime(), Math.max(input.at.getTime(), now.getTime() - RELAY_RULES.maxReportDelayHours * 3_600_000)));
   await syncCheckins(db, m.id, now);
   const [open] = await db

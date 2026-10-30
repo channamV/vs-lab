@@ -35,7 +35,7 @@ Control tier with a paired device (`platform/src/lib/relay.ts`, tested):
 | `MODE=<mode>\t<offline mode\|keep>\t<hours>` | A manager, schedule or timer changes the mode; a repair lockout starts or is cleared (it counts as Locked) | **Unlocked**: relay closed. **Locked**: relay open, nothing opens it. **Access-Controlled**: relay open unless one of the below allows it |
 | `ALLOW=<check-in id>\t<start min>\t<break min>\t<hold min>\t<operator id>` | An approved operator checked in with the QR code or the app (expires after 15 min if not picked up) | Close the relay. Open it again if the engine hasn't started within `<start min>` (5); while it runs keep it closed; after it stops keep it closed `<break min>` (QR: 30) for a restart, then open. `<hold min>` > 0 (app check-ins, session hold, [operator-app.md](operator-app.md)): break is 0; after the stop, hold the check-in that long for that operator's phone. A newer ALLOW replaces it |
 | `REVOKE=<check-in id>` | A manager ended that check-in, or the operator was deactivated | If that's the current ALLOW: open the relay (a running engine carries on) |
-| `ACCESS=<version>\t<beacon>:<operator id>,…` | The machine's approved beacons changed (checked every 5 min and when approvals or operators change) | Keep the list (in flash/SD, survives restarts). An approved beacon within range closes the relay, with no signal needed. Answer with the version |
+| `ACCESS=<version>\t<beacon>:<operator id>,…` | The machine's approved beacons changed (checked every 5 min and when approvals or operators change) | Keep the list (in flash/SD, survives restarts). An approved beacon within range closes the relay, with no signal needed. Answer with the version. A beacon is a **MAC address** (`AC:23:3F:A1:B2:C3`, upper case with colons; matched against the advertiser's Bluetooth address, as in production) or a **broadcast name** (`VS-BEACON-20`; names never contain colons). The operator id is after the **last** colon |
 
 Who's on the beacon list: active operators with a beacon set on their operator page, approved for the machine
 (or the machine has no approval list, or a schedule or certification grants it), and holding any required training.
@@ -56,7 +56,10 @@ that doesn't fit is recorded as an app start.
 
 - **Check-in page:** after an approved check-in on a relay machine, "The machine is being unlocked for you"; an
   operator who isn't approved is told the machine won't start for them.
-- **Operator page:** "Bluetooth beacon" (e.g. VS-BEACON-20), unique per company.
+- **Operator page:** "Bluetooth beacon": its MAC address (e.g. AC:23:3F:A1:B2:C3, as stored in Veristart's production
+  system; dashes or lower case are fine) or its broadcast name (e.g. VS-BEACON-20). Unique per company. Neither is a
+  secret (both can be copied with the right tools): the 70 cm rule and the reported starts limit the risk; the
+  operator app's signed passes are the secure option.
 - QR check-ins need signal at the machine and reach the device at its next contact, so the device must poll often
   while parked (to-do 9). Beacons work anywhere.
 

@@ -168,7 +168,9 @@ sign-off (logout) ends the engine-on period. In order:
    - d. **Stay awake while parked (relay builds):** no `standby()`; Bluetooth on; modem stays registered and the
      device checks in every **30 s** (`VSLAB_RELAY_POLL_SECONDS`), so a QR check-in reaches it within about a
      minute. Measure the parked current with the battery check-in (`&BV=`) and note it here.
-   - e. **ACCESS list + beacons:** keep the list in NVS; scan for `VS-BEACON-*` (Veristart's 70 cm / RSSI rules);
+   - e. **ACCESS list + beacons:** keep the list in NVS; match each entry against the advertiser's Bluetooth address
+     (entries like `AC:23:3F:A1:B2:C3`, production's way) or its advertised name (e.g. `VS-BEACON-20`); the operator id
+     is after the last colon (Veristart's 70 cm / RSSI rules); report the entry as listed in `b=`;
      an approved beacon closes the relay like an ALLOW (break 0: the beacon must stay near); report each start at
      `/hub/api/access`, queued if there's no signal.
    - f. **Operator app passes:** advertise as `VS-<device ID>`; service `7f3c0001-6a2b-4b4e-9b1e-56a5c0de0001`, characteristic
