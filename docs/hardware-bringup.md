@@ -453,6 +453,33 @@ its device now): beacon in a pocket, start the engine, the check-in should appea
 **Next:** the relay for Safety & Access Control (to-do 9 a–d); phone-app passes (9 f).
 Command size limits the list to about 7 beacons for now.
 
+## Starter relay on the desk (2026-10-30, Y5725A32; desktop session)
+
+Firmware **vs-0.4.0**, env `bench-beam-relay` (`feat/cell-beam` `00e8f6f`; details in `firmware/README.md`); no relay
+module: the device's LED shows the relay. Craig set the CX-9 to Safety & Access Control, Access-Controlled, only Craig
+approved. VS-lab then sent `MODE=access_controlled` and a 1-beacon list (Craig's `F2:60`). Results, all as designed:
+
+| Step | Device |
+|---|---|
+| Power-up | start blocked from the first moment (GPIO26 LOW) |
+| Craig's beacon near | allowed 14:09:23; beacon away → blocked 14:09:58 (15 s after last heard) |
+| Ajay's beacon near (not approved) | stays blocked (not on the list) |
+| QR check-in | `ALLOW=26` → allowed 14:11:50, answered; 5-minute window closed 14:16:50 (no engine) |
+| `MODE=locked` | blocked 14:15:10 with Craig's beacon next to it and the window open; answered |
+| Back to Access-Controlled | allowed again (window, then beacon) |
+
+Found and fixed on the way: Telelogger probes for an external GPS at start-up with its UART TX on GPIO26, which
+idles high (would allow a start at every power-up): the relay build skips the probe. Frozen engine readings after
+switch-off no longer count as "running" (they'd have fooled the never-sleeping relay device).
+
+**Afterwards:** Y5725A32 is back on the normal `bench-beam-obd` build (the relay build never sleeps: it would drain the
+CX-9's battery parked). ⏳ Craig: set the CX-9 back to Safety & Access Monitoring. Note: both builds report vs-0.4.0;
+an over-the-air update must be built for the same env as the device runs.
+
+**Not yet:** a real relay module and starter wiring on a test machine (starter-relay.md → Safety rules), parked
+current draw of a never-sleeping device (`&BV=` trend), beacons transmitting faster (these go up to ~15 s between
+transmissions, so the start briefly blocked once while Craig stood there), phone-app passes and session holds.
+
 ## Open items (in order)
 
 1. ✅ **Merge `fix/engine-vibration`** (`be90819`), 2026-10-25 with Craig's go-ahead: merged as `f87ac2f`, checks passed (271 tests), deployed (`dpl_CZFYtQG2xtw8CFM5STwFbgJcUnAD`, READY). The deploy's migration step ran without errors ("Database is up to date"), and no new runtime errors since. `fix/battery-floor` merged next, also with Craig's go-ahead (see item 4).
