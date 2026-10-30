@@ -4,7 +4,7 @@
 // (docs/firmware-updates.md). Raise it for every build that goes to devices; test builds can set it with
 // -DVSLAB_FW_VERSION=\"...\".
 #ifndef VSLAB_FW_VERSION
-#define VSLAB_FW_VERSION "vs-0.3.1"
+#define VSLAB_FW_VERSION "vs-0.4.0"
 #endif
 
 #define EVENT_LOGIN 1

@@ -121,6 +121,8 @@ volatile bool netParked = false;
 volatile bool updateDownloading = false;
 // VSLAB: the SD card is mounted (it stays mounted while the device sleeps; STATE_STORAGE_READY doesn't)
 bool sdMounted = false;
+// VSLAB: the RPM the engine computer froze at after switch-off: not a running engine while it repeats (engineRunning)
+int frozenRpm = -1;
 // VSLAB: an operator's beacon on the machine's list (see loadAccess); defined up here for the generated prototypes
 struct Beacon {
   char id[32];
@@ -141,7 +143,11 @@ int fileid = 0;
 uint16_t lastSizeKB = 0;
 #endif
 
+#ifdef VSLAB_RELAY
+byte ledMode = 1; // VSLAB: the LED shows the relay, not network activity
+#else
 byte ledMode = 0;
+#endif
 
 bool serverSetup(IPAddress& ip);
 void serverProcess(int timeout);
@@ -234,7 +240,12 @@ bool engineRunning()
   // it stays high for minutes after a drive (field test 2026-10-26: beeps with the engine off at 14.4 V).
   if (!state.check(STATE_OBD_READY)) return false;
   for (byte i = 0; i < sizeof(obdData) / sizeof(obdData[0]); i++) {
-    if (obdData[i].pid == PID_RPM) return obdData[i].value >= 300;
+    if (obdData[i].pid == PID_RPM) {
+      // VSLAB: still the frozen value from after switch-off (the engine computer answers again a moment later)
+      if (frozenRpm > 0 && obdData[i].value == frozenRpm) return false;
+      frozenRpm = -1;
+      return obdData[i].value >= 300;
+    }
   }
   return false;
 #else
@@ -402,7 +413,12 @@ void processOBD(CBuffer* buffer)
 bool initGPS()
 {
   // start GNSS receiver
+#ifdef VSLAB_RELAY
+  // VSLAB: no external GPS: its probe drives GPIO26 (UART TX idles high), which is the relay: it would allow a start
+  if (false) {
+#else
   if (sys.gpsBeginExt()) {
+#endif
     Serial.println("GNSS:OK(E)");
   } else if (sys.gpsBegin()) {
     Serial.println("GNSS:OK(I)");
@@ -844,6 +860,7 @@ void process()
       Serial.print("[OBD] Engine readings frozen (");
       Serial.print(lastRpm);
       Serial.println(" RPM, unchanged): engine off");
+      frozenRpm = lastRpm;
       rpmRepeats = 0;
       buffer->purge(); // drop this reading's frozen values: it becomes the "engine off" reading below
       buffer->state = BUFFER_STATE_FILLING;
@@ -858,8 +875,13 @@ void process()
           state.clear(STATE_OBD_READY);
         } else {
           Serial.println("[OBD] ECU OFF");
+#ifdef VSLAB_RELAY
+          // VSLAB: a relay device never sleeps (it must notice an operator's beacon): engine off, keep working
+          state.clear(STATE_OBD_READY);
+#else
           standbyReason = "ecu_off"; // VSLAB
           state.clear(STATE_OBD_READY | STATE_WORKING);
+#endif
           // VSLAB: finish this reading as an explicit "engine off" (RPM 0, OBD PID 0x0C, with voltage and position)
           // instead of abandoning it, so it's sent before signing off and VS-lab sees the stop
           int32_t rpm = 0;
@@ -950,8 +972,8 @@ void process()
       break;
     }
   }
-#if defined(VSLAB_CELL_DEBUG) || defined(VSLAB_TEST_AWAKE)
-  stationary = false; // VSLAB test build: never go to standby on the desk
+#if defined(VSLAB_CELL_DEBUG) || defined(VSLAB_TEST_AWAKE) || defined(VSLAB_RELAY)
+  stationary = false; // VSLAB: never go to standby (test builds on the desk; relay devices always)
 #endif
 #if ENABLE_OBD
   // VSLAB: an idling machine is in use: no sleep while the engine computer reports the engine running (field test
@@ -1180,6 +1202,211 @@ void loadAccess(const char* value)
 #endif
 
 /*******************************************************************************
+  VSLAB: the starter relay (Safety & Access Control; docs/starter-relay.md, copied from Veristart's production
+  firmware). GPIO26 on the external socket: HIGH = start allowed (relay closed), LOW at power-up and whenever in
+  doubt; GPIO12 powers the socket's VCC contact for the relay module; the built-in LED shows the relay. relayTask
+  decides 5 times a second:
+   - MODE (from VS-lab, kept in NVS): Unlocked = allowed; Locked = never; Access-Controlled (the default) = allowed
+     while an ALLOW is running or an approved beacon is near. With an offline fallback (MODE's 2nd and 3rd fields),
+     after that many hours without contact with VS-lab the fallback mode applies.
+   - ALLOW=<check-in>\t<start min>\t<break min>\t<hold min>\t<operator> (a QR / app check-in): allowed until the
+     engine starts or <start min> pass; kept while it runs, and <break min> after it stops (0 with a hold: session
+     holds for the phone app aren't supported yet). REVOKE=<check-in> ends it.
+   - A beacon on the list (approved operators only, on these machines) heard near twice, no gap over 10 s: allowed
+     until it hasn't been heard for 15 s (these beacons transmit every few seconds; production uses ~10 s).
+  A running engine is never stopped by opening the relay: it's on the starter circuit only.
+*******************************************************************************/
+#ifdef VSLAB_RELAY
+#define VSLAB_RELAY_PIN 26
+#define VSLAB_SOCKET_VCC_PIN 12
+#define VSLAB_RELAY_BEACON_LOST_MS 15000
+enum { MODE_ACCESS, MODE_UNLOCKED, MODE_LOCKED, MODE_KEEP };
+volatile uint8_t relayMode = MODE_ACCESS;
+volatile uint8_t offlineMode = MODE_KEEP;
+volatile uint32_t offlineAfterHours = 0;
+volatile uint32_t lastContact = 0; // millis of VS-lab's last answer (0 = none since start-up)
+enum { ALLOW_NONE, ALLOW_WAITING, ALLOW_RUNNING, ALLOW_BREAK };
+volatile uint8_t allowState = ALLOW_NONE;
+volatile uint32_t allowId = 0;
+volatile uint32_t allowDeadline = 0;
+volatile uint32_t allowBreakMs = 0;
+
+const char* modeName(uint8_t m)
+{
+  return m == MODE_UNLOCKED ? "unlocked" : m == MODE_LOCKED ? "locked" : m == MODE_KEEP ? "keep" : "access_controlled";
+}
+
+int parseMode(const char* s, int len)
+{
+  if (len == 17 && !strncmp(s, "access_controlled", 17)) return MODE_ACCESS;
+  if (len == 8 && !strncmp(s, "unlocked", 8)) return MODE_UNLOCKED;
+  if (len == 6 && !strncmp(s, "locked", 6)) return MODE_LOCKED;
+  if (len == 4 && !strncmp(s, "keep", 4)) return MODE_KEEP;
+  return -1;
+}
+
+// value: <mode>\t<offline mode or keep>\t<hours>
+bool setRelayMode(const char* value)
+{
+  const char* t1 = strchr(value, '\t');
+  int mode = parseMode(value, t1 ? t1 - value : strlen(value));
+  if (mode < 0 || mode == MODE_KEEP) return false;
+  int offline = MODE_KEEP;
+  uint32_t hours = 0;
+  if (t1) {
+    const char* t2 = strchr(t1 + 1, '\t');
+    offline = parseMode(t1 + 1, t2 ? t2 - t1 - 1 : strlen(t1 + 1));
+    if (offline < 0) offline = MODE_KEEP;
+    if (t2) hours = strtoul(t2 + 1, 0, 10);
+  }
+  relayMode = mode;
+  offlineMode = offline;
+  offlineAfterHours = hours;
+  Serial.print("[RELAY] Mode: ");
+  Serial.print(modeName(relayMode));
+  if (offlineMode != MODE_KEEP && offlineAfterHours) {
+    Serial.print(", ");
+    Serial.print(modeName(offlineMode));
+    Serial.print(" after ");
+    Serial.print(offlineAfterHours);
+    Serial.print(" h without contact");
+  }
+  Serial.println();
+  return true;
+}
+
+// value: <check-in>\t<start min>\t<break min>\t<hold min>\t<operator>
+void relayAllow(const char* value)
+{
+  char* p;
+  uint32_t id = strtoul(value, &p, 10);
+  uint32_t startMin = *p == '\t' ? strtoul(p + 1, &p, 10) : 5;
+  uint32_t breakMin = *p == '\t' ? strtoul(p + 1, &p, 10) : 0;
+  uint32_t holdMin = *p == '\t' ? strtoul(p + 1, &p, 10) : 0;
+  allowId = id;
+  allowBreakMs = (holdMin ? 0 : breakMin) * 60000UL;
+  allowDeadline = millis() + startMin * 60000UL;
+  allowState = ALLOW_WAITING;
+  Serial.print("[RELAY] Check-in #");
+  Serial.print(id);
+  Serial.print(": start allowed for ");
+  Serial.print(startMin);
+  Serial.println(" min");
+}
+
+bool relayRevoke(uint32_t id)
+{
+  if (!id || id != allowId || allowState == ALLOW_NONE) return false;
+  allowState = ALLOW_NONE;
+  Serial.print("[RELAY] Check-in #");
+  Serial.print(id);
+  Serial.println(" revoked");
+  return true;
+}
+
+// the ALLOW's start window and break, following the engine
+void allowTick(bool running, uint32_t now)
+{
+  switch (allowState) {
+  case ALLOW_WAITING:
+    if (running) allowState = ALLOW_RUNNING;
+    else if ((int32_t)(now - allowDeadline) >= 0) {
+      allowState = ALLOW_NONE;
+      Serial.println("[RELAY] No start in time: check-in no longer allows a start");
+    }
+    break;
+  case ALLOW_RUNNING:
+    if (!running) {
+      if (allowBreakMs) {
+        allowState = ALLOW_BREAK;
+        allowDeadline = now + allowBreakMs;
+      } else {
+        allowState = ALLOW_NONE;
+      }
+    }
+    break;
+  case ALLOW_BREAK:
+    if (running) allowState = ALLOW_RUNNING;
+    else if ((int32_t)(now - allowDeadline) >= 0) {
+      allowState = ALLOW_NONE;
+      Serial.println("[RELAY] Break over: check-in no longer allows a start");
+    }
+    break;
+  }
+}
+
+// an approved beacon near: the one that came near (heard near twice, no gap over 10 s) is followed until it hasn't
+// been heard for VSLAB_RELAY_BEACON_LOST_MS
+int8_t relayBeacon = -1;
+bool beaconAllows(uint32_t now)
+{
+#if ENABLE_BLE
+  if (relayBeacon >= beaconCount) relayBeacon = -1;
+  if (relayBeacon >= 0 && (!beacons[relayBeacon].heardAt || now - beacons[relayBeacon].heardAt >= VSLAB_RELAY_BEACON_LOST_MS)) {
+    Serial.print("[RELAY] Beacon ");
+    Serial.print(beacons[relayBeacon].id);
+    Serial.println(" left");
+    relayBeacon = -1;
+  }
+  if (relayBeacon < 0) {
+    for (uint8_t i = 0; i < beaconCount; i++) {
+      Beacon& b = beacons[i];
+      if (b.nearCount >= 2 && b.nearAt && now - b.nearAt < 10000) {
+        relayBeacon = i;
+        Serial.print("[RELAY] Beacon ");
+        Serial.print(b.id);
+        Serial.print(" near: operator ");
+        Serial.println(b.op);
+        break;
+      }
+    }
+  }
+  return relayBeacon >= 0;
+#else
+  return false;
+#endif
+}
+
+void relayTask(void* inst)
+{
+  bool closed = false;
+  bool first = true;
+  for (;;) {
+    uint32_t now = millis();
+    bool running = engineRunning();
+    allowTick(running, now);
+    uint8_t mode = relayMode;
+    if (offlineMode != MODE_KEEP && offlineAfterHours && now - lastContact > offlineAfterHours * 3600000UL) mode = offlineMode;
+    bool beacon = beaconAllows(now);
+    bool allow = mode == MODE_UNLOCKED || (mode == MODE_ACCESS && (allowState != ALLOW_NONE || beacon));
+    digitalWrite(VSLAB_RELAY_PIN, allow ? HIGH : LOW);
+    digitalWrite(PIN_LED, allow ? HIGH : LOW);
+    if (allow != closed || first) {
+      closed = allow;
+      first = false;
+      Serial.print("[RELAY] Start ");
+      Serial.print(allow ? "allowed (" : "blocked (");
+      Serial.print(modeName(mode));
+      if (mode == MODE_ACCESS) Serial.print(allow ? (allowState != ALLOW_NONE ? ", check-in" : ", beacon") : ", nobody authorized");
+      Serial.println(")");
+    }
+    delay(200);
+  }
+}
+
+// at start-up, before anything else can touch the pins: blocked, socket powered, mode from before the restart
+void relayBegin()
+{
+  pinMode(VSLAB_RELAY_PIN, OUTPUT);
+  digitalWrite(VSLAB_RELAY_PIN, LOW);
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, LOW);
+  pinMode(VSLAB_SOCKET_VCC_PIN, OUTPUT);
+  digitalWrite(VSLAB_SOCKET_VCC_PIN, HIGH);
+}
+#endif
+
+/*******************************************************************************
   VSLAB: device commands from VS-lab (docs/device-commands.md). Each "CMD <id> <sig> <command>" line is checked
   (HMAC-SHA256 with this device's key, first 16 hex characters), run once (IDs only go up; the last one is kept in
   NVS) and answered at /hub/api/ack. Without a key (VSLAB_DEVICE_KEY empty) unsigned commands ("-") are accepted,
@@ -1253,6 +1480,22 @@ void runCommand(const char* command, bool* ok, char* result, int resultSize)
     snprintf(result, resultSize, "reported");
   } else if (nameLen == 5 && !strncmp(command, "RESET", 5)) {
     snprintf(result, resultSize, "restarting");
+#ifdef VSLAB_RELAY
+  } else if (nameLen == 4 && !strncmp(command, "MODE", 4)) {
+    if (!setRelayMode(value)) {
+      *ok = false;
+      snprintf(result, resultSize, "unknown mode");
+      return;
+    }
+    nvs_set_str(nvs, "VSLAB_MODE", value);
+    nvs_commit(nvs);
+    snprintf(result, resultSize, "mode %s", modeName(relayMode));
+  } else if (nameLen == 5 && !strncmp(command, "ALLOW", 5)) {
+    relayAllow(value);
+    snprintf(result, resultSize, "allowed %u", (unsigned int)allowId);
+  } else if (nameLen == 6 && !strncmp(command, "REVOKE", 6)) {
+    snprintf(result, resultSize, relayRevoke(strtoul(value, 0, 10)) ? "revoked" : "not the current allow");
+#endif
   } else if (nameLen == 6 && !strncmp(command, "ACCESS", 6)) {
 #if ENABLE_BLE
     // VSLAB: the machine's beacon list (see loadAccess)
@@ -1976,6 +2219,10 @@ void beaconTick()
     return;
   }
   if (current >= 0) return;
+#ifdef VSLAB_RELAY
+  // a QR / app check-in let this start: that's the operator (a beacon check-in would replace it in VS-lab)
+  if (allowState != ALLOW_NONE) return;
+#endif
   for (uint8_t i = 0; i < beaconCount; i++) {
     Beacon& b = beacons[i];
     bool sustained = b.nearCount >= 2 && b.nearAt && now - b.nearAt < 10000;
@@ -2165,6 +2412,9 @@ void telemetry(void* inst)
         runCommands();
         if (teleClient.login) {
           // VSLAB: VS-lab reached: keep a new firmware version, answer an update, send the restart report
+#ifdef VSLAB_RELAY
+          lastContact = millis();
+#endif
           confirmFirmware();
           reportUpdate();
           sendRestartReport();
@@ -2233,6 +2483,9 @@ void telemetry(void* inst)
       if (result == BATCH_SENT) {
         connErrors = 0;
         confirmFirmware(); // VSLAB
+#ifdef VSLAB_RELAY
+        lastContact = millis();
+#endif
         showStats();
       } else if (result == BATCH_FAILED) {
         retryAt = millis() + 5000; // VSLAB: pause before trying again
@@ -2592,6 +2845,9 @@ void processBLE(int timeout)
 
 void setup()
 {
+#ifdef VSLAB_RELAY
+  relayBegin(); // VSLAB: blocked from the first moment
+#endif
   delay(500);
 
   // Initialize NVS
@@ -2768,6 +3024,16 @@ if (!state.check(STATE_MEMS_READY)) do {
 
   // initialize components
   initialize();
+
+#ifdef VSLAB_RELAY
+  // VSLAB: the relay's mode from before the restart, then decide 5 times a second
+  {
+    char mode[48];
+    size_t len = sizeof(mode);
+    if (nvs_get_str(nvs, "VSLAB_MODE", mode, &len) == ESP_OK) setRelayMode(mode);
+  }
+  xTaskCreate(relayTask, "relay", 3072, 0, 2, 0);
+#endif
 
   // VSLAB: the log file on the memory card (mounted by initialize())
   logLock = xSemaphoreCreateMutex();
