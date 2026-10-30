@@ -23,7 +23,7 @@ The working record for the device phase: what's proven, what's decided, what's o
 
 **Build on the device now:** `bench-beam-obd` with store-and-forward, final engine-off reading, GPS date, device commands and operator alerts (`a4648c2`), no sleep while moving and restart/sleep reasons (`4d495a4`), battery voltage while parked (`6150144`), field-test-2 fixes (`0b87e07`: unsent readings kept on the SD card through
 sleep, SIM7670 upload fixes, faster modem recovery, failure logging), no sleep while the engine idles (`e4b6402`), frozen engine readings = engine off (`cfe7645`), and
-**vs-0.2.6** (vs-0.2.5 `35d3d31` plus the offered-readings log line): version on sign-in, log file on the SD card, restart reports, updates over the air (two
+**vs-0.3.0** (beacon check-ins, `1199ba1`; earlier vs-0.2.x: see below): version on sign-in, log file on the SD card, restart reports, updates over the air (two
 firmware slots: the partition table changed), fuel level and odometer, 10 s upload result wait. **Kept for the first car test:** the CX-9 has an ECU, so OBD connects once and the retry cost doesn't apply.
 
 ---
@@ -412,6 +412,30 @@ local), then switched off.
 First start on the desk (USB power): signed in through Beam, restart report sent, every upload `OK` (4–6 readings each,
 no engine computer on the desk). VS-lab registers it on first contact in Veristart stock; pairing with a machine is a
 platform-admin step (Platform → device).
+
+## Bluetooth beacon check-ins (2026-10-30, Y5725A32 on the desk; desktop session)
+
+Craig: a beacon replicates a check-in on **Safety & Access Monitoring as well as Control** machines. VS-lab changed
+accordingly (`main` `d5a21ce`: monitor-tier machines get a beacon list of every operator with a beacon; their
+beacon check-ins are flagged "not approved" like QR ones; `73991f8`: `t=0` = no clock, dated on arrival).
+
+Firmware **vs-0.3.0** (`feat/cell-beam` `1199ba1`, flashed on Y5725A32 by USB; details in `firmware/README.md`): keeps
+the ACCESS list, scans for the listed beacons, reports the closest one within ~70 cm (-92 dBm, production's
+threshold) as a check-in and follows it until it's silent for a minute.
+
+Desk test with Craig's and Ajay's beacons (MAC addresses `C3:00:00:86:F2:60` → operator 2, `C3:00:00:86:F2:97` →
+operator 3):
+- ACCESS list received at the first sign-in (`#43`, answered `beacons 2`), reloaded from NVS after each restart.
+- Both beacons spotted within seconds (-73 to -95 dBm on the desk). The scan hears ~90 advertisements a second;
+  these beacons were heard every few seconds, sometimes ~13 s apart, so the first rule ("gone" after 10 s)
+  flickered: now a minute.
+- No GPS fix indoors, so no clock: check-ins were first held back; now sent undated (`t=0`) and dated by VS-lab.
+- With both beacons near, the first build checked in both operators in turn: now only the closest (operator 3),
+  followed until it's gone, as in production. Check-in delivered (`[NET] Beacon check-in sent: operator 3`).
+
+**Next:** ⏳ Craig: confirm the beacon check-in on the CX-9's page; walk-away test (beacon away > 1 minute → "gone",
+the other beacon then checks in); the relay for Safety & Access Control (to-do 9 a–d); phone-app passes (9 f).
+Command size limits the list to about 7 beacons for now.
 
 ## Open items (in order)
 
