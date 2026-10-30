@@ -4,7 +4,13 @@
 // (docs/firmware-updates.md). Raise it for every build that goes to devices; test builds can set it with
 // -DVSLAB_FW_VERSION=\"...\".
 #ifndef VSLAB_FW_VERSION
+// relay builds (bench-beam-relay) get "-relay", so VS-lab shows which build a device runs and an update can't swap one
+// build for the other by accident: each build's update file has its own version
+#ifdef VSLAB_RELAY
+#define VSLAB_FW_VERSION "vs-0.4.0-relay"
+#else
 #define VSLAB_FW_VERSION "vs-0.4.0"
+#endif
 #endif
 
 #define EVENT_LOGIN 1
